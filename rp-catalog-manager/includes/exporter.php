@@ -1,6 +1,6 @@
 <?php
 /**
- * Exporter — assembla i formati JSON finali (CATALOG e FULL EXPORT).
+ * Exporter — assembla i formati JSON (CATALOG aggregato + ROUNDTRIP re-importabile).
  * Orchestra reader, aggregator e tree-builder.
  */
 
@@ -36,12 +36,15 @@ function rp_cm_export_catalog( array $filters = [] ): array {
 }
 
 /**
- * Genera l'export in modalita FULL (ogni variante con tutti i valori).
+ * Genera l'export ROUNDTRIP — flat, raw, re-importabile.
+ *
+ * Ogni campo e preservato esattamente come WooCommerce lo restituisce.
+ * Il formato e progettato per: export → modifica → re-import.
  *
  * @param array $filters Filtri opzionali (status, category, brand, in_stock).
- * @return array Struttura completa con generated_at, mode, summary, tree.
+ * @return array Struttura con format, version, site_url, products[].
  */
-function rp_cm_export_full( array $filters = [] ): array {
+function rp_cm_export_roundtrip( array $filters = [] ): array {
 
     $start    = microtime( true );
     $products = rp_cm_get_all_products( $filters );
@@ -52,75 +55,62 @@ function rp_cm_export_full( array $filters = [] ): array {
         $variants = rp_cm_get_product_variants( $id );
         $images   = rp_cm_get_product_images( $id );
 
+        // Varianti raw
         $variants_data = [];
         foreach ( $variants as $v ) {
             $variants_data[] = [
-                'variation_id'   => $v->get_id(),
-                'size'           => rp_cm_get_variant_size( $v ),
+                'id'             => $v->get_id(),
                 'sku'            => $v->get_sku(),
+                'status'         => $v->get_status(),
                 'regular_price'  => $v->get_regular_price(),
                 'sale_price'     => $v->get_sale_price(),
+                'manage_stock'   => $v->get_manage_stock(),
                 'stock_quantity' => $v->get_stock_quantity(),
                 'stock_status'   => $v->get_stock_status(),
-                'status'         => $v->get_status(),
+                'weight'         => $v->get_weight(),
+                'attributes'     => $v->get_variation_attributes(),
             ];
         }
 
-        // Attributi del prodotto padre
-        $attributes = [];
-        foreach ( $product->get_attributes() as $attr_key => $attr ) {
-            if ( is_object( $attr ) && method_exists( $attr, 'get_options' ) ) {
-                $attributes[ $attr_key ] = $attr->get_options();
-            }
-        }
-
         $entries[] = [
-            'id'        => $id,
-            'name'      => $product->get_name(),
-            'sku'       => $product->get_sku(),
-            'slug'      => $product->get_slug(),
-            'status'    => $product->get_status(),
-            'type'      => $product->get_type(),
-            'permalink' => get_permalink( $id ),
-            'pricing'   => [
-                'regular_price' => $product->get_regular_price(),
-                'sale_price'    => $product->get_sale_price(),
-                'price'         => $product->get_price(),
-            ],
-            'stock' => [
-                'manage_stock'   => $product->get_manage_stock(),
-                'stock_quantity' => $product->get_stock_quantity(),
-                'stock_status'   => $product->get_stock_status(),
-            ],
-            'content' => [
-                'description'       => $product->get_description(),
-                'short_description' => $product->get_short_description(),
-            ],
-            'seo' => [
-                'focus_keyword'    => get_post_meta( $id, 'rank_math_focus_keyword', true ) ?: null,
-                'meta_title'       => get_post_meta( $id, 'rank_math_title', true ) ?: null,
-                'meta_description' => get_post_meta( $id, 'rank_math_description', true ) ?: null,
-                'slug'             => $product->get_slug(),
-            ],
-            'media'      => $images,
-            'attributes' => $attributes,
-            'variants'   => $variants_data,
-            'dates'      => [
-                'created'  => $product->get_date_created()?->date( 'c' ),
-                'modified' => $product->get_date_modified()?->date( 'c' ),
-            ],
+            'id'                => $id,
+            'name'              => $product->get_name(),
+            'slug'              => $product->get_slug(),
+            'sku'               => $product->get_sku(),
+            'type'              => $product->get_type(),
+            'status'            => $product->get_status(),
+            'description'       => $product->get_description(),
+            'short_description' => $product->get_short_description(),
+            'regular_price'     => $product->get_regular_price(),
+            'sale_price'        => $product->get_sale_price(),
+            'manage_stock'      => $product->get_manage_stock(),
+            'stock_quantity'    => $product->get_stock_quantity(),
+            'stock_status'      => $product->get_stock_status(),
+            'weight'            => $product->get_weight(),
+            'category_ids'      => rp_cm_get_product_category_ids( $id ),
+            'category_names'    => rp_cm_get_product_category_names( $id ),
+            'tag_ids'           => rp_cm_get_product_tag_ids( $id ),
+            'tag_names'         => rp_cm_get_product_tag_names( $id ),
+            'attributes'        => rp_cm_get_product_attributes_raw( $product ),
+            'featured_image_url'  => $images['featured_image_url'],
+            'gallery_image_urls'  => $images['gallery_urls'],
+            'meta_title'        => get_post_meta( $id, 'rank_math_title', true ) ?: null,
+            'meta_description'  => get_post_meta( $id, 'rank_math_description', true ) ?: null,
+            'focus_keyword'     => get_post_meta( $id, 'rank_math_focus_keyword', true ) ?: null,
+            'date_created'      => $product->get_date_created()?->date( 'c' ),
+            'date_modified'     => $product->get_date_modified()?->date( 'c' ),
+            'variations'        => $variants_data,
         ];
     }
 
-    $tree    = rp_cm_build_tree( $entries );
-    $summary = rp_cm_build_summary( $tree );
-    $summary['generated_in_seconds'] = round( microtime( true ) - $start, 2 );
-
     return [
-        'generated_at' => wp_date( 'c' ),
-        'mode'         => 'full_export',
-        'summary'      => $summary,
-        'tree'         => $tree,
+        'format'        => 'rp_cm_roundtrip',
+        'version'       => 1,
+        'generated_at'  => wp_date( 'c' ),
+        'site_url'      => home_url(),
+        'product_count' => count( $entries ),
+        'generated_in_seconds' => round( microtime( true ) - $start, 2 ),
+        'products'      => $entries,
     ];
 }
 
@@ -147,31 +137,12 @@ function rp_cm_build_summary( array $tree ): array {
                 foreach ( $products as $entry ) {
                     $total_products++;
 
-                    // Compatibilita con entrambi i formati (catalog e full)
                     $stock = $entry['stock'] ?? [];
 
                     if ( isset( $stock['stock_status'] ) && is_string( $stock['stock_status'] ) ) {
-                        // CATALOG mode: stock_status e una stringa calcolata
                         if ( $stock['stock_status'] !== 'out' ) $total_in_stock++;
                         $total_variants          += $stock['variant_count'] ?? 0;
                         $total_variants_in_stock += $stock['in_stock_count'] ?? 0;
-                    } elseif ( isset( $entry['variants'] ) ) {
-                        // FULL mode: contiamo dalle varianti effettive
-                        $var_count = count( $entry['variants'] );
-                        $var_in    = 0;
-                        foreach ( $entry['variants'] as $v ) {
-                            if ( ( $v['stock_status'] ?? '' ) === 'instock' ) $var_in++;
-                        }
-                        $total_variants          += $var_count;
-                        $total_variants_in_stock += $var_in;
-                        if ( $var_in > 0 || ( $stock['stock_status'] ?? '' ) === 'instock' ) {
-                            $total_in_stock++;
-                        }
-                    } else {
-                        // Simple product senza varianti (full mode)
-                        if ( ( $stock['stock_status'] ?? '' ) === 'instock' ) {
-                            $total_in_stock++;
-                        }
                     }
                 }
             }

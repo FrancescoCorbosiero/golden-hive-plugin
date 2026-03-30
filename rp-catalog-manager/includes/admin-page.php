@@ -203,6 +203,73 @@ function rp_cm_render_page(): void {
 #rpcm *::-webkit-scrollbar-thumb { background: var(--b2); border-radius: 2px; }
 #rpcm * { scrollbar-width: thin; scrollbar-color: var(--b2) transparent; }
 
+/* Section divider */
+#rpcm .section-title {
+    font-family: var(--mono); font-size: 9px; letter-spacing: .15em;
+    text-transform: uppercase; color: var(--dim); padding: 12px 20px 6px;
+    border-bottom: 1px solid var(--b1); flex-shrink: 0;
+}
+
+/* Import file drop area */
+#rpcm .drop-area {
+    border: 2px dashed var(--b2); border-radius: 8px; padding: 24px;
+    text-align: center; cursor: pointer; transition: all .15s;
+    margin: 16px 20px; flex-shrink: 0;
+}
+#rpcm .drop-area:hover, #rpcm .drop-area.dragover {
+    border-color: var(--acc); background: rgba(61,127,255,.05);
+}
+#rpcm .drop-area-text { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+#rpcm .drop-area-file { font-family: var(--mono); font-size: 12px; color: var(--grn); margin-top: 6px; }
+
+/* Import mode selector */
+#rpcm .mode-row {
+    display: flex; align-items: center; gap: 16px; padding: 8px 20px;
+    flex-shrink: 0;
+}
+#rpcm .mode-row label {
+    font-family: var(--mono); font-size: 11px; color: var(--txt);
+    display: flex; align-items: center; gap: 4px; cursor: pointer;
+}
+#rpcm .mode-row input[type="radio"] { accent-color: var(--acc); }
+
+/* Preview table */
+#rpcm .preview-wrap { flex: 1; overflow-y: auto; padding: 0 20px 20px; }
+#rpcm table.ptable { width: 100%; border-collapse: collapse; font-size: 11px; }
+#rpcm .ptable thead th {
+    background: var(--s2); border-bottom: 2px solid var(--b1); padding: 8px 10px;
+    font-family: var(--mono); font-size: 9px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--dim); text-align: left;
+    font-weight: 600; position: sticky; top: 0; z-index: 10;
+}
+#rpcm .ptable tbody tr { border-bottom: 1px solid var(--b1); }
+#rpcm .ptable tbody tr:hover { background: rgba(255,255,255,.02); }
+#rpcm .ptable td { padding: 6px 10px; font-family: var(--mono); font-size: 11px; vertical-align: top; }
+#rpcm .ptable .st-matched { color: var(--grn); }
+#rpcm .ptable .st-skipped { color: var(--dim); }
+#rpcm .ptable .st-create  { color: var(--acc); }
+#rpcm .ptable .st-updated { color: var(--grn); }
+#rpcm .ptable .st-error   { color: var(--red); }
+#rpcm .ptable .changes-list { font-size: 10px; color: var(--amb); }
+#rpcm .ptable .change-detail { font-size: 9px; color: var(--dim); margin-top: 2px; }
+#rpcm .ptable .old-val { color: var(--red); text-decoration: line-through; }
+#rpcm .ptable .new-val { color: var(--grn); }
+
+/* Confirm bar */
+#rpcm .confirm-bar {
+    background: var(--s1); border-top: 1px solid var(--b1);
+    padding: 10px 20px; display: flex; align-items: center; gap: 12px;
+    flex-shrink: 0;
+}
+#rpcm .confirm-bar .summary-text {
+    font-family: var(--mono); font-size: 11px; color: var(--txt); flex: 1;
+}
+#rpcm .confirm-bar .summary-text span { font-weight: 600; }
+#rpcm .btn-warn {
+    background: rgba(232,168,36,.15); color: var(--amb); border-color: rgba(232,168,36,.4);
+}
+#rpcm .btn-warn:hover:not(:disabled) { background: rgba(232,168,36,.25); }
+
 /* Responsive */
 @media (max-width: 768px) {
     #rpcm .tabs-col { width: 48px; }
@@ -228,9 +295,9 @@ function rp_cm_render_page(): void {
                 <span class="tab-icon">&#9776;</span>
                 <span class="tab-label">Catalog</span>
             </div>
-            <div class="tab-item" onclick="RPCM.switchTab('full', this)">
-                <span class="tab-icon">{}</span>
-                <span class="tab-label">Full Export</span>
+            <div class="tab-item" onclick="RPCM.switchTab('roundtrip', this)">
+                <span class="tab-icon">&#8644;</span>
+                <span class="tab-label">Roundtrip</span>
             </div>
         </div>
 
@@ -295,12 +362,14 @@ function rp_cm_render_page(): void {
                 </div>
             </div>
 
-            <!-- FULL EXPORT -->
-            <div class="panel" id="panel-full" style="position:relative">
+            <!-- ROUNDTRIP -->
+            <div class="panel" id="panel-roundtrip" style="position:relative">
+                <!-- Export section -->
+                <div class="section-title">Export snapshot</div>
                 <div class="toolbar">
                     <div class="filter-group">
                         <span class="filter-label">Stato</span>
-                        <select class="filter-select" id="full-filter-status">
+                        <select class="filter-select" id="rt-filter-status">
                             <option value="any" selected>Tutti</option>
                             <option value="publish">Pubblicati</option>
                             <option value="draft">Bozze</option>
@@ -308,34 +377,57 @@ function rp_cm_render_page(): void {
                     </div>
                     <div class="filter-group">
                         <span class="filter-label">Brand</span>
-                        <select class="filter-select" id="full-filter-brand">
+                        <select class="filter-select" id="rt-filter-brand">
                             <option value="">Tutti</option>
                         </select>
                     </div>
                     <label class="filter-toggle">
-                        <input type="checkbox" id="full-filter-stock" />
+                        <input type="checkbox" id="rt-filter-stock" />
                         <span class="filter-label" style="letter-spacing:0">Solo in stock</span>
                     </label>
                     <div class="filter-sep"></div>
-                    <button class="btn btn-primary" id="btn-full" onclick="RPCM.generateFull()">
-                        <span class="spin" id="full-spin" style="display:none"></span>
-                        Genera Full Export
+                    <button class="btn btn-primary" id="btn-rt-export" onclick="RPCM.generateRoundtrip()">
+                        <span class="spin" id="rt-spin" style="display:none"></span>
+                        Genera Export
+                    </button>
+                    <button class="btn btn-ghost" id="btn-rt-copy" onclick="RPCM.copyJSON('roundtrip')" style="display:none">&#9112; Copia</button>
+                    <button class="btn btn-ghost" id="btn-rt-download" onclick="RPCM.downloadJSON('roundtrip')" style="display:none">&#8681; Download .json</button>
+                    <span class="file-size" id="rt-size"></span>
+                </div>
+
+                <!-- Import section -->
+                <div class="section-title">Import JSON</div>
+                <div class="drop-area" id="rt-drop" onclick="document.getElementById('rt-file-input').click()">
+                    <input type="file" id="rt-file-input" accept=".json" style="display:none" />
+                    <div class="drop-area-text">Clicca o trascina un file .json esportato</div>
+                    <div class="drop-area-file" id="rt-file-name"></div>
+                </div>
+                <div class="mode-row" id="rt-mode-row" style="display:none">
+                    <label><input type="radio" name="import-mode" value="update_only" checked /> Solo aggiornamento</label>
+                    <label><input type="radio" name="import-mode" value="create_if_missing" /> Crea se non esiste</label>
+                    <div class="filter-sep"></div>
+                    <button class="btn btn-primary" id="btn-rt-preview" onclick="RPCM.importPreview()">
+                        <span class="spin" id="preview-spin" style="display:none"></span>
+                        Preview modifiche
                     </button>
                 </div>
-                <div class="json-area" id="full-viewer">
-                    <div class="empty-state">
-                        <div class="empty-icon">{}</div>
-                        <div class="empty-text">Imposta i filtri e premi "Genera Full Export" per lo snapshot completo</div>
-                    </div>
+
+                <!-- Preview results -->
+                <div class="preview-wrap" id="rt-preview-area"></div>
+
+                <!-- Confirm bar (shown after preview) -->
+                <div class="confirm-bar" id="rt-confirm-bar" style="display:none">
+                    <div class="summary-text" id="rt-confirm-text"></div>
+                    <button class="btn btn-ghost" onclick="RPCM.importCancel()">Annulla</button>
+                    <button class="btn btn-warn" id="btn-rt-apply" onclick="RPCM.importApply()">
+                        <span class="spin" id="apply-spin" style="display:none"></span>
+                        Applica modifiche
+                    </button>
                 </div>
-                <div class="json-toolbar" id="full-toolbar" style="display:none">
-                    <button class="btn btn-ghost" onclick="RPCM.copyJSON('full')">&#9112; Copia JSON</button>
-                    <button class="btn btn-ghost" onclick="RPCM.downloadJSON('full')">&#8681; Download .json</button>
-                    <span class="file-size" id="full-size"></span>
-                </div>
-                <div class="gen-overlay" id="full-overlay">
+
+                <div class="gen-overlay" id="rt-overlay">
                     <div class="gen-spinner"></div>
-                    <div class="gen-text">Generazione full export in corso...</div>
+                    <div class="gen-text" id="rt-overlay-text">Generazione in corso...</div>
                 </div>
             </div>
         </div>
@@ -350,9 +442,11 @@ const RPCM = (function() {
     const NONCE = '<?php echo esc_js( $nonce ); ?>';
 
     let state = {
-        catalogData: null,
-        fullData:    null,
-        summaryData: null,
+        catalogData:   null,
+        roundtripData: null,
+        summaryData:   null,
+        importJSON:    null,
+        previewData:   null,
     };
 
     // ── AJAX helper ─────────────────────────────────────────
@@ -421,7 +515,7 @@ const RPCM = (function() {
         const res = await ajax('rp_cm_ajax_get_tree_paths');
         if (!res.success) return;
         const brands = res.data.brands || [];
-        ['cat-filter-brand', 'full-filter-brand'].forEach(id => {
+        ['cat-filter-brand', 'rt-filter-brand'].forEach(id => {
             const sel = document.getElementById(id);
             brands.forEach(b => {
                 const opt = document.createElement('option');
@@ -496,23 +590,28 @@ const RPCM = (function() {
         }
     }
 
-    // ── FULL EXPORT ─────────────────────────────────────────
-    async function generateFull() {
-        const overlay = document.getElementById('full-overlay');
-        const btn     = document.getElementById('btn-full');
-        const spin    = document.getElementById('full-spin');
+    // ── ROUNDTRIP EXPORT ────────────────────────────────────
+    async function generateRoundtrip() {
+        const overlay = document.getElementById('rt-overlay');
+        const otext   = document.getElementById('rt-overlay-text');
+        const btn     = document.getElementById('btn-rt-export');
+        const spin    = document.getElementById('rt-spin');
+        otext.textContent = 'Generazione export in corso...';
         overlay.classList.add('visible');
         btn.disabled = true;
         spin.style.display = '';
         try {
-            const filters = getFilters('full');
-            const res = await ajax('rp_cm_ajax_export_full', {
+            const filters = getFilters('rt');
+            const res = await ajax('rp_cm_ajax_export_roundtrip', {
                 filters: JSON.stringify(filters)
             });
             if (!res.success) { toast('Errore: ' + res.data, 'err'); return; }
-            state.fullData = res.data;
-            renderJSONViewer('full', res.data);
-            toast('Full export: ' + (res.data.summary?.total_products || 0) + ' prodotti in ' + (res.data.summary?.generated_in_seconds || '?') + 's', 'ok');
+            state.roundtripData = res.data;
+            const json = JSON.stringify(res.data, null, 2);
+            document.getElementById('btn-rt-copy').style.display = '';
+            document.getElementById('btn-rt-download').style.display = '';
+            document.getElementById('rt-size').textContent = fileSize(new Blob([json]).size) + ' \u00b7 ' + res.data.product_count + ' prodotti';
+            toast('Export generato: ' + res.data.product_count + ' prodotti in ' + res.data.generated_in_seconds + 's', 'ok');
         } catch (e) {
             toast('Errore di rete', 'err');
         } finally {
@@ -520,6 +619,234 @@ const RPCM = (function() {
             btn.disabled = false;
             spin.style.display = 'none';
         }
+    }
+
+    // ── IMPORT: File handling ───────────────────────────────
+    function initImport() {
+        const drop  = document.getElementById('rt-drop');
+        const input = document.getElementById('rt-file-input');
+
+        input.addEventListener('change', () => {
+            if (input.files.length) handleImportFile(input.files[0]);
+        });
+
+        drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('dragover'); });
+        drop.addEventListener('dragleave', () => { drop.classList.remove('dragover'); });
+        drop.addEventListener('drop', (e) => {
+            e.preventDefault();
+            drop.classList.remove('dragover');
+            if (e.dataTransfer.files.length) handleImportFile(e.dataTransfer.files[0]);
+        });
+    }
+
+    function handleImportFile(file) {
+        if (!file.name.endsWith('.json')) { toast('Solo file .json', 'err'); return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+            try {
+                const data = JSON.parse(reader.result);
+                if (data.format !== 'rp_cm_roundtrip') {
+                    toast('Formato non valido: atteso rp_cm_roundtrip', 'err'); return;
+                }
+                if (data.version !== 1) {
+                    toast('Versione non supportata: ' + data.version, 'err'); return;
+                }
+                state.importJSON = data;
+                state.previewData = null;
+                document.getElementById('rt-file-name').textContent = file.name + ' \u00b7 ' + (data.product_count || data.products?.length || 0) + ' prodotti';
+                document.getElementById('rt-mode-row').style.display = 'flex';
+                document.getElementById('rt-preview-area').innerHTML = '';
+                document.getElementById('rt-confirm-bar').style.display = 'none';
+                toast('File caricato: ' + (data.product_count || data.products?.length || 0) + ' prodotti', 'inf');
+
+                // Warn if different site
+                if (data.site_url && !window.location.href.includes(new URL(data.site_url).hostname)) {
+                    toast('Attenzione: export generato su ' + data.site_url, 'err', 5000);
+                }
+            } catch (e) {
+                toast('JSON non valido: ' + e.message, 'err');
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    // ── IMPORT: Preview ─────────────────────────────────────
+    async function importPreview() {
+        if (!state.importJSON) { toast('Nessun file caricato', 'err'); return; }
+        const btn  = document.getElementById('btn-rt-preview');
+        const spin = document.getElementById('preview-spin');
+        btn.disabled = true;
+        spin.style.display = '';
+        try {
+            const mode = document.querySelector('input[name="import-mode"]:checked').value;
+            const res = await ajax('rp_cm_ajax_import_preview', {
+                json_payload: JSON.stringify(state.importJSON),
+                mode: mode
+            });
+            if (!res.success) { toast('Errore: ' + res.data, 'err'); return; }
+            state.previewData = res.data;
+            renderPreview(res.data);
+            toast('Preview: ' + res.data.summary.matched + ' matched, ' + res.data.summary.with_changes + ' con modifiche', 'inf');
+        } catch (e) {
+            toast('Errore di rete', 'err');
+        } finally {
+            btn.disabled = false;
+            spin.style.display = 'none';
+        }
+    }
+
+    function renderPreview(data) {
+        const area = document.getElementById('rt-preview-area');
+        const s    = data.summary;
+
+        let html = '<table class="ptable"><thead><tr>' +
+            '<th>Stato</th><th>ID</th><th>SKU</th><th>Nome</th><th>Modifiche prodotto</th><th>Varianti</th>' +
+            '</tr></thead><tbody>';
+
+        for (const d of data.details) {
+            const stClass = d.status === 'matched' ? 'st-matched'
+                          : d.status === 'would_create' ? 'st-create' : 'st-skipped';
+            const stLabel = d.status === 'matched' ? (d.changes.length ? '\u2713 modifiche' : '\u2713 invariato')
+                          : d.status === 'would_create' ? '+ nuovo' : '\u2013 skip';
+
+            let changesHtml = '';
+            if (d.changes.length) {
+                changesHtml = '<div class="changes-list">' + d.changes.map(c => {
+                    const oldStr = truncVal(c.old);
+                    const newStr = truncVal(c.new);
+                    return '<div>' + esc(c.field) + ': <span class="old-val">' + esc(oldStr) + '</span> \u2192 <span class="new-val">' + esc(newStr) + '</span></div>';
+                }).join('') + '</div>';
+            }
+            if (d.reason) changesHtml = '<div class="changes-list" style="color:var(--dim)">' + esc(d.reason) + '</div>';
+
+            // Count variation changes
+            let varInfo = '';
+            if (d.variation_results.length) {
+                const vc = d.variation_results.filter(v => v.changes && v.changes.length).length;
+                const vs = d.variation_results.filter(v => v.status === 'skipped').length;
+                varInfo = vc + ' mod';
+                if (vs) varInfo += ', ' + vs + ' skip';
+            }
+
+            html += '<tr><td class="' + stClass + '">' + stLabel + '</td>' +
+                '<td>' + (d.id || '\u2013') + '</td>' +
+                '<td>' + esc(d.sku || '\u2013') + '</td>' +
+                '<td>' + esc(d.name || '\u2013') + '</td>' +
+                '<td>' + changesHtml + '</td>' +
+                '<td>' + varInfo + '</td></tr>';
+        }
+
+        html += '</tbody></table>';
+        area.innerHTML = html;
+
+        // Show confirm bar
+        const bar = document.getElementById('rt-confirm-bar');
+        const txt = document.getElementById('rt-confirm-text');
+        const hasChanges = s.with_changes > 0 || s.would_create > 0 || s.variations_with_changes > 0;
+        if (hasChanges) {
+            let msg = '<span>' + s.with_changes + '</span> prodotti da aggiornare';
+            if (s.variations_with_changes) msg += ', <span>' + s.variations_with_changes + '</span> varianti';
+            if (s.would_create) msg += ', <span>' + s.would_create + '</span> da creare';
+            if (s.skipped) msg += ' \u00b7 ' + s.skipped + ' saltati';
+            txt.innerHTML = msg;
+            bar.style.display = 'flex';
+        } else {
+            bar.style.display = 'none';
+            toast('Nessuna modifica rilevata', 'inf');
+        }
+    }
+
+    function truncVal(v) {
+        if (v === null || v === undefined) return 'null';
+        if (Array.isArray(v)) return '[' + v.join(', ') + ']';
+        const s = String(v);
+        return s.length > 60 ? s.slice(0, 57) + '...' : s;
+    }
+
+    function esc(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    // ── IMPORT: Apply ───────────────────────────────────────
+    async function importApply() {
+        if (!state.importJSON) { toast('Nessun file caricato', 'err'); return; }
+        const overlay = document.getElementById('rt-overlay');
+        const otext   = document.getElementById('rt-overlay-text');
+        const btn     = document.getElementById('btn-rt-apply');
+        const spin    = document.getElementById('apply-spin');
+        otext.textContent = 'Applicazione modifiche in corso...';
+        overlay.classList.add('visible');
+        btn.disabled = true;
+        spin.style.display = '';
+        try {
+            const mode = document.querySelector('input[name="import-mode"]:checked').value;
+            const res = await ajax('rp_cm_ajax_import_apply', {
+                json_payload: JSON.stringify(state.importJSON),
+                mode: mode
+            });
+            if (!res.success) { toast('Errore: ' + res.data, 'err'); return; }
+            renderApplyResult(res.data);
+            const s = res.data.summary;
+            toast('Import completato: ' + s.updated + ' aggiornati, ' + s.variations_updated + ' varianti', 'ok', 5000);
+        } catch (e) {
+            toast('Errore di rete', 'err');
+        } finally {
+            overlay.classList.remove('visible');
+            btn.disabled = false;
+            spin.style.display = 'none';
+        }
+    }
+
+    function renderApplyResult(data) {
+        const area = document.getElementById('rt-preview-area');
+        const s    = data.summary;
+
+        let html = '<table class="ptable"><thead><tr>' +
+            '<th>Risultato</th><th>ID</th><th>SKU</th><th>Nome</th><th>Dettagli</th><th>Varianti</th>' +
+            '</tr></thead><tbody>';
+
+        for (const d of data.details) {
+            const stClass = d.status === 'updated' ? 'st-updated'
+                          : d.status === 'created' ? 'st-create'
+                          : d.status === 'error' ? 'st-error' : 'st-skipped';
+            const stLabel = d.status === 'updated' ? '\u2713 aggiornato'
+                          : d.status === 'created' ? '+ creato'
+                          : d.status === 'error' ? '\u2717 errore' : '\u2013 saltato';
+
+            let details = '';
+            if (d.changes && d.changes.length) {
+                details = '<div class="changes-list">' + d.changes.join(', ') + '</div>';
+            }
+            if (d.reason) details = '<div class="changes-list" style="color:var(--red)">' + esc(d.reason) + '</div>';
+
+            let varInfo = '';
+            if (d.variation_results && d.variation_results.length) {
+                const vu = d.variation_results.filter(v => v.status === 'updated').length;
+                const ve = d.variation_results.filter(v => v.status === 'error').length;
+                varInfo = vu + ' ok';
+                if (ve) varInfo += ', ' + ve + ' err';
+            }
+
+            html += '<tr><td class="' + stClass + '">' + stLabel + '</td>' +
+                '<td>' + (d.id || '\u2013') + '</td>' +
+                '<td>' + esc(d.sku || '\u2013') + '</td>' +
+                '<td>' + esc(d.name || '\u2013') + '</td>' +
+                '<td>' + details + '</td>' +
+                '<td>' + varInfo + '</td></tr>';
+        }
+
+        html += '</tbody></table>';
+        area.innerHTML = html;
+        document.getElementById('rt-confirm-bar').style.display = 'none';
+    }
+
+    function importCancel() {
+        document.getElementById('rt-confirm-bar').style.display = 'none';
+        document.getElementById('rt-preview-area').innerHTML = '';
+        state.previewData = null;
+        toast('Import annullato', 'inf');
     }
 
     // ── JSON viewer renderer ────────────────────────────────
@@ -535,7 +862,7 @@ const RPCM = (function() {
 
     // ── Copy JSON ───────────────────────────────────────────
     function copyJSON(mode) {
-        const data = mode === 'catalog' ? state.catalogData : state.fullData;
+        const data = mode === 'catalog' ? state.catalogData : state.roundtripData;
         if (!data) { toast('Nessun dato da copiare', 'err'); return; }
         const json = JSON.stringify(data, null, 2);
         navigator.clipboard.writeText(json).then(
@@ -546,7 +873,7 @@ const RPCM = (function() {
 
     // ── Download JSON ───────────────────────────────────────
     function downloadJSON(mode) {
-        const data = mode === 'catalog' ? state.catalogData : state.fullData;
+        const data = mode === 'catalog' ? state.catalogData : state.roundtripData;
         if (!data) { toast('Nessun dato da scaricare', 'err'); return; }
         const json = JSON.stringify(data, null, 2);
         const blob = new Blob([json], { type: 'application/json' });
@@ -556,7 +883,7 @@ const RPCM = (function() {
         a.href     = url;
         a.download = mode === 'catalog'
             ? 'rp-catalog-' + date + '.json'
-            : 'rp-full-export-' + date + '.json';
+            : 'rp-roundtrip-' + date + '.json';
         a.click();
         URL.revokeObjectURL(url);
         toast('Download avviato', 'inf');
@@ -564,14 +891,18 @@ const RPCM = (function() {
 
     // ── Init ────────────────────────────────────────────────
     loadFilterOptions();
+    initImport();
 
     return {
         switchTab,
         loadSummary,
         generateCatalog,
-        generateFull,
+        generateRoundtrip,
         copyJSON,
         downloadJSON,
+        importPreview,
+        importApply,
+        importCancel,
     };
 })();
 </script>

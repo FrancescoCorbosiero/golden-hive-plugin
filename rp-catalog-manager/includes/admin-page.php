@@ -203,6 +203,67 @@ function rp_cm_render_page(): void {
 #rpcm *::-webkit-scrollbar-thumb { background: var(--b2); border-radius: 2px; }
 #rpcm * { scrollbar-width: thin; scrollbar-color: var(--b2) transparent; }
 
+/* Taxonomy tree */
+#rpcm .tax-wrap { flex: 1; overflow-y: auto; padding: 16px 20px; }
+#rpcm .tax-node { margin-left: 0; }
+#rpcm .tax-node .tax-node { margin-left: 20px; }
+#rpcm .tax-row {
+    display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+    border-radius: 4px; transition: background .1s; cursor: pointer;
+}
+#rpcm .tax-row:hover { background: var(--s3); }
+#rpcm .tax-row.selected { background: rgba(61,127,255,.08); border-left: 2px solid var(--acc); }
+#rpcm .tax-toggle { width: 16px; font-size: 10px; color: var(--dim); cursor: pointer; text-align: center; flex-shrink: 0; }
+#rpcm .tax-toggle:empty { width: 16px; }
+#rpcm .tax-name { font-size: 13px; font-weight: 500; color: var(--txt); flex: 1; }
+#rpcm .tax-name.depth-0 { font-weight: 600; }
+#rpcm .tax-count {
+    font-family: var(--mono); font-size: 9px; color: var(--dim);
+    background: var(--mut); padding: 1px 5px; border-radius: 3px;
+}
+#rpcm .tax-id { font-family: var(--mono); font-size: 9px; color: var(--dim); }
+#rpcm .tax-actions { display: none; gap: 4px; }
+#rpcm .tax-row:hover .tax-actions { display: flex; }
+#rpcm .tax-btn {
+    font-family: var(--mono); font-size: 9px; padding: 2px 6px; border-radius: 3px;
+    border: 1px solid var(--b1); background: transparent; color: var(--dim);
+    cursor: pointer; transition: all .15s;
+}
+#rpcm .tax-btn:hover { color: var(--txt); background: var(--s2); border-color: var(--b2); }
+#rpcm .tax-btn.del:hover { color: var(--red); border-color: rgba(232,93,93,.3); }
+
+/* Taxonomy detail panel (products in category) */
+#rpcm .tax-detail {
+    background: var(--s2); border-left: 1px solid var(--b1);
+    width: 340px; display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden;
+}
+#rpcm .tax-detail-head {
+    padding: 12px 16px; border-bottom: 1px solid var(--b1);
+    display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+}
+#rpcm .tax-detail-title { font-size: 13px; font-weight: 600; flex: 1; }
+#rpcm .tax-detail-id { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+#rpcm .tax-products { flex: 1; overflow-y: auto; padding: 8px 0; }
+#rpcm .tax-product-row {
+    display: flex; align-items: center; gap: 8px; padding: 5px 16px;
+    font-size: 12px; border-bottom: 1px solid var(--b1); transition: background .1s;
+}
+#rpcm .tax-product-row:hover { background: var(--s3); }
+#rpcm .tax-product-id { font-family: var(--mono); font-size: 9px; color: var(--dim); min-width: 32px; }
+#rpcm .tax-product-name { flex: 1; color: var(--txt); }
+#rpcm .tax-product-type {
+    font-family: var(--mono); font-size: 9px; padding: 1px 5px; border-radius: 3px;
+}
+#rpcm .type-variable { background: rgba(155,114,245,.15); color: var(--pur); }
+#rpcm .type-simple   { background: rgba(61,127,255,.15);  color: var(--acc); }
+
+/* Inline input for rename/create */
+#rpcm .tax-inline-input {
+    background: var(--s3); border: 1px solid var(--acc); border-radius: 4px;
+    padding: 4px 8px; font-size: 12px; color: var(--txt); outline: none;
+    font-family: 'DM Sans', system-ui, sans-serif; width: 200px;
+}
+
 /* Section divider */
 #rpcm .section-title {
     font-family: var(--mono); font-size: 9px; letter-spacing: .15em;
@@ -295,6 +356,10 @@ function rp_cm_render_page(): void {
                 <span class="tab-icon">&#9776;</span>
                 <span class="tab-label">Catalog</span>
             </div>
+            <div class="tab-item" onclick="RPCM.switchTab('taxonomy', this)">
+                <span class="tab-icon">&#9698;</span>
+                <span class="tab-label">Taxonomy</span>
+            </div>
             <div class="tab-item" onclick="RPCM.switchTab('import', this)">
                 <span class="tab-icon">&#8615;</span>
                 <span class="tab-label">Import</span>
@@ -363,6 +428,33 @@ function rp_cm_render_page(): void {
                 <div class="gen-overlay" id="cat-overlay">
                     <div class="gen-spinner"></div>
                     <div class="gen-text">Generazione catalogo in corso...</div>
+                </div>
+            </div>
+
+            <!-- TAXONOMY -->
+            <div class="panel" id="panel-taxonomy" style="position:relative">
+                <div class="toolbar">
+                    <button class="btn btn-primary" id="btn-tax-load" onclick="RPCM.loadTaxonomy()">
+                        <span class="spin" id="tax-spin" style="display:none"></span>
+                        Carica albero
+                    </button>
+                    <div class="filter-sep"></div>
+                    <button class="btn btn-ghost" onclick="RPCM.taxCreateRoot()">+ Sezione</button>
+                </div>
+                <div style="flex:1;display:flex;overflow:hidden">
+                    <div class="tax-wrap" id="tax-tree-area">
+                        <div class="empty-state">
+                            <div class="empty-icon">&#9698;</div>
+                            <div class="empty-text">Premi "Carica albero" per visualizzare la tassonomia</div>
+                        </div>
+                    </div>
+                    <div class="tax-detail" id="tax-detail" style="display:none">
+                        <div class="tax-detail-head">
+                            <span class="tax-detail-title" id="tax-detail-title"></span>
+                            <span class="tax-detail-id" id="tax-detail-id"></span>
+                        </div>
+                        <div class="tax-products" id="tax-products-list"></div>
+                    </div>
                 </div>
             </div>
 
@@ -655,6 +747,161 @@ const RPCM = (function() {
             btn.disabled = false;
             spin.style.display = 'none';
         }
+    }
+
+    // ── TAXONOMY ────────────────────────────────────────────
+    let taxTree = [];
+    let taxSelected = null;
+    let taxCollapsed = {};
+
+    async function loadTaxonomy() {
+        const btn  = document.getElementById('btn-tax-load');
+        const spin = document.getElementById('tax-spin');
+        btn.disabled = true;
+        spin.style.display = '';
+        try {
+            const res = await ajax('rp_cm_ajax_taxonomy_tree');
+            if (!res.success) { toast('Errore: ' + res.data, 'err'); return; }
+            taxTree = res.data;
+            renderTaxTree();
+            toast('Albero caricato: ' + countNodes(taxTree) + ' categorie', 'ok');
+        } catch (e) {
+            toast('Errore di rete', 'err');
+        } finally {
+            btn.disabled = false;
+            spin.style.display = 'none';
+        }
+    }
+
+    function countNodes(nodes) {
+        let n = nodes.length;
+        for (const nd of nodes) n += countNodes(nd.children || []);
+        return n;
+    }
+
+    function renderTaxTree() {
+        const area = document.getElementById('tax-tree-area');
+        if (!taxTree.length) {
+            area.innerHTML = '<div class="empty-state"><div class="empty-icon">\u25E2</div><div class="empty-text">Nessuna categoria trovata</div></div>';
+            return;
+        }
+        area.innerHTML = renderNodes(taxTree, 0);
+    }
+
+    function renderNodes(nodes, depth) {
+        let html = '';
+        for (const nd of nodes) {
+            const hasKids = nd.children && nd.children.length;
+            const isCollapsed = taxCollapsed[nd.id];
+            const sel = taxSelected === nd.id ? ' selected' : '';
+            const depthClass = depth <= 2 ? ' depth-' + depth : '';
+
+            html += '<div class="tax-node">';
+            html += '<div class="tax-row' + sel + '" data-id="' + nd.id + '" onclick="RPCM.taxSelect(' + nd.id + ', this)">';
+            html += '<span class="tax-toggle" onclick="event.stopPropagation();RPCM.taxToggle(' + nd.id + ')">';
+            html += hasKids ? (isCollapsed ? '\u25B6' : '\u25BC') : '';
+            html += '</span>';
+            html += '<span class="tax-name' + depthClass + '">' + esc(nd.name) + '</span>';
+            html += '<span class="tax-count">' + nd.count + '</span>';
+            html += '<span class="tax-id">#' + nd.id + '</span>';
+            html += '<span class="tax-actions">';
+            html += '<button class="tax-btn" onclick="event.stopPropagation();RPCM.taxAdd(' + nd.id + ')">+ figlio</button>';
+            html += '<button class="tax-btn" onclick="event.stopPropagation();RPCM.taxRename(' + nd.id + ')">rinomina</button>';
+            html += '<button class="tax-btn del" onclick="event.stopPropagation();RPCM.taxDelete(' + nd.id + ',\'' + esc(nd.name) + '\')">elimina</button>';
+            html += '</span>';
+            html += '</div>';
+            if (hasKids && !isCollapsed) {
+                html += renderNodes(nd.children, depth + 1);
+            }
+            html += '</div>';
+        }
+        return html;
+    }
+
+    function taxToggle(id) {
+        taxCollapsed[id] = !taxCollapsed[id];
+        renderTaxTree();
+    }
+
+    async function taxSelect(id, el) {
+        taxSelected = id;
+        renderTaxTree();
+
+        const detail = document.getElementById('tax-detail');
+        const title  = document.getElementById('tax-detail-title');
+        const idEl   = document.getElementById('tax-detail-id');
+        const list   = document.getElementById('tax-products-list');
+
+        const nd = findNode(taxTree, id);
+        title.textContent = nd ? nd.name : '#' + id;
+        idEl.textContent = '#' + id;
+        list.innerHTML = '<div style="padding:16px;color:var(--dim);font-family:var(--mono);font-size:11px"><span class="spin"></span> Caricamento...</div>';
+        detail.style.display = 'flex';
+
+        const res = await ajax('rp_cm_ajax_taxonomy_products', { term_id: id });
+        if (!res.success) { list.innerHTML = '<div style="padding:16px;color:var(--red);font-size:11px">Errore</div>'; return; }
+        if (!res.data.length) { list.innerHTML = '<div style="padding:16px;color:var(--dim);font-family:var(--mono);font-size:11px">Nessun prodotto in questa categoria</div>'; return; }
+
+        list.innerHTML = res.data.map(p =>
+            '<div class="tax-product-row">' +
+            '<span class="tax-product-id">#' + p.id + '</span>' +
+            '<span class="tax-product-name">' + esc(p.name) + '</span>' +
+            '<span class="tax-product-type type-' + p.type + '">' + p.type + '</span>' +
+            '</div>'
+        ).join('');
+    }
+
+    function findNode(nodes, id) {
+        for (const nd of nodes) {
+            if (nd.id === id) return nd;
+            if (nd.children) {
+                const found = findNode(nd.children, id);
+                if (found) return found;
+            }
+        }
+        return null;
+    }
+
+    async function taxCreateRoot() {
+        const name = prompt('Nome della nuova sezione (root):');
+        if (!name || !name.trim()) return;
+        const res = await ajax('rp_cm_ajax_taxonomy_create', { name: name.trim(), parent_id: 0 });
+        if (!res.success) { toast('Errore: ' + res.data, 'err'); return; }
+        toast('Sezione "' + name.trim() + '" creata', 'ok');
+        loadTaxonomy();
+    }
+
+    async function taxAdd(parentId) {
+        const nd = findNode(taxTree, parentId);
+        const name = prompt('Nuova sotto-categoria di "' + (nd ? nd.name : '#' + parentId) + '":');
+        if (!name || !name.trim()) return;
+        const res = await ajax('rp_cm_ajax_taxonomy_create', { name: name.trim(), parent_id: parentId });
+        if (!res.success) { toast('Errore: ' + res.data, 'err'); return; }
+        toast('Categoria "' + name.trim() + '" creata', 'ok');
+        taxCollapsed[parentId] = false;
+        loadTaxonomy();
+    }
+
+    async function taxRename(id) {
+        const nd = findNode(taxTree, id);
+        const name = prompt('Nuovo nome per "' + (nd ? nd.name : '') + '":', nd ? nd.name : '');
+        if (!name || !name.trim()) return;
+        const res = await ajax('rp_cm_ajax_taxonomy_rename', { term_id: id, name: name.trim() });
+        if (!res.success) { toast('Errore: ' + res.data, 'err'); return; }
+        toast('Rinominata in "' + name.trim() + '"', 'ok');
+        loadTaxonomy();
+    }
+
+    async function taxDelete(id, name) {
+        if (!confirm('Eliminare la categoria "' + name + '"?\nI figli verranno spostati al livello superiore.\nI prodotti NON vengono eliminati.')) return;
+        const res = await ajax('rp_cm_ajax_taxonomy_delete', { term_id: id });
+        if (!res.success) { toast('Errore: ' + res.data, 'err'); return; }
+        toast('Categoria eliminata', 'ok');
+        if (taxSelected === id) {
+            taxSelected = null;
+            document.getElementById('tax-detail').style.display = 'none';
+        }
+        loadTaxonomy();
     }
 
     // ── BULK IMPORT: File handling ──────────────────────────
@@ -1110,6 +1357,13 @@ const RPCM = (function() {
         generateRoundtrip,
         copyJSON,
         downloadJSON,
+        loadTaxonomy,
+        taxSelect,
+        taxToggle,
+        taxCreateRoot,
+        taxAdd,
+        taxRename,
+        taxDelete,
         bulkPreview,
         bulkApply,
         bulkCancel,

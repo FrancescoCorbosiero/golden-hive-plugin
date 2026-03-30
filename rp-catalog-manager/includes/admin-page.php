@@ -295,6 +295,10 @@ function rp_cm_render_page(): void {
                 <span class="tab-icon">&#9776;</span>
                 <span class="tab-label">Catalog</span>
             </div>
+            <div class="tab-item" onclick="RPCM.switchTab('import', this)">
+                <span class="tab-icon">&#8615;</span>
+                <span class="tab-label">Import</span>
+            </div>
             <div class="tab-item" onclick="RPCM.switchTab('roundtrip', this)">
                 <span class="tab-icon">&#8644;</span>
                 <span class="tab-label">Roundtrip</span>
@@ -359,6 +363,38 @@ function rp_cm_render_page(): void {
                 <div class="gen-overlay" id="cat-overlay">
                     <div class="gen-spinner"></div>
                     <div class="gen-text">Generazione catalogo in corso...</div>
+                </div>
+            </div>
+
+            <!-- IMPORT -->
+            <div class="panel" id="panel-import" style="position:relative">
+                <div class="section-title">Importa prodotti da JSON</div>
+                <div class="drop-area" id="imp-drop" onclick="document.getElementById('imp-file-input').click()">
+                    <input type="file" id="imp-file-input" accept=".json" style="display:none" />
+                    <div class="drop-area-text">Clicca o trascina un file .json — schema documentato in docs/BULK_IMPORT.md</div>
+                    <div class="drop-area-file" id="imp-file-name"></div>
+                </div>
+                <div class="mode-row" id="imp-mode-row" style="display:none">
+                    <label><input type="radio" name="bulk-mode" value="create" checked /> Crea sempre</label>
+                    <label><input type="radio" name="bulk-mode" value="create_or_update" /> Crea o aggiorna (match SKU)</label>
+                    <div class="filter-sep"></div>
+                    <button class="btn btn-primary" id="btn-imp-preview" onclick="RPCM.bulkPreview()">
+                        <span class="spin" id="imp-preview-spin" style="display:none"></span>
+                        Preview
+                    </button>
+                </div>
+                <div class="preview-wrap" id="imp-preview-area"></div>
+                <div class="confirm-bar" id="imp-confirm-bar" style="display:none">
+                    <div class="summary-text" id="imp-confirm-text"></div>
+                    <button class="btn btn-ghost" onclick="RPCM.bulkCancel()">Annulla</button>
+                    <button class="btn btn-warn" id="btn-imp-apply" onclick="RPCM.bulkApply()">
+                        <span class="spin" id="imp-apply-spin" style="display:none"></span>
+                        Crea prodotti
+                    </button>
+                </div>
+                <div class="gen-overlay" id="imp-overlay">
+                    <div class="gen-spinner"></div>
+                    <div class="gen-text" id="imp-overlay-text">Elaborazione in corso...</div>
                 </div>
             </div>
 
@@ -621,7 +657,180 @@ const RPCM = (function() {
         }
     }
 
-    // ── IMPORT: File handling ───────────────────────────────
+    // ── BULK IMPORT: File handling ──────────────────────────
+    let bulkJSON = null;
+
+    function initBulkImport() {
+        const drop  = document.getElementById('imp-drop');
+        const input = document.getElementById('imp-file-input');
+
+        input.addEventListener('change', () => {
+            if (input.files.length) handleBulkFile(input.files[0]);
+        });
+
+        drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('dragover'); });
+        drop.addEventListener('dragleave', () => { drop.classList.remove('dragover'); });
+        drop.addEventListener('drop', (e) => {
+            e.preventDefault();
+            drop.classList.remove('dragover');
+            if (e.dataTransfer.files.length) handleBulkFile(e.dataTransfer.files[0]);
+        });
+    }
+
+    function handleBulkFile(file) {
+        if (!file.name.endsWith('.json')) { toast('Solo file .json', 'err'); return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+            try {
+                let data = JSON.parse(reader.result);
+                // Accetta sia { products: [...] } che array diretto
+                if (Array.isArray(data)) data = { products: data };
+                if (!data.products || !data.products.length) {
+                    toast('Nessun prodotto trovato nel file', 'err'); return;
+                }
+                bulkJSON = data;
+                document.getElementById('imp-file-name').textContent = file.name + ' \u00b7 ' + data.products.length + ' prodotti';
+                document.getElementById('imp-mode-row').style.display = 'flex';
+                document.getElementById('imp-preview-area').innerHTML = '';
+                document.getElementById('imp-confirm-bar').style.display = 'none';
+                toast('File caricato: ' + data.products.length + ' prodotti', 'inf');
+            } catch (e) {
+                toast('JSON non valido: ' + e.message, 'err');
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    // ── BULK IMPORT: Preview ────────────────────────────────
+    async function bulkPreview() {
+        if (!bulkJSON) { toast('Nessun file caricato', 'err'); return; }
+        const btn  = document.getElementById('btn-imp-preview');
+        const spin = document.getElementById('imp-preview-spin');
+        btn.disabled = true;
+        spin.style.display = '';
+        try {
+            const mode = document.querySelector('input[name="bulk-mode"]:checked').value;
+            const res = await ajax('rp_cm_ajax_bulk_preview', {
+                json_payload: JSON.stringify(bulkJSON),
+                mode: mode
+            });
+            if (!res.success) { toast('Errore: ' + res.data, 'err'); return; }
+            renderBulkPreview(res.data);
+        } catch (e) {
+            toast('Errore di rete', 'err');
+        } finally {
+            btn.disabled = false;
+            spin.style.display = 'none';
+        }
+    }
+
+    function renderBulkPreview(data) {
+        const area = document.getElementById('imp-preview-area');
+        const s = data.summary;
+
+        let html = '<table class="ptable"><thead><tr>' +
+            '<th>Azione</th><th>Nome</th><th>SKU</th><th>Tipo</th><th>Stato</th><th>Varianti</th>' +
+            '</tr></thead><tbody>';
+
+        for (const d of data.details) {
+            const isNew = d.action === 'create';
+            const stClass = isNew ? 'st-create' : 'st-matched';
+            const stLabel = isNew ? '+ Nuovo' : '\u21bb Aggiorna #' + d.existing_id;
+
+            html += '<tr>' +
+                '<td class="' + stClass + '">' + stLabel + '</td>' +
+                '<td>' + esc(d.name) + '</td>' +
+                '<td>' + esc(d.sku || '\u2013') + '</td>' +
+                '<td>' + d.type + '</td>' +
+                '<td>' + d.status + '</td>' +
+                '<td>' + (d.variation_count || '\u2013') + '</td>' +
+                '</tr>';
+        }
+
+        html += '</tbody></table>';
+        area.innerHTML = html;
+
+        const bar = document.getElementById('imp-confirm-bar');
+        const txt = document.getElementById('imp-confirm-text');
+        let msg = '<span>' + s.to_create + '</span> da creare';
+        if (s.to_update) msg += ', <span>' + s.to_update + '</span> da aggiornare';
+        txt.innerHTML = msg;
+        bar.style.display = 'flex';
+    }
+
+    // ── BULK IMPORT: Apply ──────────────────────────────────
+    async function bulkApply() {
+        if (!bulkJSON) { toast('Nessun file caricato', 'err'); return; }
+        const overlay = document.getElementById('imp-overlay');
+        const otext   = document.getElementById('imp-overlay-text');
+        const btn     = document.getElementById('btn-imp-apply');
+        const spin    = document.getElementById('imp-apply-spin');
+        otext.textContent = 'Creazione prodotti in corso...';
+        overlay.classList.add('visible');
+        btn.disabled = true;
+        spin.style.display = '';
+        try {
+            const mode = document.querySelector('input[name="bulk-mode"]:checked').value;
+            const res = await ajax('rp_cm_ajax_bulk_apply', {
+                json_payload: JSON.stringify(bulkJSON),
+                mode: mode
+            });
+            if (!res.success) { toast('Errore: ' + res.data, 'err'); return; }
+            renderBulkResult(res.data);
+            const s = res.data.summary;
+            toast('Import completato: ' + s.created + ' creati, ' + s.updated + ' aggiornati, ' + s.errors + ' errori', s.errors ? 'err' : 'ok', 5000);
+        } catch (e) {
+            toast('Errore di rete', 'err');
+        } finally {
+            overlay.classList.remove('visible');
+            btn.disabled = false;
+            spin.style.display = 'none';
+        }
+    }
+
+    function renderBulkResult(data) {
+        const area = document.getElementById('imp-preview-area');
+
+        let html = '<table class="ptable"><thead><tr>' +
+            '<th>Risultato</th><th>ID</th><th>Nome</th><th>SKU</th><th>Tipo</th><th>Varianti</th>' +
+            '</tr></thead><tbody>';
+
+        for (const d of data.details) {
+            const stClass = d.status === 'created' ? 'st-create'
+                          : d.status === 'updated' ? 'st-updated'
+                          : 'st-error';
+            const stLabel = d.status === 'created' ? '+ Creato'
+                          : d.status === 'updated' ? '\u2713 Aggiornato'
+                          : '\u2717 Errore';
+
+            let extra = '';
+            if (d.reason) extra = '<div style="font-size:9px;color:var(--red);margin-top:2px">' + esc(d.reason) + '</div>';
+            if (d.variation_errors && d.variation_errors.length) {
+                extra += '<div style="font-size:9px;color:var(--amb);margin-top:2px">' + d.variation_errors.length + ' errori varianti</div>';
+            }
+
+            html += '<tr>' +
+                '<td class="' + stClass + '">' + stLabel + extra + '</td>' +
+                '<td>' + (d.id || '\u2013') + '</td>' +
+                '<td>' + esc(d.name || '\u2013') + '</td>' +
+                '<td>' + esc(d.sku || '\u2013') + '</td>' +
+                '<td>' + (d.type || '\u2013') + '</td>' +
+                '<td>' + (d.variation_count || '\u2013') + '</td>' +
+                '</tr>';
+        }
+
+        html += '</tbody></table>';
+        area.innerHTML = html;
+        document.getElementById('imp-confirm-bar').style.display = 'none';
+    }
+
+    function bulkCancel() {
+        document.getElementById('imp-confirm-bar').style.display = 'none';
+        document.getElementById('imp-preview-area').innerHTML = '';
+        toast('Import annullato', 'inf');
+    }
+
+    // ── ROUNDTRIP IMPORT: File handling ─────────────────────
     function initImport() {
         const drop  = document.getElementById('rt-drop');
         const input = document.getElementById('rt-file-input');
@@ -891,6 +1100,7 @@ const RPCM = (function() {
 
     // ── Init ────────────────────────────────────────────────
     loadFilterOptions();
+    initBulkImport();
     initImport();
 
     return {
@@ -900,6 +1110,9 @@ const RPCM = (function() {
         generateRoundtrip,
         copyJSON,
         downloadJSON,
+        bulkPreview,
+        bulkApply,
+        bulkCancel,
         importPreview,
         importApply,
         importCancel,

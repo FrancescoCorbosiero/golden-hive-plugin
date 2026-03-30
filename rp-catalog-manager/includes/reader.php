@@ -131,3 +131,74 @@ function rp_cm_get_product_images( int $product_id ): array {
         'gallery_urls'       => array_values( $gallery_urls ),
     ];
 }
+
+/**
+ * Ritorna gli ID delle categorie prodotto.
+ *
+ * @param int $product_id ID del prodotto.
+ * @return int[] Array di term_id.
+ */
+function rp_cm_get_product_category_ids( int $product_id ): array {
+
+    $terms = wp_get_post_terms( $product_id, 'product_cat', [ 'fields' => 'ids' ] );
+    return is_wp_error( $terms ) ? [] : $terms;
+}
+
+/**
+ * Ritorna i nomi delle categorie prodotto.
+ *
+ * @param int $product_id ID del prodotto.
+ * @return string[] Array di nomi.
+ */
+function rp_cm_get_product_category_names( int $product_id ): array {
+
+    $terms = wp_get_post_terms( $product_id, 'product_cat', [ 'fields' => 'names' ] );
+    return is_wp_error( $terms ) ? [] : $terms;
+}
+
+/**
+ * Ritorna gli ID dei tag prodotto.
+ *
+ * @param int $product_id ID del prodotto.
+ * @return int[] Array di term_id.
+ */
+function rp_cm_get_product_tag_ids( int $product_id ): array {
+
+    $terms = wp_get_post_terms( $product_id, 'product_tag', [ 'fields' => 'ids' ] );
+    return is_wp_error( $terms ) ? [] : $terms;
+}
+
+/**
+ * Ritorna i nomi dei tag prodotto.
+ *
+ * @param int $product_id ID del prodotto.
+ * @return string[] Array di nomi.
+ */
+function rp_cm_get_product_tag_names( int $product_id ): array {
+
+    $terms = wp_get_post_terms( $product_id, 'product_tag', [ 'fields' => 'names' ] );
+    return is_wp_error( $terms ) ? [] : $terms;
+}
+
+/**
+ * Ritorna gli attributi raw di un prodotto nel formato roundtrip.
+ *
+ * @param WC_Product $product
+ * @return array [ attr_key => [ 'options' => [...], 'visible' => bool, 'variation' => bool ] ]
+ */
+function rp_cm_get_product_attributes_raw( WC_Product $product ): array {
+
+    $result = [];
+
+    foreach ( $product->get_attributes() as $key => $attr ) {
+        if ( ! is_object( $attr ) || ! method_exists( $attr, 'get_options' ) ) continue;
+
+        $result[ $key ] = [
+            'options'   => $attr->get_options(),
+            'visible'   => $attr->get_visible(),
+            'variation' => $attr->get_variation(),
+        ];
+    }
+
+    return $result;
+}

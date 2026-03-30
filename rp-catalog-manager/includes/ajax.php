@@ -21,8 +21,8 @@ add_action( 'wp_ajax_rp_cm_ajax_export_catalog', function () {
     wp_send_json_success( $result );
 } );
 
-// ── EXPORT FULL ─────────────────────────────────────────────
-add_action( 'wp_ajax_rp_cm_ajax_export_full', function () {
+// ── EXPORT ROUNDTRIP ────────────────────────────────────────
+add_action( 'wp_ajax_rp_cm_ajax_export_roundtrip', function () {
     check_ajax_referer( 'rp_cm_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
@@ -32,7 +32,51 @@ add_action( 'wp_ajax_rp_cm_ajax_export_full', function () {
         $filters = json_decode( $raw, true ) ?: [];
     }
 
-    $result = rp_cm_export_full( $filters );
+    $result = rp_cm_export_roundtrip( $filters );
+    wp_send_json_success( $result );
+} );
+
+// ── IMPORT PREVIEW (dry-run) ────────────────────────────────
+add_action( 'wp_ajax_rp_cm_ajax_import_preview', function () {
+    check_ajax_referer( 'rp_cm_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $raw  = stripslashes( $_POST['json_payload'] ?? '{}' );
+    $data = json_decode( $raw, true );
+
+    if ( json_last_error() !== JSON_ERROR_NONE ) {
+        wp_send_json_error( 'JSON non valido: ' . json_last_error_msg() );
+    }
+
+    $valid = rp_cm_validate_import_json( $data );
+    if ( is_wp_error( $valid ) ) {
+        wp_send_json_error( $valid->get_error_message() );
+    }
+
+    $mode   = sanitize_text_field( $_POST['mode'] ?? 'update_only' );
+    $result = rp_cm_import_preview( $data, $mode );
+    wp_send_json_success( $result );
+} );
+
+// ── IMPORT APPLY ────────────────────────────────────────────
+add_action( 'wp_ajax_rp_cm_ajax_import_apply', function () {
+    check_ajax_referer( 'rp_cm_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $raw  = stripslashes( $_POST['json_payload'] ?? '{}' );
+    $data = json_decode( $raw, true );
+
+    if ( json_last_error() !== JSON_ERROR_NONE ) {
+        wp_send_json_error( 'JSON non valido: ' . json_last_error_msg() );
+    }
+
+    $valid = rp_cm_validate_import_json( $data );
+    if ( is_wp_error( $valid ) ) {
+        wp_send_json_error( $valid->get_error_message() );
+    }
+
+    $mode   = sanitize_text_field( $_POST['mode'] ?? 'update_only' );
+    $result = rp_cm_import_apply( $data, $mode );
     wp_send_json_success( $result );
 } );
 

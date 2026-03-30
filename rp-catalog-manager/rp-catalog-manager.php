@@ -2,7 +2,7 @@
 /**
  * Plugin Name:  RP Catalog Manager
  * Plugin URI:   https://resellpiacenza.it
- * Description:  Export catalogo WooCommerce in JSON strutturato. Modalita CATALOG (aggregato) e FULL EXPORT (completo).
+ * Description:  Catalogo strutturato WooCommerce con export/import JSON roundtrip e vista aggregata.
  * Version:      1.0.0
  * Author:       ResellPiacenza
  * License:      Private
@@ -19,5 +19,6 @@ require_once RP_CM_DIR . 'includes/reader.php';
 require_once RP_CM_DIR . 'includes/aggregator.php';
 require_once RP_CM_DIR . 'includes/tree-builder.php';
 require_once RP_CM_DIR . 'includes/exporter.php';
+require_once RP_CM_DIR . 'includes/importer.php';
 require_once RP_CM_DIR . 'includes/ajax.php';
 require_once RP_CM_DIR . 'includes/admin-page.php';

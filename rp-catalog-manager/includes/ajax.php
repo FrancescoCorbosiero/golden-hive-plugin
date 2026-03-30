@@ -189,3 +189,102 @@ add_action( 'wp_ajax_rp_cm_ajax_bulk_apply', function () {
     $result = rp_cm_bulk_apply( $data, $mode );
     wp_send_json_success( $result );
 } );
+
+// ── TAXONOMY: GET TREE ──────────────────────────────────────
+add_action( 'wp_ajax_rp_cm_ajax_taxonomy_tree', function () {
+    check_ajax_referer( 'rp_cm_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    wp_send_json_success( rp_cm_get_taxonomy_tree() );
+} );
+
+// ── TAXONOMY: CREATE CATEGORY ───────────────────────────────
+add_action( 'wp_ajax_rp_cm_ajax_taxonomy_create', function () {
+    check_ajax_referer( 'rp_cm_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $name      = sanitize_text_field( $_POST['name'] ?? '' );
+    $parent_id = intval( $_POST['parent_id'] ?? 0 );
+    $slug      = sanitize_text_field( $_POST['slug'] ?? '' );
+
+    $result = rp_cm_create_category( $name, $parent_id, $slug );
+    if ( is_wp_error( $result ) ) { wp_send_json_error( $result->get_error_message() ); }
+
+    wp_send_json_success( [ 'term_id' => $result ] );
+} );
+
+// ── TAXONOMY: RENAME CATEGORY ───────────────────────────────
+add_action( 'wp_ajax_rp_cm_ajax_taxonomy_rename', function () {
+    check_ajax_referer( 'rp_cm_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $term_id = intval( $_POST['term_id'] ?? 0 );
+    $name    = sanitize_text_field( $_POST['name'] ?? '' );
+    $slug    = sanitize_text_field( $_POST['slug'] ?? '' );
+
+    if ( ! $term_id ) { wp_send_json_error( 'term_id mancante.' ); }
+
+    $result = rp_cm_rename_category( $term_id, $name, $slug );
+    if ( is_wp_error( $result ) ) { wp_send_json_error( $result->get_error_message() ); }
+
+    wp_send_json_success( [ 'term_id' => $term_id ] );
+} );
+
+// ── TAXONOMY: MOVE CATEGORY ─────────────────────────────────
+add_action( 'wp_ajax_rp_cm_ajax_taxonomy_move', function () {
+    check_ajax_referer( 'rp_cm_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $term_id       = intval( $_POST['term_id'] ?? 0 );
+    $new_parent_id = intval( $_POST['new_parent_id'] ?? 0 );
+
+    if ( ! $term_id ) { wp_send_json_error( 'term_id mancante.' ); }
+
+    $result = rp_cm_move_category( $term_id, $new_parent_id );
+    if ( is_wp_error( $result ) ) { wp_send_json_error( $result->get_error_message() ); }
+
+    wp_send_json_success( [ 'term_id' => $term_id ] );
+} );
+
+// ── TAXONOMY: DELETE CATEGORY ───────────────────────────────
+add_action( 'wp_ajax_rp_cm_ajax_taxonomy_delete', function () {
+    check_ajax_referer( 'rp_cm_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $term_id = intval( $_POST['term_id'] ?? 0 );
+    if ( ! $term_id ) { wp_send_json_error( 'term_id mancante.' ); }
+
+    $result = rp_cm_delete_category( $term_id );
+    if ( is_wp_error( $result ) ) { wp_send_json_error( $result->get_error_message() ); }
+
+    wp_send_json_success( [ 'deleted' => $term_id ] );
+} );
+
+// ── TAXONOMY: GET PRODUCTS IN CATEGORY ──────────────────────
+add_action( 'wp_ajax_rp_cm_ajax_taxonomy_products', function () {
+    check_ajax_referer( 'rp_cm_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $term_id = intval( $_POST['term_id'] ?? 0 );
+    if ( ! $term_id ) { wp_send_json_error( 'term_id mancante.' ); }
+
+    wp_send_json_success( rp_cm_get_category_products( $term_id ) );
+} );
+
+// ── TAXONOMY: SET PRODUCT CATEGORIES ────────────────────────
+add_action( 'wp_ajax_rp_cm_ajax_taxonomy_assign', function () {
+    check_ajax_referer( 'rp_cm_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $product_id   = intval( $_POST['product_id'] ?? 0 );
+    $raw          = stripslashes( $_POST['category_ids'] ?? '[]' );
+    $category_ids = json_decode( $raw, true );
+
+    if ( ! $product_id ) { wp_send_json_error( 'product_id mancante.' ); }
+    if ( ! is_array( $category_ids ) ) { wp_send_json_error( 'category_ids non valido.' ); }
+
+    $result = rp_cm_set_product_categories( $product_id, $category_ids );
+    if ( is_wp_error( $result ) ) { wp_send_json_error( $result->get_error_message() ); }
+
+    wp_send_json_success( [ 'product_id' => $product_id ] );
+} );

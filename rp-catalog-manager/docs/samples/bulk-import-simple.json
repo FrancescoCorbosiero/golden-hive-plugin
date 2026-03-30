@@ -1,0 +1,34 @@
+{
+  "products": [
+    {
+      "name": "Nike Air Force 1 White",
+      "sku": "NK-AF1-WHITE",
+      "type": "simple",
+      "status": "publish",
+      "regular_price": "119.00",
+      "sale_price": "",
+      "description": "<p>Le Nike Air Force 1 White nella colorway classica total white.</p>",
+      "short_description": "<p>Air Force 1 bianche, il modello iconico Nike.</p>",
+      "manage_stock": true,
+      "stock_quantity": 5,
+      "stock_status": "instock",
+      "weight": "0.9",
+      "category_ids": [15, 22],
+      "meta_title": "Nike Air Force 1 White | ResellPiacenza",
+      "meta_description": "Acquista Nike Air Force 1 White su ResellPiacenza. Spedizione Italia.",
+      "focus_keyword": "nike air force 1 white"
+    },
+    {
+      "name": "Adidas Samba OG White",
+      "sku": "AD-SAMBA-OG-W",
+      "type": "simple",
+      "status": "draft",
+      "regular_price": "109.00",
+      "description": "<p>Le Adidas Samba OG nella colorway White/Black.</p>",
+      "short_description": "<p>Samba OG classiche bianche con dettagli neri.</p>",
+      "manage_stock": true,
+      "stock_quantity": 3,
+      "stock_status": "instock"
+    }
+  ]
+}

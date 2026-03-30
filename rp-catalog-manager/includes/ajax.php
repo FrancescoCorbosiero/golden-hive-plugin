@@ -145,3 +145,47 @@ add_action( 'wp_ajax_rp_cm_ajax_get_tree_paths', function () {
 
     wp_send_json_success( rp_cm_get_available_paths() );
 } );
+
+// ── BULK IMPORT PREVIEW ─────────────────────────────────────
+add_action( 'wp_ajax_rp_cm_ajax_bulk_preview', function () {
+    check_ajax_referer( 'rp_cm_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $raw  = stripslashes( $_POST['json_payload'] ?? '{}' );
+    $data = json_decode( $raw, true );
+
+    if ( json_last_error() !== JSON_ERROR_NONE ) {
+        wp_send_json_error( 'JSON non valido: ' . json_last_error_msg() );
+    }
+
+    $data = rp_cm_validate_bulk_json( $data );
+    if ( is_wp_error( $data ) ) {
+        wp_send_json_error( $data->get_error_message() );
+    }
+
+    $mode   = sanitize_text_field( $_POST['mode'] ?? 'create' );
+    $result = rp_cm_bulk_preview( $data, $mode );
+    wp_send_json_success( $result );
+} );
+
+// ── BULK IMPORT APPLY ───────────────────────────────────────
+add_action( 'wp_ajax_rp_cm_ajax_bulk_apply', function () {
+    check_ajax_referer( 'rp_cm_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $raw  = stripslashes( $_POST['json_payload'] ?? '{}' );
+    $data = json_decode( $raw, true );
+
+    if ( json_last_error() !== JSON_ERROR_NONE ) {
+        wp_send_json_error( 'JSON non valido: ' . json_last_error_msg() );
+    }
+
+    $data = rp_cm_validate_bulk_json( $data );
+    if ( is_wp_error( $data ) ) {
+        wp_send_json_error( $data->get_error_message() );
+    }
+
+    $mode   = sanitize_text_field( $_POST['mode'] ?? 'create' );
+    $result = rp_cm_bulk_apply( $data, $mode );
+    wp_send_json_success( $result );
+} );

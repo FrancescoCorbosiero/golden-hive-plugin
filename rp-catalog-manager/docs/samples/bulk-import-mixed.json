@@ -1,0 +1,146 @@
+{
+  "products": [
+    {
+      "name": "Corteiz Alcatraz Tee Black",
+      "sku": "CZ-ALC-TEE-BLK",
+      "type": "simple",
+      "status": "publish",
+      "regular_price": "89.00",
+      "description": "<p>T-shirt Corteiz Alcatraz in colorway Black. 100% cotone.</p>",
+      "short_description": "<p>Corteiz Alcatraz Tee nera.</p>",
+      "manage_stock": true,
+      "stock_quantity": 8,
+      "stock_status": "instock",
+      "category_ids": [15, 30],
+      "meta_title": "Corteiz Alcatraz Tee Black | ResellPiacenza",
+      "focus_keyword": "corteiz alcatraz tee black"
+    },
+    {
+      "name": "Air Jordan 4 Bred Reimagined 2025",
+      "sku": "AJ4-BRED-2025",
+      "type": "variable",
+      "status": "publish",
+      "description": "<p>Le Air Jordan 4 Bred Reimagined nella release 2025. Colorway Black/Cement Grey/Fire Red.</p>",
+      "short_description": "<p>Jordan 4 Bred Reimagined 2025.</p>",
+      "category_ids": [15, 40, 50],
+      "meta_title": "Air Jordan 4 Bred Reimagined 2025 | ResellPiacenza",
+      "meta_description": "Acquista Air Jordan 4 Bred Reimagined 2025 su ResellPiacenza. Taglie 40-46.",
+      "focus_keyword": "air jordan 4 bred reimagined 2025",
+      "attributes": {
+        "pa_taglia": {
+          "options": ["40", "41", "42", "43", "44", "45", "46"],
+          "visible": true,
+          "variation": true
+        }
+      },
+      "variations": [
+        {
+          "attributes": { "pa_taglia": "40" },
+          "sku": "AJ4-BRED-2025-T40",
+          "regular_price": "320.00",
+          "manage_stock": true,
+          "stock_quantity": 1,
+          "stock_status": "instock"
+        },
+        {
+          "attributes": { "pa_taglia": "41" },
+          "sku": "AJ4-BRED-2025-T41",
+          "regular_price": "320.00",
+          "manage_stock": true,
+          "stock_quantity": 2,
+          "stock_status": "instock"
+        },
+        {
+          "attributes": { "pa_taglia": "42" },
+          "sku": "AJ4-BRED-2025-T42",
+          "regular_price": "330.00",
+          "manage_stock": true,
+          "stock_quantity": 0,
+          "stock_status": "outofstock"
+        },
+        {
+          "attributes": { "pa_taglia": "43" },
+          "sku": "AJ4-BRED-2025-T43",
+          "regular_price": "330.00",
+          "manage_stock": true,
+          "stock_quantity": 3,
+          "stock_status": "instock"
+        },
+        {
+          "attributes": { "pa_taglia": "44" },
+          "sku": "AJ4-BRED-2025-T44",
+          "regular_price": "340.00",
+          "manage_stock": true,
+          "stock_quantity": 1,
+          "stock_status": "instock"
+        },
+        {
+          "attributes": { "pa_taglia": "45" },
+          "sku": "AJ4-BRED-2025-T45",
+          "regular_price": "350.00",
+          "manage_stock": true,
+          "stock_quantity": 0,
+          "stock_status": "outofstock"
+        },
+        {
+          "attributes": { "pa_taglia": "46" },
+          "sku": "AJ4-BRED-2025-T46",
+          "regular_price": "360.00",
+          "manage_stock": true,
+          "stock_quantity": 1,
+          "stock_status": "instock"
+        }
+      ]
+    },
+    {
+      "name": "Nike Dunk Low Grey Fog",
+      "sku": "NK-DL-GRYFOG",
+      "type": "variable",
+      "status": "draft",
+      "description": "<p>Nike Dunk Low Grey Fog, colorway pulita e versatile.</p>",
+      "short_description": "<p>Dunk Low Grey Fog.</p>",
+      "category_ids": [15, 22, 47],
+      "attributes": {
+        "pa_taglia": {
+          "options": ["41", "42", "43", "44"],
+          "visible": true,
+          "variation": true
+        }
+      },
+      "variations": [
+        {
+          "attributes": { "pa_taglia": "41" },
+          "sku": "NK-DL-GRYFOG-T41",
+          "regular_price": "139.00",
+          "manage_stock": true,
+          "stock_quantity": 1,
+          "stock_status": "instock"
+        },
+        {
+          "attributes": { "pa_taglia": "42" },
+          "sku": "NK-DL-GRYFOG-T42",
+          "regular_price": "139.00",
+          "manage_stock": true,
+          "stock_quantity": 2,
+          "stock_status": "instock"
+        },
+        {
+          "attributes": { "pa_taglia": "43" },
+          "sku": "NK-DL-GRYFOG-T43",
+          "regular_price": "139.00",
+          "manage_stock": true,
+          "stock_quantity": 0,
+          "stock_status": "outofstock"
+        },
+        {
+          "attributes": { "pa_taglia": "44" },
+          "sku": "NK-DL-GRYFOG-T44",
+          "regular_price": "139.00",
+          "manage_stock": true,
+          "stock_quantity": 1,
+          "stock_status": "instock"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,107 @@
+{
+  "products": [
+    {
+      "name": "Nike Dunk Low Panda",
+      "sku": "NK-DL-PANDA",
+      "type": "variable",
+      "status": "publish",
+      "description": "<p>Le Nike Dunk Low Panda nella colorway Black/White, il modello piu iconico della linea Dunk.</p>",
+      "short_description": "<p>Nike Dunk Low Panda Black/White.</p>",
+      "category_ids": [15, 22, 47],
+      "meta_title": "Nike Dunk Low Panda | ResellPiacenza",
+      "meta_description": "Acquista Nike Dunk Low Panda su ResellPiacenza. Taglie 40-45. Spedizione Italia.",
+      "focus_keyword": "nike dunk low panda",
+      "attributes": {
+        "pa_taglia": {
+          "options": ["40", "40.5", "41", "42", "42.5", "43", "44", "44.5", "45"],
+          "visible": true,
+          "variation": true
+        }
+      },
+      "variations": [
+        {
+          "attributes": { "pa_taglia": "40" },
+          "sku": "NK-DL-PANDA-T40",
+          "regular_price": "149.00",
+          "manage_stock": true,
+          "stock_quantity": 1,
+          "stock_status": "instock",
+          "status": "publish"
+        },
+        {
+          "attributes": { "pa_taglia": "40.5" },
+          "sku": "NK-DL-PANDA-T40.5",
+          "regular_price": "149.00",
+          "manage_stock": true,
+          "stock_quantity": 0,
+          "stock_status": "outofstock",
+          "status": "publish"
+        },
+        {
+          "attributes": { "pa_taglia": "41" },
+          "sku": "NK-DL-PANDA-T41",
+          "regular_price": "149.00",
+          "manage_stock": true,
+          "stock_quantity": 2,
+          "stock_status": "instock",
+          "status": "publish"
+        },
+        {
+          "attributes": { "pa_taglia": "42" },
+          "sku": "NK-DL-PANDA-T42",
+          "regular_price": "149.00",
+          "sale_price": "129.00",
+          "manage_stock": true,
+          "stock_quantity": 3,
+          "stock_status": "instock",
+          "status": "publish"
+        },
+        {
+          "attributes": { "pa_taglia": "42.5" },
+          "sku": "NK-DL-PANDA-T42.5",
+          "regular_price": "149.00",
+          "manage_stock": true,
+          "stock_quantity": 1,
+          "stock_status": "instock",
+          "status": "publish"
+        },
+        {
+          "attributes": { "pa_taglia": "43" },
+          "sku": "NK-DL-PANDA-T43",
+          "regular_price": "159.00",
+          "manage_stock": true,
+          "stock_quantity": 0,
+          "stock_status": "outofstock",
+          "status": "publish"
+        },
+        {
+          "attributes": { "pa_taglia": "44" },
+          "sku": "NK-DL-PANDA-T44",
+          "regular_price": "159.00",
+          "manage_stock": true,
+          "stock_quantity": 2,
+          "stock_status": "instock",
+          "status": "publish"
+        },
+        {
+          "attributes": { "pa_taglia": "44.5" },
+          "sku": "NK-DL-PANDA-T44.5",
+          "regular_price": "169.00",
+          "manage_stock": true,
+          "stock_quantity": 1,
+          "stock_status": "instock",
+          "status": "publish"
+        },
+        {
+          "attributes": { "pa_taglia": "45" },
+          "sku": "NK-DL-PANDA-T45",
+          "regular_price": "169.00",
+          "manage_stock": true,
+          "stock_quantity": 0,
+          "stock_status": "outofstock",
+          "status": "publish"
+        }
+      ]
+    }
+  ]
+}

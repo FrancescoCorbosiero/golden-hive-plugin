@@ -20,5 +20,6 @@ require_once RP_CM_DIR . 'includes/aggregator.php';
 require_once RP_CM_DIR . 'includes/tree-builder.php';
 require_once RP_CM_DIR . 'includes/exporter.php';
 require_once RP_CM_DIR . 'includes/importer.php';
+require_once RP_CM_DIR . 'includes/bulk-creator.php';
 require_once RP_CM_DIR . 'includes/ajax.php';
 require_once RP_CM_DIR . 'includes/admin-page.php';

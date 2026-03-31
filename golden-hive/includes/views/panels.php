@@ -96,6 +96,13 @@
         <div class="stat">Aggiornare: <span class="amber" id="gs-update">0</span></div>
         <div class="stat">Invariati: <span class="green" id="gs-unchanged">0</span></div>
     </div>
+    <div class="gs-sel-bar" id="gs-sel-bar" style="display:none">
+        <button class="btn btn-ghost" onclick="GH.gsSelectAll()">Tutti</button>
+        <button class="btn btn-ghost" onclick="GH.gsSelectNone()">Nessuno</button>
+        <button class="btn btn-ghost" onclick="GH.gsSelectByType('new')">Solo nuovi</button>
+        <button class="btn btn-ghost" onclick="GH.gsSelectByType('update')">Solo aggiorn.</button>
+        <span class="gs-sel-count" id="gs-sel-count"></span>
+    </div>
     <div class="preview-wrap" id="gs-preview"><div class="empty-state"><div class="empty-icon">&#9733;</div><div class="empty-text">Configura l'endpoint Golden Sneakers</div></div></div>
     <div class="confirm-bar" id="gs-confirm" style="display:none">
         <div class="summary-text" id="gs-confirm-text"></div>

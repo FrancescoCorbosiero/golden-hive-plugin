@@ -67,6 +67,9 @@
 #gh .ptable td{padding:6px 10px;font-family:var(--mono);font-size:11px;vertical-align:middle}
 #gh .st-new,.st-create{color:var(--acc)}#gh .st-update,.st-matched{color:var(--amb)}#gh .st-unchanged,.st-skipped{color:var(--dim)}
 #gh .st-created,.st-updated{color:var(--grn)}#gh .st-error{color:var(--red)}
+#gh .ptable .gs-check{width:14px;height:14px;accent-color:var(--acc);cursor:pointer;vertical-align:middle}
+#gh .gs-sel-bar{background:var(--s2);border-bottom:1px solid var(--b1);padding:6px 20px;display:flex;align-items:center;gap:10px;flex-shrink:0}
+#gh .gs-sel-bar .gs-sel-count{font-family:var(--mono);font-size:10px;color:var(--dim);margin-left:auto}
 #gh .changes-list{font-size:10px;color:var(--amb)}
 #gh .old-val{color:var(--red);text-decoration:line-through}
 #gh .new-val{color:var(--grn)}

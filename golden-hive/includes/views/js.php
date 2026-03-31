@@ -2,7 +2,7 @@ const GH = (function() {
     const AJAX  = '<?php echo esc_js( $ajax ); ?>';
     const NONCE = '<?php echo esc_js( $nonce ); ?>';
     let state = { catalogData:null, roundtripData:null, importJSON:null, orphans:[], selected:new Set(), bulkJSON:null };
-    let taxTree=[], taxSelected=null, taxCollapsed={}, gsProducts=null;
+    let taxTree=[], taxSelected=null, taxCollapsed={}, gsProducts=null, gsSelected=new Set(), gsDiffData=null;
 
     async function ajax(action, body={}) {
         const fd=new FormData(); fd.append('action',action); fd.append('nonce',NONCE);

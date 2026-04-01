@@ -198,3 +198,17 @@
     </div>
     <div class="wl-wrap" id="wl-area"><div class="empty-state"><div class="empty-icon">&#9737;</div><div class="empty-text">La whitelist protegge le immagini dall'eliminazione</div></div></div>
 </div>
+
+<!-- ═══ AUTO RESET ═══ -->
+<div class="panel" id="panel-autoreset" style="position:relative">
+    <div class="toolbar">
+        <button class="btn btn-primary" id="btn-ar-refresh" onclick="GH.arLoad()"><span class="spin" id="ar-spin" style="display:none"></span> Aggiorna</button>
+        <div class="filter-sep"></div>
+        <span class="filter-label">Variante ID</span>
+        <input class="cfg-input" id="ar-var-id" style="width:80px" placeholder="#ID" />
+        <span class="filter-label">Prezzo scontato</span>
+        <input class="cfg-input" id="ar-discount" style="width:80px" placeholder="es. 59" />
+        <button class="btn btn-warn" onclick="GH.arEnable()">Attiva reset</button>
+    </div>
+    <div class="preview-wrap" id="ar-list"><div class="empty-state"><div class="empty-icon">&#8634;</div><div class="empty-text">Nessun auto-reset attivo. Attiva su una variante per scontarla e ripristinare automaticamente dopo l'acquisto.</div></div></div>
+</div>

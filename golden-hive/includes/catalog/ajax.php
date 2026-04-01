@@ -271,6 +271,43 @@ add_action( 'wp_ajax_rp_cm_ajax_taxonomy_products', function () {
     wp_send_json_success( rp_cm_get_category_products( $term_id ) );
 } );
 
+// ── AUTO-RESET: ENABLE ─────────────────────────────────────
+add_action( 'wp_ajax_gh_ajax_auto_reset_enable', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $variation_id   = intval( $_POST['variation_id'] ?? 0 );
+    $discount_price = floatval( $_POST['discount_price'] ?? 0 );
+
+    if ( ! $variation_id ) { wp_send_json_error( 'variation_id mancante.' ); }
+    if ( $discount_price <= 0 ) { wp_send_json_error( 'discount_price non valido.' ); }
+
+    $result = gh_enable_auto_reset( $variation_id, $discount_price );
+    if ( is_wp_error( $result ) ) { wp_send_json_error( $result->get_error_message() ); }
+
+    wp_send_json_success( $result );
+} );
+
+// ── AUTO-RESET: DISABLE ────────────────────────────────────
+add_action( 'wp_ajax_gh_ajax_auto_reset_disable', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $variation_id = intval( $_POST['variation_id'] ?? 0 );
+    if ( ! $variation_id ) { wp_send_json_error( 'variation_id mancante.' ); }
+
+    gh_disable_auto_reset( $variation_id );
+    wp_send_json_success( [ 'disabled' => $variation_id ] );
+} );
+
+// ── AUTO-RESET: LIST ACTIVE ────────────────────────────────
+add_action( 'wp_ajax_gh_ajax_auto_reset_list', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    wp_send_json_success( gh_get_all_auto_resets() );
+} );
+
 // ── TAXONOMY: SET PRODUCT CATEGORIES ────────────────────────
 add_action( 'wp_ajax_rp_cm_ajax_taxonomy_assign', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );

@@ -15,8 +15,9 @@ defined( 'ABSPATH' ) || exit;
 define( 'GH_VERSION', '1.0.0' );
 define( 'GH_DIR',     plugin_dir_path( __FILE__ ) );
 
-// Core — shared product creation
+// Core — shared product creation + auto-reset
 require_once GH_DIR . 'includes/core/product-factory.php';
+require_once GH_DIR . 'includes/core/stock-reset.php';
 
 // Catalog — overview, taxonomy, export/import
 require_once GH_DIR . 'includes/catalog/reader.php';

@@ -49,6 +49,7 @@ function gh_render_page(): void {
             <div class="tab-section">TOOLS</div>
             <div class="tab-item" onclick="GH.switchTab('httpclient',this)"><span class="tab-icon">&#8680;</span><span class="tab-label">HTTP Client</span></div>
             <div class="tab-item" onclick="GH.switchTab('whitelist',this)"><span class="tab-icon">&#9737;</span><span class="tab-label">Whitelist</span></div>
+            <div class="tab-item" onclick="GH.switchTab('autoreset',this)"><span class="tab-icon">&#8634;</span><span class="tab-label">Auto Reset</span></div>
         </div>
 
         <div class="content">

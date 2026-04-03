@@ -42,6 +42,16 @@ require_once GH_DIR . 'includes/feeds/saved-endpoints.php';
 require_once GH_DIR . 'includes/feeds/feed-goldensneakers.php';
 require_once GH_DIR . 'includes/feeds/ajax.php';
 
+// Filter — composable query engine
+require_once GH_DIR . 'includes/filter/conditions.php';
+require_once GH_DIR . 'includes/filter/query-engine.php';
+require_once GH_DIR . 'includes/filter/ajax.php';
+
+// Bulk — actions + programmatic sorting
+require_once GH_DIR . 'includes/bulk/actions.php';
+require_once GH_DIR . 'includes/bulk/sorter.php';
+require_once GH_DIR . 'includes/bulk/ajax.php';
+
 // Email — contacts, mailer, campaigns
 require_once GH_DIR . 'includes/email/contacts.php';
 require_once GH_DIR . 'includes/email/mailer.php';

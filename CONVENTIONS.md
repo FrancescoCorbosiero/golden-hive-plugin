@@ -13,7 +13,8 @@ resellpiacenza-plugins/
 ├── rp-product-manager/          ← CRUD layer + Admin UI prodotti
 ├── rp-media-cleaner/            ← Scanner orfani + whitelist
 ├── rp-rest-caller/              ← HTTP client + feed importer
-└── rp-catalog-manager/          ← Export catalogo JSON (read-only)
+├── rp-catalog-manager/          ← Export catalogo JSON (read-only)
+└── rp-email-marketing/          ← Email marketing: test, campagne, scheduling
 ```
 
 Ogni plugin è **deployato e attivato indipendentemente** su WordPress. Un plugin non richiede che un altro sia presente, salvo dipendenze opzionali esplicite (vedi sezione Dipendenze).
@@ -27,6 +28,7 @@ Ogni plugin è **deployato e attivato indipendentemente** su WordPress. Un plugi
 | `rp-rest-caller` | `rp-product-manager` | Opzionale | Tab "Import" nascosto, messaggio esplicativo |
 | `rp-catalog-manager` | — | Nessuna | Standalone completo |
 | `rp-media-cleaner` | — | Nessuna | Standalone completo |
+| `rp-email-marketing` | — | Nessuna | Standalone (Hustle opzionale per contatti) |
 
 **Regola:** le dipendenze opzionali si verificano con `function_exists()`, mai con `is_plugin_active()`. Questo rende i plugin indipendenti dall'ordine di attivazione.
 
@@ -50,6 +52,7 @@ Ogni plugin ha un prefix univoco per evitare collisioni nel namespace globale PH
 | `rp-media-cleaner` | `rp_mc_` | `rp_mc_ajax_*` | `rp_mc_nonce` | `rp_mc_*` |
 | `rp-rest-caller` | `rp_rc_` | `rp_rc_ajax_*` | `rp_rc_nonce` | `rp_rc_*` |
 | `rp-catalog-manager` | `rp_cm_` | `rp_cm_ajax_*` | `rp_cm_nonce` | `rp_cm_*` |
+| `rp-email-marketing` | `rp_em_` | `rp_em_ajax_*` | `rp_em_nonce` | `rp_em_*` |
 
 ---
 
@@ -160,6 +163,7 @@ Ogni plugin scopla i suoi stili sotto il suo ID root per non interferire con WP 
 #rpmc  { ... }   /* rp-media-cleaner */
 #rprc  { ... }   /* rp-rest-caller */
 #rpcm  { ... }   /* rp-catalog-manager */
+#rpem  { ... }   /* rp-email-marketing */
 ```
 
 ### Componenti Riutilizzabili
@@ -231,6 +235,7 @@ Ogni plugin aggiunge una voce al menu principale (non sotto-menu):
 | `rp-media-cleaner` | RP Media | `dashicons-images-alt2` | 59 |
 | `rp-rest-caller` | RP REST | `dashicons-rest-api` | 60 |
 | `rp-catalog-manager` | RP Catalog | `dashicons-category` | 61 |
+| `rp-email-marketing` | RP Email | `dashicons-email-alt` | 62 |
 
 ---
 

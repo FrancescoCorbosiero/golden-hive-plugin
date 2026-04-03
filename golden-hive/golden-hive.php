@@ -42,5 +42,11 @@ require_once GH_DIR . 'includes/feeds/saved-endpoints.php';
 require_once GH_DIR . 'includes/feeds/feed-goldensneakers.php';
 require_once GH_DIR . 'includes/feeds/ajax.php';
 
+// Email — contacts, mailer, campaigns
+require_once GH_DIR . 'includes/email/contacts.php';
+require_once GH_DIR . 'includes/email/mailer.php';
+require_once GH_DIR . 'includes/email/campaigns.php';
+require_once GH_DIR . 'includes/email/ajax.php';
+
 // Admin UI
 require_once GH_DIR . 'includes/admin-page.php';

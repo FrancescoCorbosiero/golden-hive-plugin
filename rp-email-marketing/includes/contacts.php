@@ -12,6 +12,9 @@
 
 defined( 'ABSPATH' ) || exit;
 
+// Prevent double-loading when both golden-hive and rp-email-marketing are active.
+if ( function_exists( 'rp_em_get_hustle_modules' ) ) return;
+
 /**
  * Ritorna i moduli Hustle di tipo optin.
  *

@@ -6,6 +6,9 @@
 
 defined( 'ABSPATH' ) || exit;
 
+// Prevent double-loading when both golden-hive and rp-email-marketing are active.
+if ( has_action( 'wp_ajax_rp_em_ajax_send_test' ) ) return;
+
 // ── TEST EMAIL ──────────────────────────────────────────────────
 add_action( 'wp_ajax_rp_em_ajax_send_test', function () {
     check_ajax_referer( 'rp_em_nonce', 'nonce' );

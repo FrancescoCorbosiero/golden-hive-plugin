@@ -8,6 +8,9 @@
 
 defined( 'ABSPATH' ) || exit;
 
+// Prevent double-loading when both golden-hive and rp-email-marketing are active.
+if ( function_exists( 'rp_em_send_test_email' ) ) return;
+
 /**
  * Invia una email di test a un singolo destinatario.
  * Simile al test email di WooCommerce ma con template personalizzabile.

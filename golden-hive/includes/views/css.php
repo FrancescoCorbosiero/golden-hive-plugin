@@ -198,5 +198,22 @@
 #gh *::-webkit-scrollbar{width:4px;height:4px}
 #gh *::-webkit-scrollbar-thumb{background:var(--b2);border-radius:2px}
 #gh *{scrollbar-width:thin;scrollbar-color:var(--b2) transparent}
+/* Filter & Bulk — table */
+#gh .tbl-th{padding:6px 10px;text-align:left;font-family:var(--mono);font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--b2);white-space:nowrap}
+#gh .tbl-td{padding:5px 10px;color:var(--txt);white-space:nowrap}
+#gh .mono{font-family:var(--mono);font-size:11px}
+#gh .dim{color:var(--dim)}
+/* Badges */
+#gh .badge{display:inline-block;padding:1px 6px;border-radius:3px;font-family:var(--mono);font-size:8px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+#gh .badge-publish{background:rgba(34,199,139,.12);color:var(--grn)}
+#gh .badge-draft{background:rgba(95,100,128,.15);color:var(--dim)}
+#gh .badge-private{background:rgba(232,168,36,.12);color:var(--amb)}
+#gh .badge-variable{background:rgba(155,114,245,.12);color:var(--pur)}
+#gh .badge-simple{background:rgba(61,127,255,.12);color:var(--acc)}
+#gh .badge-instock{background:rgba(34,199,139,.12);color:var(--grn)}
+#gh .badge-outofstock{background:rgba(232,93,93,.12);color:var(--red)}
+#gh .badge-onbackorder{background:rgba(232,168,36,.12);color:var(--amb)}
+/* Condition rows */
+#gh .cond-row select,#gh .cond-row input{font-size:11px}
 @media(max-width:768px){#gh .tabs-col{width:48px}#gh .tab-label,#gh .tab-section{display:none}#gh .tab-item{justify-content:center;padding:10px 8px}#gh .summary-grid{grid-template-columns:repeat(2,1fr)}#gh .tax-detail{display:none!important}}
 </style>

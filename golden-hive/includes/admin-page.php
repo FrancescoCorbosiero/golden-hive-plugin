@@ -38,6 +38,9 @@ function gh_render_page(): void {
             <div class="tab-item active" onclick="GH.switchTab('overview',this)"><span class="tab-icon">&#9673;</span><span class="tab-label">Overview</span></div>
             <div class="tab-item" onclick="GH.switchTab('catalog',this)"><span class="tab-icon">&#9776;</span><span class="tab-label">Catalog</span></div>
             <div class="tab-item" onclick="GH.switchTab('taxonomy',this)"><span class="tab-icon">&#9698;</span><span class="tab-label">Taxonomy</span></div>
+            <div class="tab-section">OPERAZIONI</div>
+            <div class="tab-item" onclick="GH.switchTab('filter',this)"><span class="tab-icon">&#9881;</span><span class="tab-label">Filtra & Agisci</span></div>
+            <div class="tab-item" onclick="GH.switchTab('sorting',this)"><span class="tab-icon">&#8693;</span><span class="tab-label">Ordinamento</span></div>
             <div class="tab-section">MEDIA</div>
             <div class="tab-item" onclick="GH.switchTab('mapping',this)"><span class="tab-icon">&#9636;</span><span class="tab-label">Mapping</span></div>
             <div class="tab-item" onclick="GH.switchTab('browse',this)"><span class="tab-icon">&#9871;</span><span class="tab-label">Browse</span></div>
@@ -53,6 +56,7 @@ function gh_render_page(): void {
 
         <div class="content">
             <?php include GH_DIR . 'includes/views/panels.php'; ?>
+            <?php include GH_DIR . 'includes/views/panels-operations.php'; ?>
         </div>
     </div>
     <div id="gh-toasts" class="toast-wrap"></div>
@@ -61,6 +65,7 @@ function gh_render_page(): void {
 <script>
 <?php include GH_DIR . 'includes/views/js.php'; ?>
 <?php include GH_DIR . 'includes/views/js2.php'; ?>
+<?php include GH_DIR . 'includes/views/js-operations.php'; ?>
 </script>
 <?php
 }

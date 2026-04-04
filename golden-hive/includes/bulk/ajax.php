@@ -101,6 +101,63 @@ add_action( 'wp_ajax_gh_ajax_sort_apply', function () {
     wp_send_json_success( $result );
 } );
 
+// ── LOAD CATEGORY PRODUCTS (ordered) ────────────────────────────
+add_action( 'wp_ajax_gh_ajax_category_order', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $cat_id = intval( $_POST['category_id'] ?? 0 );
+    if ( ! $cat_id ) { wp_send_json_error( 'ID categoria mancante.' ); }
+
+    $products = gh_get_category_ordered_products( $cat_id );
+    $term     = get_term( $cat_id, 'product_cat' );
+
+    wp_send_json_success( [
+        'category_id'   => $cat_id,
+        'category_name' => $term ? $term->name : '#' . $cat_id,
+        'products'      => $products,
+        'count'         => count( $products ),
+    ] );
+} );
+
+// ── REPOSITION PREVIEW ──────────────────────────────────────────
+add_action( 'wp_ajax_gh_ajax_reposition_preview', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $cat_id    = intval( $_POST['category_id'] ?? 0 );
+    $operation = sanitize_key( $_POST['operation'] ?? '' );
+    $target    = intval( $_POST['target'] ?? 0 );
+    $move_raw  = stripslashes( $_POST['move_ids'] ?? '[]' );
+    $move_ids  = json_decode( $move_raw, true );
+
+    if ( ! $cat_id || ! $operation || ! is_array( $move_ids ) || empty( $move_ids ) ) {
+        wp_send_json_error( 'Parametri mancanti.' );
+    }
+
+    $result = gh_reposition_preview( $cat_id, $move_ids, $operation, $target );
+    wp_send_json_success( $result );
+} );
+
+// ── REPOSITION APPLY ────────────────────────────────────────────
+add_action( 'wp_ajax_gh_ajax_reposition_apply', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $cat_id    = intval( $_POST['category_id'] ?? 0 );
+    $operation = sanitize_key( $_POST['operation'] ?? '' );
+    $target    = intval( $_POST['target'] ?? 0 );
+    $move_raw  = stripslashes( $_POST['move_ids'] ?? '[]' );
+    $move_ids  = json_decode( $move_raw, true );
+
+    if ( ! $cat_id || ! $operation || ! is_array( $move_ids ) || empty( $move_ids ) ) {
+        wp_send_json_error( 'Parametri mancanti.' );
+    }
+
+    $result = gh_reposition_products( $cat_id, $move_ids, $operation, $target );
+    wp_send_json_success( $result );
+} );
+
 // ── HELPERS ─────────────────────────────────────────────────────
 
 /**

@@ -245,3 +245,245 @@ function gh_stock_sort_value( WC_Product $product ): int {
 
     return $product->get_stock_status() === 'instock' ? 1 : 0;
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BATCH REPOSITIONING — spostamento manuale di gruppi di prodotti
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Carica i prodotti di una categoria ordinati per menu_order corrente.
+ *
+ * @param int $category_id Term ID della categoria.
+ * @return array [ { id, name, sku, type, status, price, stock_status, menu_order, has_image } ]
+ */
+function gh_get_category_ordered_products( int $category_id ): array {
+
+    $term = get_term( $category_id, 'product_cat' );
+    if ( ! $term || is_wp_error( $term ) ) return [];
+
+    $query = new WC_Product_Query( [
+        'limit'    => -1,
+        'status'   => 'any',
+        'type'     => [ 'simple', 'variable' ],
+        'category' => [ $term->slug ],
+        'return'   => 'objects',
+        'orderby'  => 'menu_order',
+        'order'    => 'ASC',
+    ] );
+
+    $products = $query->get_products();
+    $result   = [];
+
+    foreach ( $products as $p ) {
+        $pid = $p->get_id();
+        // Only include products directly in this category
+        $cat_ids = wp_get_post_terms( $pid, 'product_cat', [ 'fields' => 'ids' ] );
+        if ( ! in_array( $category_id, $cat_ids, true ) ) continue;
+
+        $result[] = [
+            'id'           => $pid,
+            'name'         => $p->get_name(),
+            'sku'          => $p->get_sku(),
+            'type'         => $p->get_type(),
+            'status'       => $p->get_status(),
+            'price'        => $p->get_price(),
+            'stock_status' => $p->get_stock_status(),
+            'menu_order'   => (int) get_post_field( 'menu_order', $pid ),
+            'has_image'    => (bool) $p->get_image_id(),
+        ];
+    }
+
+    // Sort by menu_order, then by name for ties
+    usort( $result, function ( $a, $b ) {
+        $o = $a['menu_order'] <=> $b['menu_order'];
+        return $o !== 0 ? $o : strcmp( $a['name'], $b['name'] );
+    } );
+
+    return $result;
+}
+
+/**
+ * Riposiziona un gruppo di prodotti all'interno dell'ordine di una categoria.
+ *
+ * Operazioni supportate:
+ * - 'to_top':      sposta i selezionati in cima (prima di tutti gli altri)
+ * - 'to_bottom':   sposta i selezionati in fondo (dopo tutti gli altri)
+ * - 'to_position': sposta i selezionati alla posizione N (1-based)
+ * - 'after':       sposta i selezionati dopo il prodotto con ID $target_id
+ * - 'before':      sposta i selezionati prima del prodotto con ID $target_id
+ *
+ * La funzione ricostruisce l'ordine completo della categoria e scrive
+ * menu_order incrementale (10, 20, 30...) per tutti i prodotti coinvolti.
+ *
+ * @param int    $category_id  Term ID della categoria.
+ * @param int[]  $move_ids     ID dei prodotti da spostare.
+ * @param string $operation    'to_top' | 'to_bottom' | 'to_position' | 'after' | 'before'
+ * @param int    $target       Posizione (1-based) per 'to_position', oppure product ID per 'after'/'before'.
+ * @param int    $step         Incremento menu_order tra prodotti (default: 10).
+ * @return array {
+ *     total: int,
+ *     updated: int,
+ *     order: [ { id, name, old_order, new_order } ]
+ * }
+ */
+function gh_reposition_products( int $category_id, array $move_ids, string $operation, int $target = 0, int $step = 10 ): array {
+
+    $all = gh_get_category_ordered_products( $category_id );
+    if ( empty( $all ) ) {
+        return [ 'total' => 0, 'updated' => 0, 'order' => [] ];
+    }
+
+    $move_set   = array_flip( array_map( 'intval', $move_ids ) );
+    $moving     = [];
+    $remaining  = [];
+
+    // Separa prodotti da spostare dal resto
+    foreach ( $all as $p ) {
+        if ( isset( $move_set[ $p['id'] ] ) ) {
+            $moving[] = $p;
+        } else {
+            $remaining[] = $p;
+        }
+    }
+
+    if ( empty( $moving ) ) {
+        return [ 'total' => count( $all ), 'updated' => 0, 'order' => [] ];
+    }
+
+    // Ricostruisci l'ordine in base all'operazione
+    $new_order = match ( $operation ) {
+        'to_top'      => array_merge( $moving, $remaining ),
+        'to_bottom'   => array_merge( $remaining, $moving ),
+        'to_position' => gh_insert_at_position( $remaining, $moving, max( 1, $target ) ),
+        'after'       => gh_insert_relative( $remaining, $moving, $target, 'after' ),
+        'before'      => gh_insert_relative( $remaining, $moving, $target, 'before' ),
+        default       => $all,
+    };
+
+    // Scrivi menu_order e raccogli risultati
+    $updated   = 0;
+    $order_num = $step;
+    $result    = [];
+
+    foreach ( $new_order as $p ) {
+        $old = $p['menu_order'];
+        $new = $order_num;
+
+        if ( $old !== $new ) {
+            wp_update_post( [ 'ID' => $p['id'], 'menu_order' => $new ] );
+            $updated++;
+        }
+
+        $result[] = [
+            'id'        => $p['id'],
+            'name'      => $p['name'],
+            'sku'       => $p['sku'] ?? '',
+            'old_order' => $old,
+            'new_order' => $new,
+            'moved'     => isset( $move_set[ $p['id'] ] ),
+        ];
+
+        $order_num += $step;
+    }
+
+    return [
+        'total'   => count( $new_order ),
+        'updated' => $updated,
+        'order'   => $result,
+    ];
+}
+
+/**
+ * Anteprima del riposizionamento senza scrivere nulla.
+ */
+function gh_reposition_preview( int $category_id, array $move_ids, string $operation, int $target = 0, int $step = 10 ): array {
+
+    $all = gh_get_category_ordered_products( $category_id );
+    if ( empty( $all ) ) {
+        return [ 'total' => 0, 'order' => [] ];
+    }
+
+    $move_set  = array_flip( array_map( 'intval', $move_ids ) );
+    $moving    = [];
+    $remaining = [];
+
+    foreach ( $all as $p ) {
+        if ( isset( $move_set[ $p['id'] ] ) ) {
+            $moving[] = $p;
+        } else {
+            $remaining[] = $p;
+        }
+    }
+
+    $new_order = match ( $operation ) {
+        'to_top'      => array_merge( $moving, $remaining ),
+        'to_bottom'   => array_merge( $remaining, $moving ),
+        'to_position' => gh_insert_at_position( $remaining, $moving, max( 1, $target ) ),
+        'after'       => gh_insert_relative( $remaining, $moving, $target, 'after' ),
+        'before'      => gh_insert_relative( $remaining, $moving, $target, 'before' ),
+        default       => $all,
+    };
+
+    $result    = [];
+    $order_num = $step;
+
+    foreach ( $new_order as $p ) {
+        $result[] = [
+            'id'        => $p['id'],
+            'name'      => $p['name'],
+            'sku'       => $p['sku'] ?? '',
+            'old_order' => $p['menu_order'],
+            'new_order' => $order_num,
+            'moved'     => isset( $move_set[ $p['id'] ] ),
+        ];
+        $order_num += $step;
+    }
+
+    return [ 'total' => count( $new_order ), 'order' => $result ];
+}
+
+// ── REPOSITIONING HELPERS ─────────────────────────────────────────────────────
+
+/**
+ * Inserisce un blocco di prodotti alla posizione N (1-based) nella lista rimanente.
+ */
+function gh_insert_at_position( array $remaining, array $moving, int $position ): array {
+
+    $pos = min( $position - 1, count( $remaining ) );
+    $pos = max( 0, $pos );
+
+    $before = array_slice( $remaining, 0, $pos );
+    $after  = array_slice( $remaining, $pos );
+
+    return array_merge( $before, $moving, $after );
+}
+
+/**
+ * Inserisce un blocco di prodotti prima/dopo un prodotto specifico.
+ */
+function gh_insert_relative( array $remaining, array $moving, int $target_id, string $where ): array {
+
+    $result = [];
+    $inserted = false;
+
+    foreach ( $remaining as $p ) {
+        if ( $p['id'] === $target_id && $where === 'before' && ! $inserted ) {
+            $result   = array_merge( $result, $moving );
+            $inserted = true;
+        }
+
+        $result[] = $p;
+
+        if ( $p['id'] === $target_id && $where === 'after' && ! $inserted ) {
+            $result   = array_merge( $result, $moving );
+            $inserted = true;
+        }
+    }
+
+    // If target not found, append at end
+    if ( ! $inserted ) {
+        $result = array_merge( $result, $moving );
+    }
+
+    return $result;
+}

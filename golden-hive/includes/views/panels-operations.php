@@ -60,34 +60,59 @@
     </div>
 </div>
 
-<!-- ═══ SORTING ═══ -->
+<!-- ═══ SORTING / REPOSITIONING ═══ -->
 <div class="panel" id="panel-sorting" style="position:relative">
     <div class="toolbar" style="flex-wrap:wrap;gap:8px;">
-        <span class="filter-label">Regola</span>
-        <select class="filter-select" id="sort-rule" style="min-width:200px;">
-            <option value="name_asc">Nome A → Z</option>
-            <option value="name_desc">Nome Z → A</option>
-            <option value="price_asc">Prezzo crescente</option>
-            <option value="price_desc">Prezzo decrescente</option>
-            <option value="date_newest">Piu recenti prima</option>
-            <option value="date_oldest">Piu vecchi prima</option>
-            <option value="stock_first">In stock prima</option>
-            <option value="stock_last">Esauriti prima</option>
-            <option value="sku_asc">SKU A → Z</option>
-            <option value="variant_count_desc">Piu taglie prima</option>
-            <option value="sale_first">In saldo prima</option>
+        <span class="filter-label">Categoria</span>
+        <select class="filter-select" id="sort-category" style="min-width:200px;">
+            <option value="">— Seleziona categoria —</option>
         </select>
-        <span class="filter-label">Sorgente</span>
-        <select class="filter-select" id="sort-source" style="min-width:160px;">
-            <option value="all">Tutti i prodotti</option>
-            <option value="filtered">Solo filtrati (da tab Filtra)</option>
-        </select>
+        <button class="btn btn-primary" id="btn-sort-load" onclick="GH.loadCategoryOrder()"><span class="spin" id="sort-spin" style="display:none"></span> Carica</button>
         <div class="filter-sep"></div>
-        <button class="btn btn-ghost" onclick="GH.sortPreview()"><span class="spin" id="sort-spin" style="display:none"></span> Anteprima</button>
-        <button class="btn btn-primary" id="btn-sort-apply" onclick="GH.sortApply()" disabled>Applica Ordinamento</button>
+        <span class="filter-label" id="sort-count" style="color:var(--grn);font-weight:600;"></span>
+    </div>
+
+    <!-- Move action bar -->
+    <div id="sort-action-bar" style="display:none;padding:8px 16px;background:var(--s2);border-bottom:1px solid var(--b1);display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <span id="sort-sel-count" style="font-size:11px;color:var(--acc);font-weight:600;"></span>
+        <div class="filter-sep" style="height:16px;"></div>
+        <button class="btn btn-ghost btn-sm" onclick="GH.repoMove('to_top')">&#9650; In cima</button>
+        <button class="btn btn-ghost btn-sm" onclick="GH.repoMove('to_bottom')">&#9660; In fondo</button>
+        <div class="filter-sep" style="height:16px;"></div>
+        <span class="filter-label">Posizione</span>
+        <input type="number" class="filter-select" id="sort-pos" min="1" style="width:60px;" placeholder="N">
+        <button class="btn btn-ghost btn-sm" onclick="GH.repoMove('to_position')">Sposta</button>
+        <div class="filter-sep" style="height:16px;"></div>
+        <span class="filter-label">Dopo prodotto</span>
+        <select class="filter-select" id="sort-after-product" style="min-width:180px;">
+            <option value="">— Seleziona —</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" onclick="GH.repoMove('after')">Dopo</button>
+        <div class="filter-sep" style="height:16px;"></div>
+        <button class="btn btn-primary btn-sm" id="btn-repo-apply" onclick="GH.repoApply()" disabled>Applica</button>
+        <span id="sort-result" style="font-size:11px;color:var(--grn);"></span>
+    </div>
+
+    <!-- Auto-sort section (collapsible) -->
+    <div style="padding:4px 16px;border-bottom:1px solid var(--b1);">
+        <details>
+            <summary style="cursor:pointer;font-size:10px;color:var(--dim);font-family:var(--mono);letter-spacing:.05em;">ORDINAMENTO AUTOMATICO (regole)</summary>
+            <div style="padding:8px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <select class="filter-select" id="sort-rule" style="min-width:180px;">
+                    <option value="name_asc">Nome A-Z</option><option value="name_desc">Nome Z-A</option>
+                    <option value="price_asc">Prezzo cresc.</option><option value="price_desc">Prezzo decresc.</option>
+                    <option value="date_newest">Recenti prima</option><option value="date_oldest">Vecchi prima</option>
+                    <option value="stock_first">In stock prima</option><option value="stock_last">Esauriti prima</option>
+                    <option value="sku_asc">SKU A-Z</option><option value="variant_count_desc">Piu taglie prima</option>
+                    <option value="sale_first">In saldo prima</option>
+                </select>
+                <button class="btn btn-ghost btn-sm" onclick="GH.sortPreview()">Anteprima</button>
+                <button class="btn btn-primary btn-sm" id="btn-sort-apply" onclick="GH.sortApply()" disabled>Applica regola</button>
+            </div>
+        </details>
     </div>
 
     <div id="sort-results" style="flex:1;overflow-y:auto;padding:16px;">
-        <div class="empty-state"><div class="empty-icon">&#8693;</div><div class="empty-text">Seleziona una regola e premi "Anteprima"</div></div>
+        <div class="empty-state"><div class="empty-icon">&#8693;</div><div class="empty-text">Seleziona una categoria e carica l'ordine corrente</div></div>
     </div>
 </div>

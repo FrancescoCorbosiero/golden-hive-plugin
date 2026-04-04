@@ -414,49 +414,174 @@
         }[action] || {};
     }
 
-    // ── SORTING TAB ─────────────────────────────────────────────
+    // ── SORTING / REPOSITIONING TAB ────────────────────────────
     let sortIds = [];
+    let sortProducts = [];
+    let sortSelectedIds = new Set();
+    let sortCategoryId = 0;
+    let lastRepoOp = null;
 
-    GH.sortPreview = async function() {
-        const rule = document.getElementById('sort-rule').value;
-        const source = document.getElementById('sort-source').value;
+    // Load categories into the dropdown
+    async function loadSortCategories() {
+        await loadFilterMeta();
+        const sel = document.getElementById('sort-category');
+        if (!sel || !filterMeta) return;
+        sel.innerHTML = '<option value="">— Seleziona categoria —</option>';
+        (filterMeta.categories || []).forEach(function(c) {
+            sel.innerHTML += '<option value="' + c.id + '">' + (c.parent ? '  ' : '') + esc(c.name) + '</option>';
+        });
+    }
+
+    GH.loadCategoryOrder = async function() {
+        const catId = parseInt(document.getElementById('sort-category').value);
+        if (!catId) { GH.toast('Seleziona una categoria.', 'err'); return; }
+        sortCategoryId = catId;
         document.getElementById('sort-spin').style.display = '';
-        if (source === 'filtered' && filteredIds.length) { sortIds = filteredIds; }
-        else {
-            const r = await GH.ajax('gh_ajax_filter_ids', { conditions: JSON.stringify([{type:'status',operator:'is',value:'publish'}]) });
-            if (r.success) sortIds = r.data.product_ids;
-        }
-        const r = await GH.ajax('gh_ajax_sort_preview', { rule: rule, product_ids: JSON.stringify(sortIds) });
+        const r = await GH.ajax('gh_ajax_category_order', { category_id: catId });
         document.getElementById('sort-spin').style.display = 'none';
+        if (!r.success) { GH.toast(r.data || 'Errore.', 'err'); return; }
+        sortProducts = r.data.products;
+        sortIds = sortProducts.map(function(p) { return p.id; });
+        sortSelectedIds.clear();
+        document.getElementById('sort-count').textContent = r.data.count + ' prodotti in "' + r.data.category_name + '"';
+        renderSortList(sortProducts);
+        document.getElementById('sort-action-bar').style.display = r.data.count > 0 ? 'flex' : 'none';
+        populateAfterDropdown(sortProducts);
+    };
+
+    function renderSortList(products) {
+        const area = document.getElementById('sort-results');
+        if (!products.length) { area.innerHTML = '<div class="empty-state"><div class="empty-icon">&#8709;</div><div class="empty-text">Nessun prodotto in questa categoria.</div></div>'; return; }
+        let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+        html += '<tr style="background:var(--s1);position:sticky;top:0;z-index:10;">';
+        html += '<th class="tbl-th" style="width:28px;"><input type="checkbox" id="sort-chk-all" onchange="GH.sortToggleAll(this.checked)"></th>';
+        html += '<th class="tbl-th" style="width:36px;">#</th><th class="tbl-th">Nome</th><th class="tbl-th">SKU</th>';
+        html += '<th class="tbl-th">Prezzo</th><th class="tbl-th">Stock</th><th class="tbl-th">Ordine</th>';
+        html += '</tr>';
+        products.forEach(function(p, i) {
+            const sel = sortSelectedIds.has(p.id);
+            const moved = p.moved === true;
+            html += '<tr style="border-bottom:1px solid var(--b1);' + (moved ? 'background:rgba(61,127,255,.08);' : '') + (sel ? 'background:rgba(61,127,255,.12);' : '') + '">';
+            html += '<td class="tbl-td"><input type="checkbox" class="sort-chk"' + (sel ? ' checked' : '') + ' onchange="GH.sortToggleRow(' + p.id + ',this.checked)"></td>';
+            html += '<td class="tbl-td mono dim" style="font-size:10px;">' + (i + 1) + '</td>';
+            html += '<td class="tbl-td" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(p.name) + '</td>';
+            html += '<td class="tbl-td mono dim" style="font-size:10px;">' + esc(p.sku || '-') + '</td>';
+            html += '<td class="tbl-td mono">' + (p.price || '-') + '</td>';
+            html += '<td class="tbl-td"><span class="badge badge-' + p.stock_status + '">' + p.stock_status + '</span></td>';
+            html += '<td class="tbl-td mono dim">' + p.menu_order + '</td>';
+            html += '</tr>';
+        });
+        html += '</table>';
+        area.innerHTML = html;
+    }
+
+    function populateAfterDropdown(products) {
+        const sel = document.getElementById('sort-after-product');
+        sel.innerHTML = '<option value="">— Seleziona —</option>';
+        products.forEach(function(p) {
+            sel.innerHTML += '<option value="' + p.id + '">' + esc(p.name.substring(0, 40)) + ' (#' + p.id + ')</option>';
+        });
+    }
+
+    GH.sortToggleAll = function(checked) {
+        if (checked) sortProducts.forEach(function(p) { sortSelectedIds.add(p.id); });
+        else sortSelectedIds.clear();
+        document.querySelectorAll('.sort-chk').forEach(function(c) { c.checked = checked; });
+        updateSortSelCount();
+    };
+    GH.sortToggleRow = function(id, checked) {
+        if (checked) sortSelectedIds.add(id); else sortSelectedIds.delete(id);
+        updateSortSelCount();
+    };
+    function updateSortSelCount() {
+        const el = document.getElementById('sort-sel-count');
+        if (el) el.textContent = sortSelectedIds.size > 0 ? sortSelectedIds.size + ' selezionati' : '';
+    }
+
+    // ── REPOSITION MOVE ─────────────────────────────────────────
+    GH.repoMove = async function(operation) {
+        if (!sortCategoryId) return;
+        const moveIds = Array.from(sortSelectedIds);
+        if (!moveIds.length) { GH.toast('Seleziona almeno un prodotto.', 'err'); return; }
+
+        let target = 0;
+        if (operation === 'to_position') {
+            target = parseInt(document.getElementById('sort-pos').value || 0);
+            if (!target) { GH.toast('Inserisci una posizione.', 'err'); return; }
+        }
+        if (operation === 'after' || operation === 'before') {
+            target = parseInt(document.getElementById('sort-after-product').value || 0);
+            if (!target) { GH.toast('Seleziona un prodotto di riferimento.', 'err'); return; }
+        }
+
+        lastRepoOp = { operation: operation, target: target, move_ids: moveIds };
+
+        const r = await GH.ajax('gh_ajax_reposition_preview', {
+            category_id: sortCategoryId,
+            operation: operation,
+            target: target,
+            move_ids: JSON.stringify(moveIds),
+        });
+
+        if (!r.success) { GH.toast(r.data || 'Errore.', 'err'); return; }
+
+        // Show preview with moved items highlighted
+        renderSortList(r.data.order);
+        document.getElementById('btn-repo-apply').disabled = false;
+        document.getElementById('sort-result').textContent = 'Anteprima: ' + moveIds.length + ' prodotti spostati';
+        GH.toast('Anteprima generata. Clicca "Applica" per confermare.', 'inf');
+    };
+
+    GH.repoApply = async function() {
+        if (!lastRepoOp || !sortCategoryId) return;
+        if (!confirm('Applicare il riposizionamento di ' + lastRepoOp.move_ids.length + ' prodotti?')) return;
+
+        const btn = document.getElementById('btn-repo-apply');
+        btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
+
+        const r = await GH.ajax('gh_ajax_reposition_apply', {
+            category_id: sortCategoryId,
+            operation: lastRepoOp.operation,
+            target: lastRepoOp.target,
+            move_ids: JSON.stringify(lastRepoOp.move_ids),
+        });
+
+        btn.disabled = false; btn.textContent = 'Applica';
+
+        if (r.success) {
+            GH.toast(r.data.updated + '/' + r.data.total + ' aggiornati.', 'ok');
+            document.getElementById('sort-result').textContent = r.data.updated + ' aggiornati';
+            // Reload to show final state
+            GH.loadCategoryOrder();
+            lastRepoOp = null;
+        } else {
+            GH.toast(r.data || 'Errore.', 'err');
+        }
+    };
+
+    // ── AUTO SORT (rules, kept as secondary feature) ────────────
+    GH.sortPreview = async function() {
+        if (!sortCategoryId || !sortIds.length) { GH.toast('Carica prima una categoria.', 'err'); return; }
+        const rule = document.getElementById('sort-rule').value;
+        const r = await GH.ajax('gh_ajax_sort_preview', { rule: rule, product_ids: JSON.stringify(sortIds) });
         if (!r.success) { GH.toast(r.data||'Errore.','err'); return; }
-        renderSortPreview(r.data);
+        // Map preview to same format
+        const mapped = r.data.preview.map(function(p){ return { id:p.id, name:p.name, sku:p.sku, price:p.price||'', stock_status:p.status||'', menu_order:p.new_order, moved: p.old_order !== p.new_order }; });
+        renderSortList(mapped);
         document.getElementById('btn-sort-apply').disabled = false;
     };
 
     GH.sortApply = async function() {
+        if (!sortIds.length) return;
         const rule = document.getElementById('sort-rule').value;
-        if (!confirm('Applicare ordinamento "'+rule+'" a '+sortIds.length+' prodotti?')) return;
+        if (!confirm('Applicare regola "'+rule+'" a '+sortIds.length+' prodotti?')) return;
         const btn = document.getElementById('btn-sort-apply');
-        btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Applicazione...';
+        btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
         const r = await GH.ajax('gh_ajax_sort_apply', { rule: rule, product_ids: JSON.stringify(sortIds) });
-        btn.disabled = false; btn.textContent = 'Applica Ordinamento';
-        if (r.success) { GH.toast(r.data.updated+'/'+r.data.total+' riordinati.','ok'); renderSortPreview(r.data); }
+        btn.disabled = false; btn.textContent = 'Applica regola';
+        if (r.success) { GH.toast(r.data.updated+'/'+r.data.total+' riordinati.','ok'); GH.loadCategoryOrder(); }
         else GH.toast(r.data||'Errore.','err');
     };
-
-    function renderSortPreview(data) {
-        const area = document.getElementById('sort-results');
-        if (!data.preview.length) { area.innerHTML = '<div class="empty-state"><div class="empty-icon">&#8709;</div><div class="empty-text">Nessun prodotto.</div></div>'; return; }
-        let html = '<div style="margin-bottom:8px;font-size:12px;color:var(--dim);">'+data.total+' prodotti — <strong style="color:var(--acc);">'+data.rule+'</strong></div>';
-        html += '<table style="width:100%;border-collapse:collapse;font-size:12px;"><tr style="background:var(--s1);"><th class="tbl-th">#</th><th class="tbl-th">ID</th><th class="tbl-th">Nome</th><th class="tbl-th">SKU</th><th class="tbl-th">Attuale</th><th class="tbl-th">Nuovo</th></tr>';
-        data.preview.forEach(function(p,i) {
-            const ch = p.old_order !== p.new_order;
-            html += '<tr style="border-bottom:1px solid var(--b1);'+(ch?'background:rgba(61,127,255,.05);':'')+'"><td class="tbl-td mono dim">'+(i+1)+'</td><td class="tbl-td mono">'+p.id+'</td><td class="tbl-td">'+esc(p.name)+'</td><td class="tbl-td mono dim">'+esc(p.sku||'-')+'</td><td class="tbl-td mono">'+p.old_order+'</td><td class="tbl-td mono" style="color:'+(ch?'var(--acc)':'var(--dim)')+';">'+p.new_order+(ch?' &#8592;':'')+'</td></tr>';
-        });
-        if (data.total > data.preview.length) html += '<tr><td colspan="6" style="text-align:center;padding:8px;color:var(--dim);font-size:11px;">...e altri '+(data.total-data.preview.length)+'</td></tr>';
-        html += '</table>';
-        area.innerHTML = html;
-    }
 
     // ── HELPERS ──────────────────────────────────────────────────
     function esc(s) { if(!s)return''; const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
@@ -464,7 +589,11 @@
         return {'is':'uguale a','is_not':'diverso da','in':'uno di','not_in':'nessuno di','contains':'contiene','not_contains':'non contiene','starts_with':'inizia con','matches':'regex','gt':'maggiore di','lt':'minore di','between':'tra','after':'dopo','before':'prima','exists':'presente','not_exists':'assente','has_value':'ha valore','not_has_value':'non ha valore','has_attribute':'ha attributo','not_has_attribute':'non ha attributo'}[op]||op;
     }
     const origSwitch = GH.switchTab;
-    GH.switchTab = function(tab, el) { origSwitch(tab, el); if (tab==='filter'||tab==='sorting') loadFilterMeta(); };
+    GH.switchTab = function(tab, el) {
+        origSwitch(tab, el);
+        if (tab === 'filter' || tab === 'sorting') loadFilterMeta();
+        if (tab === 'sorting') loadSortCategories();
+    };
 })();
 
 // ═══ SAFE MEDIA CLEANUP ═════════════════════════════════════════════════════

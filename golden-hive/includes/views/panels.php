@@ -78,6 +78,28 @@
     <div class="gen-overlay" id="scan-overlay"><div class="gen-spinner"></div><div class="gen-text">Scansione in corso...</div></div>
 </div>
 
+<!-- ═══ SAFE CLEANUP ═══ -->
+<div class="panel" id="panel-safeclean" style="position:relative">
+    <div class="toolbar" style="flex-wrap:wrap;gap:8px;">
+        <button class="btn btn-primary" id="btn-safe-scan" onclick="GH.safeScan()"><span class="spin" id="safe-spin" style="display:none"></span> Scansione sicura</button>
+        <div class="filter-sep"></div>
+        <button class="btn btn-danger" id="btn-safe-delete" onclick="GH.safeDeleteAll()" style="display:none">Elimina non protetti</button>
+        <span id="safe-summary" style="font-family:var(--mono);font-size:11px;color:var(--dim);"></span>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:16px;" id="safe-results">
+        <div class="empty-state">
+            <div class="empty-icon">&#9889;</div>
+            <div class="empty-text">
+                Scansione sicura: confronta tutte le immagini con quelle usate dai prodotti WooCommerce.<br>
+                <span style="font-size:11px;color:var(--dim);margin-top:4px;display:block;">
+                    Le immagini dei prodotti sono <strong>sempre protette</strong>. Solo le immagini non usate possono essere eliminate.
+                </span>
+            </div>
+        </div>
+    </div>
+    <div class="gen-overlay" id="safe-overlay"><div class="gen-spinner"></div><div class="gen-text">Scansione sicura in corso...</div></div>
+</div>
+
 <!-- ═══ GS FEED ═══ -->
 <div class="panel" id="panel-gsfeed" style="position:relative">
     <div class="config-form">

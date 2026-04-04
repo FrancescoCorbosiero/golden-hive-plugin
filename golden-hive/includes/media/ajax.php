@@ -23,6 +23,55 @@ add_action( 'wp_ajax_rp_mm_ajax_scan', function () {
     ] );
 } );
 
+// ── SAFE SCAN: Product-image diff with full classification ──
+add_action( 'wp_ajax_rp_mm_ajax_safe_scan', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $result = rp_mm_safe_orphan_scan();
+
+    wp_send_json_success( $result );
+} );
+
+// ── SAFE BULK DELETE: Only non-protected images ─────────────
+add_action( 'wp_ajax_rp_mm_ajax_safe_delete', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $raw = stripslashes( $_POST['ids'] ?? '[]' );
+    $ids = json_decode( $raw, true );
+
+    if ( ! is_array( $ids ) || empty( $ids ) ) {
+        wp_send_json_error( 'Nessun ID fornito.' );
+    }
+
+    // Double-check safety: only delete IDs that are NOT product images
+    $product_image_ids = array_flip( rp_mm_get_product_image_ids() );
+    $blocked = [];
+    $safe    = [];
+
+    foreach ( $ids as $id ) {
+        $id = intval( $id );
+        if ( isset( $product_image_ids[ $id ] ) ) {
+            $blocked[] = $id;
+        } elseif ( rp_mm_is_whitelisted( $id ) ) {
+            $blocked[] = $id;
+        } else {
+            $safe[] = $id;
+        }
+    }
+
+    if ( empty( $safe ) ) {
+        wp_send_json_error( 'Tutti gli ID richiesti sono protetti (' . count( $blocked ) . ' bloccati). Nessuna eliminazione eseguita.' );
+    }
+
+    $result = rp_mm_bulk_delete( $safe );
+    $result['blocked_count'] = count( $blocked );
+    $result['blocked_ids']   = $blocked;
+
+    wp_send_json_success( $result );
+} );
+
 // ── BROWSE: Search media library ────────────────────────────
 add_action( 'wp_ajax_rp_mm_ajax_browse', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );

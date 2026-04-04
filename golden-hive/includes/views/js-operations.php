@@ -466,3 +466,145 @@
     const origSwitch = GH.switchTab;
     GH.switchTab = function(tab, el) { origSwitch(tab, el); if (tab==='filter'||tab==='sorting') loadFilterMeta(); };
 })();
+
+// ═══ SAFE MEDIA CLEANUP ═════════════════════════════════════════════════════
+
+(function(){
+    let safeData = null;
+
+    GH.safeScan = async function() {
+        const overlay = document.getElementById('safe-overlay');
+        const spin = document.getElementById('safe-spin');
+        overlay.classList.add('visible');
+        spin.style.display = '';
+
+        const r = await GH.ajax('rp_mm_ajax_safe_scan');
+
+        overlay.classList.remove('visible');
+        spin.style.display = 'none';
+
+        if (!r.success) { GH.toast(r.data || 'Errore scansione.', 'err'); return; }
+
+        safeData = r.data;
+        const s = r.data.summary;
+
+        document.getElementById('safe-summary').innerHTML =
+            '<span style="color:var(--grn);">' + s.protected_product + ' prodotti</span> · ' +
+            '<span style="color:var(--amb);">' + s.protected_whitelist + ' whitelist</span> · ' +
+            '<span style="color:var(--acc);">' + s.protected_other + ' altro</span> · ' +
+            '<span style="color:var(--red);">' + s.safe_to_delete + ' eliminabili (' + s.reclaimable_human + ')</span>';
+
+        document.getElementById('btn-safe-delete').style.display = s.safe_to_delete > 0 ? '' : 'none';
+
+        renderSafeResults(r.data);
+        GH.toast('Scansione: ' + s.total + ' immagini analizzate', 'ok');
+    };
+
+    function renderSafeResults(data) {
+        const area = document.getElementById('safe-results');
+        const s = data.summary;
+        const rpt = data.report;
+
+        let html = '';
+
+        // Summary cards
+        html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px;">';
+        html += safeCard('Totale media', s.total, 'var(--txt)');
+        html += safeCard('Protette (prodotti)', s.protected_product, 'var(--grn)');
+        html += safeCard('Protette (whitelist)', s.protected_whitelist, 'var(--amb)');
+        html += safeCard('Usate altrove', s.protected_other, 'var(--acc)');
+        html += safeCard('Eliminabili', s.safe_to_delete, 'var(--red)');
+        html += safeCard('Spazio recuperabile', s.reclaimable_human, 'var(--red)');
+        html += '</div>';
+
+        // Protected product images (collapsed by default)
+        if (rpt.protected_product.length) {
+            html += safeSection('protected_product', 'Immagini prodotti (PROTETTE)', rpt.protected_product, 'var(--grn)', true);
+        }
+
+        // Whitelist
+        if (rpt.protected_whitelist.length) {
+            html += safeSection('protected_wl', 'Whitelist (PROTETTE)', rpt.protected_whitelist, 'var(--amb)', true);
+        }
+
+        // Other content
+        if (rpt.protected_other.length) {
+            html += safeSection('protected_other', 'Usate in post/pagine (PROTETTE)', rpt.protected_other, 'var(--acc)', true);
+        }
+
+        // Safe to delete (expanded)
+        if (rpt.safe_to_delete.length) {
+            html += safeSection('safe_delete', 'ELIMINABILI — non usate da nessuna parte', rpt.safe_to_delete, 'var(--red)', false);
+        } else {
+            html += '<div style="padding:20px;text-align:center;color:var(--grn);font-size:13px;font-weight:600;">Nessuna immagine eliminabile. La media library e pulita!</div>';
+        }
+
+        area.innerHTML = html;
+    }
+
+    function safeCard(label, value, color) {
+        return '<div style="background:var(--s2);border:1px solid var(--b1);border-radius:6px;padding:12px;text-align:center;">'
+            + '<div style="font-family:var(--mono);font-size:18px;font-weight:600;color:' + color + ';">' + value + '</div>'
+            + '<div style="font-size:10px;color:var(--dim);margin-top:4px;text-transform:uppercase;letter-spacing:.05em;">' + label + '</div>'
+            + '</div>';
+    }
+
+    function safeSection(id, title, items, color, collapsed) {
+        let h = '<div style="margin-bottom:12px;border:1px solid var(--b1);border-radius:6px;overflow:hidden;">';
+        h += '<div style="padding:8px 12px;background:var(--s2);cursor:pointer;display:flex;align-items:center;gap:8px;" onclick="document.getElementById(\'sc-' + id + '\').style.display=document.getElementById(\'sc-' + id + '\').style.display===\'none\'?\'\':\' none\'">';
+        h += '<span style="color:' + color + ';font-size:11px;font-weight:600;">' + esc(title) + '</span>';
+        h += '<span style="font-family:var(--mono);font-size:10px;color:var(--dim);margin-left:auto;">' + items.length + ' immagini</span>';
+        h += '<span style="color:var(--dim);">' + (collapsed ? '\u25B6' : '\u25BC') + '</span>';
+        h += '</div>';
+        h += '<div id="sc-' + id + '" style="' + (collapsed ? 'display:none;' : '') + 'max-height:300px;overflow-y:auto;">';
+        h += '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
+        items.forEach(function(att) {
+            h += '<tr style="border-bottom:1px solid var(--b1);">';
+            h += '<td style="padding:4px 8px;width:40px;"><img src="' + (att.thumbnail_url || '') + '" style="width:32px;height:32px;object-fit:cover;border-radius:3px;background:var(--s3);"></td>';
+            h += '<td style="padding:4px 8px;font-family:var(--mono);font-size:10px;color:var(--dim);">' + att.id + '</td>';
+            h += '<td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(att.filename) + '</td>';
+            h += '<td style="padding:4px 8px;font-family:var(--mono);font-size:10px;color:var(--dim);">' + att.filesize_human + '</td>';
+            if (att.whitelist_reason) h += '<td style="padding:4px 8px;font-size:10px;color:var(--amb);">' + esc(att.whitelist_reason) + '</td>';
+            h += '</tr>';
+        });
+        h += '</table></div></div>';
+        return h;
+    }
+
+    GH.safeDeleteAll = async function() {
+        if (!safeData || !safeData.report.safe_to_delete.length) return;
+        const count = safeData.report.safe_to_delete.length;
+        const size = safeData.summary.reclaimable_human;
+
+        if (!confirm(
+            'ELIMINAZIONE SICURA\n\n' +
+            count + ' immagini (' + size + ') verranno eliminate.\n\n' +
+            'Queste immagini NON sono usate da:\n' +
+            '- Nessun prodotto WooCommerce\n' +
+            '- Nessun post/pagina\n' +
+            '- Nessun elemento in whitelist\n\n' +
+            'Procedere?'
+        )) return;
+
+        const ids = safeData.report.safe_to_delete.map(function(a) { return a.id; });
+        const btn = document.getElementById('btn-safe-delete');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spin"></span> Eliminazione...';
+
+        const r = await GH.ajax('rp_mm_ajax_safe_delete', { ids: JSON.stringify(ids) });
+
+        btn.disabled = false;
+        btn.textContent = 'Elimina non protetti';
+
+        if (r.success) {
+            const d = r.data;
+            GH.toast(d.deleted.length + ' eliminati, ' + d.freed_human + ' liberati' + (d.blocked_count ? ', ' + d.blocked_count + ' bloccati' : ''), 'ok', 5000);
+            // Re-scan
+            GH.safeScan();
+        } else {
+            GH.toast(r.data || 'Errore eliminazione.', 'err');
+        }
+    };
+
+    function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+})();

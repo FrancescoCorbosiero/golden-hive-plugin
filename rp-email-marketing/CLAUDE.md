@@ -3,6 +3,11 @@
 > Stai lavorando su **rp-email-marketing**. La root del tuo lavoro è `/rp-email-marketing/`.
 > Non toccare le altre cartelle del monorepo salvo indicazione esplicita.
 >
+> **NOTA:** I moduli backend (`contacts.php`, `mailer.php`, `campaigns.php`, `ajax.php`)
+> sono stati mergiati in **golden-hive** (`/golden-hive/includes/email/`). Le due copie
+> sono tenute in sync con guard `function_exists()` / `defined()` per la co-esistenza.
+> L'`admin-page.php` con UI standalone esiste solo in questo plugin (golden-hive ha la sua UI integrata).
+>
 > Ordine di lettura obbligatorio:
 > 1. Questo file (CLAUDE.md)
 > 2. `../CONVENTIONS.md` — convenzioni condivise tra tutti i plugin

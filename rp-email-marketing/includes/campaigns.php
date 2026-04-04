@@ -10,6 +10,9 @@
 
 defined( 'ABSPATH' ) || exit;
 
+// Prevent double-loading when both golden-hive and rp-email-marketing are active.
+if ( defined( 'RP_EM_CAMPAIGNS_KEY' ) ) return;
+
 const RP_EM_CAMPAIGNS_KEY  = 'rp_em_campaigns';
 const RP_EM_CRON_HOOK      = 'rp_em_cron_send_campaign';
 

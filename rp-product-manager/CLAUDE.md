@@ -3,6 +3,11 @@
 > Stai lavorando su **rp-product-manager**. La root del tuo lavoro è `/rp-product-manager/`.
 > Non toccare le altre cartelle del monorepo salvo indicazione esplicita.
 >
+> **NOTA:** I moduli core di questo plugin (`crud.php`, `variations.php`) sono stati
+> mergiati in **golden-hive** (`/golden-hive/includes/product/`). Le due copie sono
+> tenute in sync con guard `function_exists()` per la co-esistenza.
+> Per nuove funzionalità product-related, valutare se sviluppare direttamente in golden-hive.
+>
 > Ordine di lettura obbligatorio:
 > 1. Questo file (CLAUDE.md)
 > 2. `../CONVENTIONS.md` — convenzioni condivise tra tutti i plugin

@@ -10,14 +10,30 @@
 ```
 resellpiacenza-plugins/
 ├── CONVENTIONS.md               ← questo file
-├── rp-product-manager/          ← CRUD layer + Admin UI prodotti
-├── rp-media-cleaner/            ← Scanner orfani + whitelist
-├── rp-rest-caller/              ← HTTP client + feed importer
-├── rp-catalog-manager/          ← Export catalogo JSON (read-only)
-└── rp-email-marketing/          ← Email marketing: test, campagne, scheduling
+├── golden-hive/                 ← PLUGIN PRINCIPALE: suite unificata
+│   ├── golden-hive.php          ← Entry point
+│   └── includes/
+│       ├── product/             ← CRUD + varianti (da rp-product-manager)
+│       ├── core/                ← Product factory condiviso
+│       ├── catalog/             ← Catalogo, tassonomia, export/import
+│       ├── media/               ← Scanner, libreria, orfani, whitelist
+│       ├── feeds/               ← HTTP client, feed GoldenSneakers
+│       ├── filter/              ← Query engine composabile + condizioni
+│       ├── bulk/                ← Azioni bulk + ordinamento programmatico
+│       ├── email/               ← Contatti, mailer, campagne (da rp-email-marketing)
+│       ├── views/               ← CSS/JS asset per la UI admin
+│       └── admin-page.php       ← UI unificata con sidebar a tab
+├── rp-product-manager/          ← Standalone: CRUD prodotti (mergiato in golden-hive)
+├── rp-media-cleaner/            ← Standalone: scanner orfani + whitelist
+├── rp-rest-caller/              ← Standalone: HTTP client + feed importer
+├── rp-catalog-manager/          ← Standalone: export catalogo JSON
+└── rp-email-marketing/          ← Standalone: email marketing (mergiato in golden-hive)
 ```
 
-Ogni plugin è **deployato e attivato indipendentemente** su WordPress. Un plugin non richiede che un altro sia presente, salvo dipendenze opzionali esplicite (vedi sezione Dipendenze).
+**Golden Hive** è il plugin principale. Contiene tutti i moduli in un'unica UI unificata.
+I plugin `rp-*` standalone rimangono per deployment indipendente — ma le funzionalità core (product, email) sono mergiate in golden-hive.
+
+Ogni plugin è **deployato e attivato indipendentemente** su WordPress. Quando golden-hive e un plugin standalone sono entrambi attivi, le guard `function_exists()` / `defined()` prevengono il double-loading.
 
 ---
 
@@ -25,6 +41,7 @@ Ogni plugin è **deployato e attivato indipendentemente** su WordPress. Un plugi
 
 | Plugin | Dipende da | Tipo | Comportamento se assente |
 |---|---|---|---|
+| `golden-hive` | — | Nessuna | Standalone completo con tutti i moduli |
 | `rp-rest-caller` | `rp-product-manager` | Opzionale | Tab "Import" nascosto, messaggio esplicativo |
 | `rp-catalog-manager` | — | Nessuna | Standalone completo |
 | `rp-media-cleaner` | — | Nessuna | Standalone completo |
@@ -32,33 +49,37 @@ Ogni plugin è **deployato e attivato indipendentemente** su WordPress. Un plugi
 
 **Regola:** le dipendenze opzionali si verificano con `function_exists()`, mai con `is_plugin_active()`. Questo rende i plugin indipendenti dall'ordine di attivazione.
 
+**Co-esistenza:** quando golden-hive e un plugin standalone condividono gli stessi file (product, email), ogni file ha una guard all'inizio:
 ```php
-// CORRETTO
-if ( function_exists( 'rp_create_product' ) ) { ... }
-
-// SBAGLIATO
-if ( is_plugin_active( 'rp-product-manager/rp-product-manager.php' ) ) { ... }
+// Prevent double-loading
+if ( function_exists( 'rp_get_product' ) ) return;
 ```
 
 ---
 
 ## Prefix delle Funzioni PHP
 
-Ogni plugin ha un prefix univoco per evitare collisioni nel namespace globale PHP:
+Ogni plugin/modulo ha un prefix univoco per evitare collisioni nel namespace globale PHP:
 
-| Plugin | Prefix funzioni | Prefix AJAX actions | Prefix nonce | Prefix wp_options |
+| Plugin / Modulo | Prefix funzioni | Prefix AJAX actions | Prefix nonce | Prefix wp_options |
 |---|---|---|---|---|
+| `golden-hive` (filter/bulk) | `gh_` | `gh_ajax_*` | `gh_nonce` | `gh_*` |
+| `golden-hive` (product) | `rp_` | `rp_ajax_*` | `rp_crud_nonce` | `rp_*` |
+| `golden-hive` (catalog) | `rp_cm_` | `rp_cm_ajax_*` | `gh_nonce` | `rp_cm_*` |
+| `golden-hive` (email) | `rp_em_` | `rp_em_ajax_*` | `rp_em_nonce` | `rp_em_*` |
 | `rp-product-manager` | `rp_` | `rp_ajax_*` | `rp_crud_nonce` | `rp_*` |
 | `rp-media-cleaner` | `rp_mc_` | `rp_mc_ajax_*` | `rp_mc_nonce` | `rp_mc_*` |
 | `rp-rest-caller` | `rp_rc_` | `rp_rc_ajax_*` | `rp_rc_nonce` | `rp_rc_*` |
 | `rp-catalog-manager` | `rp_cm_` | `rp_cm_ajax_*` | `rp_cm_nonce` | `rp_cm_*` |
 | `rp-email-marketing` | `rp_em_` | `rp_em_ajax_*` | `rp_em_nonce` | `rp_em_*` |
 
+**Nota:** i moduli mergiati in golden-hive mantengono il prefix originale per compatibilità. I moduli nuovi (filter, bulk) usano il prefix `gh_`.
+
 ---
 
-## Struttura Interna di Ogni Plugin
+## Struttura Interna — Plugin Standalone
 
-Tutti i plugin seguono lo stesso schema:
+Tutti i plugin standalone seguono lo stesso schema:
 
 ```
 rp-{nome}/
@@ -69,8 +90,26 @@ rp-{nome}/
     └── admin-page.php   ← add_menu_page() + render HTML/CSS/JS.
 ```
 
+## Struttura Interna — Golden Hive
+
+```
+golden-hive/
+├── golden-hive.php          ← Entry point. Require di tutti i moduli.
+└── includes/
+    ├── product/             ← crud.php, variations.php
+    ├── core/                ← product-factory.php
+    ├── catalog/             ← reader, aggregator, tree-builder, exporter, importer, taxonomy-manager, bulk-creator, ajax
+    ├── media/               ← scanner, library, whitelist, cleaner, ajax
+    ├── feeds/               ← http-client, response-parser, saved-endpoints, feed-goldensneakers, ajax
+    ├── filter/              ← conditions.php, query-engine.php, ajax.php
+    ├── bulk/                ← actions.php, sorter.php, ajax.php
+    ├── email/               ← contacts.php, mailer.php, campaigns.php, ajax.php
+    ├── views/               ← css.php, panels.php, panels-operations.php, js.php, js2.php, js-operations.php
+    └── admin-page.php       ← UI unificata con sidebar e tab
+```
+
 **Regola di layer universale:**
-- I file di logica (non `ajax.php`, non `admin-page.php`) non contengono hook WordPress.
+- I file di logica (non `ajax.php`, non `admin-page.php`) non contengono hook WordPress (eccezione: cron handler in campaigns.php).
 - `ajax.php` non contiene logica business — solo sanitize, call, json response.
 - `admin-page.php` non sa come funziona WooCommerce — solo UI.
 
@@ -106,6 +145,7 @@ add_action( 'wp_ajax_{prefix}_ajax_{action}', function () {
 - **`array_key_exists()` per update selettivi**, non `isset()` — permette di passare `null` o `''` per cancellare un campo.
 - **Docblock su ogni funzione pubblica** con: descrizione, @param, @return, esempio d'uso.
 - **Nessun `var_dump()` o `error_log()` nel codice committato** salvo dietro flag `WP_DEBUG`.
+- **Double-load guard** su file condivisi tra golden-hive e plugin standalone.
 
 ---
 
@@ -114,14 +154,15 @@ add_action( 'wp_ajax_{prefix}_ajax_{action}', function () {
 - **Vanilla JS puro.** Nessun framework, nessun bundler, nessun npm.
 - **Pattern module IIFE** con API pubblica esplicita:
   ```javascript
-  const RPM = (function(){
+  const GH = (function(){
       // ... tutto privato
-      return { metodoPublico1, metodoPublico2 };
+      return { ajax, toast, switchTab, metodoPublico1 };
   })();
   ```
 - **Stato centralizzato** in oggetto `state = {}` — mai variabili globali sparse.
 - **AJAX sempre via `fetch()` con `FormData`** — mai jQuery `$.ajax()`.
 - **Nessun `console.log()` nel codice committato** — solo in development.
+- **Moduli aggiuntivi** (js-operations.php) estendono `GH` aggiungendo metodi dall'esterno.
 
 ---
 
@@ -159,6 +200,7 @@ Tutti i plugin condividono lo stesso design system. L'utente deve sentire che so
 ### Scope CSS
 Ogni plugin scopla i suoi stili sotto il suo ID root per non interferire con WP Admin:
 ```css
+#gh    { ... }   /* golden-hive (plugin principale) */
 #rpm   { ... }   /* rp-product-manager */
 #rpmc  { ... }   /* rp-media-cleaner */
 #rprc  { ... }   /* rp-rest-caller */
@@ -211,14 +253,21 @@ function hl(json) {
 CSS classi: `.jk` → `#a78bfa` (chiavi), `.js` → `--grn` (stringhe), `.jn` → `--amb` (numeri), `.jb` → `--acc` (boolean), `.jx` → `--red` (null)
 
 ### Layout Standard
-Ogni pagina admin usa questo layout base:
+Golden Hive usa un layout sidebar + content:
 ```
 ┌─────────────────────────────────────────┐
-│  Header bar (logo plugin + titolo)      │
+│  Header bar (logo + titolo)             │
 ├──────────┬──────────────────────────────┤
-│  Sidebar │  Content area               │
-│  (tabs)  │  (panel attivo)             │
-│          │                             │
+│ CATALOGO │  Content area               │
+│ Overview │  (panel attivo)             │
+│ Catalog  │                             │
+│ Taxonomy │                             │
+│ OPERAZ.  │  ← Filtra & Agisci         │
+│ Filtra   │  ← Ordinamento             │
+│ Ordina   │                             │
+│ MEDIA    │                             │
+│ IMPORT   │                             │
+│ TOOLS    │                             │
 └──────────┴──────────────────────────────┘
 ```
 Il root div occupa `100vh` con `margin: -10px -20px -20px -20px` per annullare il padding di WP Admin.
@@ -227,10 +276,9 @@ Il root div occupa `100vh` con `margin: -10px -20px -20px -20px` per annullare i
 
 ## Voce nel Menu WP Admin
 
-Ogni plugin aggiunge una voce al menu principale (non sotto-menu):
-
 | Plugin | Label menu | Dashicon | Posizione |
 |---|---|---|---|
+| `golden-hive` | Golden Hive | `dashicons-screenoptions` | 57 |
 | `rp-product-manager` | RP Products | `dashicons-sneakers` | 58 |
 | `rp-media-cleaner` | RP Media | `dashicons-images-alt2` | 59 |
 | `rp-rest-caller` | RP REST | `dashicons-rest-api` | 60 |
@@ -241,7 +289,7 @@ Ogni plugin aggiunge una voce al menu principale (non sotto-menu):
 
 ## Regex Condivisa: Attributo Taglia
 
-Usata da `rp-product-manager` e `rp-catalog-manager` per identificare l'attributo taglia nelle varianti WooCommerce:
+Usata da `rp-product-manager`, `rp-catalog-manager` e `golden-hive` per identificare l'attributo taglia nelle varianti WooCommerce:
 
 ```php
 const RP_SIZE_ATTRIBUTE_REGEX = '/(taglia|size|misura|eu|uk|us|fr|cm)/i';

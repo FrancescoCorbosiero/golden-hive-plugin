@@ -15,6 +15,10 @@ defined( 'ABSPATH' ) || exit;
 define( 'GH_VERSION', '1.0.0' );
 define( 'GH_DIR',     plugin_dir_path( __FILE__ ) );
 
+// Product — CRUD + variations (merged from rp-product-manager)
+require_once GH_DIR . 'includes/product/crud.php';
+require_once GH_DIR . 'includes/product/variations.php';
+
 // Core — shared product creation
 require_once GH_DIR . 'includes/core/product-factory.php';
 

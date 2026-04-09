@@ -62,5 +62,5 @@
     initBulkImport();
     initRtImport();
 
-    return{ajax,toast,switchTab,loadSummary,generateCatalog,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadMapping,browseMedia,debounceBrowse,showUsage,scanOrphans,toggleOrphan,orphanAction,bulkDeleteOrphans,loadWhitelist,removeWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute};
+    return{ajax,toast,esc,switchTab,loadSummary,generateCatalog,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadMapping,browseMedia,debounceBrowse,showUsage,scanOrphans,toggleOrphan,orphanAction,bulkDeleteOrphans,loadWhitelist,removeWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute};
 })();

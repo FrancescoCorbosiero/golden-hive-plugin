@@ -56,6 +56,11 @@ require_once GH_DIR . 'includes/bulk/actions.php';
 require_once GH_DIR . 'includes/bulk/sorter.php';
 require_once GH_DIR . 'includes/bulk/ajax.php';
 
+// Mapper — visual UI field mapper
+require_once GH_DIR . 'includes/mapper/engine.php';
+require_once GH_DIR . 'includes/mapper/storage.php';
+require_once GH_DIR . 'includes/mapper/ajax.php';
+
 // Email — contacts, mailer, campaigns
 require_once GH_DIR . 'includes/email/contacts.php';
 require_once GH_DIR . 'includes/email/mailer.php';

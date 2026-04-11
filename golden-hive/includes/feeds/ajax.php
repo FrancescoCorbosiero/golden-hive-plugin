@@ -394,7 +394,7 @@ add_action( 'wp_ajax_gh_ajax_csv_upload', function () {
         wp_send_json_error( 'Solo file .csv, .tsv o .txt sono accettati.' );
     }
 
-    // Move to uploads/golden-hive/csv/
+    // Move to uploads/golden-hive/csv/ (for feeds that reference the file)
     $upload_dir = wp_upload_dir();
     $csv_dir    = trailingslashit( $upload_dir['basedir'] ) . 'golden-hive/csv';
     wp_mkdir_p( $csv_dir );
@@ -408,7 +408,14 @@ add_action( 'wp_ajax_gh_ajax_csv_upload', function () {
 
     // Parse to return a preview of columns
     $rows = rp_rc_parse_csv( file_get_contents( $dest ) );
+
+    // Clean up: delete the file unless it will be used by a CSV feed with source_type=file
+    // The file path is returned so it CAN be saved in a feed config if needed,
+    // but we schedule cleanup of orphaned uploads older than 24h
+    gh_csv_schedule_cleanup();
+
     if ( is_wp_error( $rows ) ) {
+        @unlink( $dest );
         wp_send_json_error( $rows->get_error_message() );
     }
 

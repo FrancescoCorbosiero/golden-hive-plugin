@@ -63,10 +63,28 @@ function gh_create_variation( int $parent_id, array $data ): int {
     $v = new WC_Product_Variation();
     $v->set_parent_id( $parent_id );
 
-    // Attributi
+    // Attributi — for taxonomy attributes, WooCommerce expects the term slug
     $attrs = [];
     foreach ( $data['attributes'] ?? [] as $key => $val ) {
-        $attrs[ str_starts_with( $key, 'attribute_' ) ? $key : 'attribute_' . $key ] = $val;
+        $attr_key = str_starts_with( $key, 'attribute_' ) ? $key : 'attribute_' . $key;
+        $taxonomy = str_replace( 'attribute_', '', $attr_key );
+
+        if ( taxonomy_exists( $taxonomy ) ) {
+            // Ensure term exists and use its slug
+            $term = get_term_by( 'name', $val, $taxonomy );
+            if ( ! $term ) {
+                $term = get_term_by( 'slug', sanitize_title( $val ), $taxonomy );
+            }
+            if ( ! $term ) {
+                $inserted = wp_insert_term( $val, $taxonomy );
+                if ( ! is_wp_error( $inserted ) ) {
+                    $term = get_term( $inserted['term_id'], $taxonomy );
+                }
+            }
+            $attrs[ $attr_key ] = $term ? $term->slug : sanitize_title( $val );
+        } else {
+            $attrs[ $attr_key ] = $val;
+        }
     }
     $v->set_attributes( $attrs );
 
@@ -154,6 +172,12 @@ function gh_build_wc_attributes( array $attrs_json ): array {
         $attr = new WC_Product_Attribute();
 
         $tax_id = wc_attribute_taxonomy_id_by_name( $name );
+
+        // Auto-register attribute taxonomy if it doesn't exist
+        if ( ! $tax_id && str_starts_with( $name, 'pa_' ) ) {
+            $tax_id = gh_ensure_attribute_taxonomy( $name );
+        }
+
         if ( $tax_id ) {
             $attr->set_id( $tax_id );
             $attr->set_name( $name );
@@ -176,4 +200,41 @@ function gh_build_wc_attributes( array $attrs_json ): array {
     }
 
     return $wc_attrs;
+}
+
+/**
+ * Ensures a WooCommerce attribute taxonomy exists, creating it if needed.
+ *
+ * @param string $taxonomy_name Taxonomy name (e.g. "pa_taglia").
+ * @return int Attribute taxonomy ID, or 0 on failure.
+ */
+function gh_ensure_attribute_taxonomy( string $taxonomy_name ): int {
+    // Already registered?
+    $existing_id = wc_attribute_taxonomy_id_by_name( $taxonomy_name );
+    if ( $existing_id ) return $existing_id;
+
+    // Derive label from slug: "pa_taglia" → "Taglia"
+    $slug  = str_replace( 'pa_', '', $taxonomy_name );
+    $label = ucfirst( str_replace( [ '-', '_' ], ' ', $slug ) );
+
+    $id = wc_create_attribute( [
+        'name'         => $label,
+        'slug'         => $slug,
+        'type'         => 'select',
+        'order_by'     => 'menu_order',
+        'has_archives' => false,
+    ] );
+
+    if ( is_wp_error( $id ) ) return 0;
+
+    // Register the taxonomy immediately so it's available in the same request
+    register_taxonomy( $taxonomy_name, 'product', [
+        'labels'       => [ 'name' => $label ],
+        'hierarchical' => false,
+        'show_ui'      => false,
+        'query_var'    => true,
+        'rewrite'      => [ 'slug' => $slug ],
+    ] );
+
+    return $id;
 }

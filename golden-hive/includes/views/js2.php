@@ -83,13 +83,13 @@
         ov.classList.add('visible'); btn.disabled = true; sp.style.display = '';
         try {
             const url = document.getElementById('sf-url').value;
-            const r = await ajax('gh_ajax_sf_fetch', { url: url });
+            const r = await ajax('gh_ajax_fc_fetch', { url: url, config_id: 'stockfirmati' });
             if (!r.success) { toast('Errore: ' + r.data, 'err'); return; }
             sfProducts = r.data.products;
             document.getElementById('sf-csv-rows').textContent = r.data.csv_rows;
             toast(r.data.product_count + ' prodotti normalizzati', 'ok');
             ot.textContent = 'Confronto WooCommerce...';
-            const dr = await ajax('gh_ajax_sf_preview', { products: JSON.stringify(sfProducts) });
+            const dr = await ajax('gh_ajax_fc_preview', { products: JSON.stringify(sfProducts), config_id: 'stockfirmati' });
             if (!dr.success) { toast('Errore diff', 'err'); return; }
             sfRenderPreview(dr.data, r.data.csv_rows);
         } catch (e) { toast('Errore', 'err'); }
@@ -102,7 +102,8 @@
         ov.classList.add('visible');
         try {
             const fd = new FormData();
-            fd.append('action', 'gh_ajax_sf_upload');
+            fd.append('action', 'gh_ajax_fc_upload');
+            fd.append('config_id', 'stockfirmati');
             fd.append('nonce', NONCE);
             fd.append('csv_file', file);
             const resp = await fetch(AJAX, { method: 'POST', body: fd });
@@ -113,7 +114,7 @@
             document.getElementById('sf-csv-rows').textContent = r.data.csv_rows;
             toast(r.data.product_count + ' prodotti', 'ok');
             ot.textContent = 'Confronto WooCommerce...';
-            const dr = await ajax('gh_ajax_sf_preview', { products: JSON.stringify(sfProducts) });
+            const dr = await ajax('gh_ajax_fc_preview', { products: JSON.stringify(sfProducts), config_id: 'stockfirmati' });
             if (!dr.success) { toast('Errore diff', 'err'); return; }
             sfRenderPreview(dr.data, r.data.csv_rows);
         } catch (e) { toast('Errore', 'err'); }
@@ -182,7 +183,7 @@
         ot.textContent = 'Importazione ' + sel.length + ' prodott' + (sel.length === 1 ? 'o' : 'i') + '...';
         ov.classList.add('visible'); btn.disabled = true; sp.style.display = '';
         try {
-            const r = await ajax('gh_ajax_sf_apply', {
+            const r = await ajax('gh_ajax_fc_apply', { config_id: 'stockfirmati',
                 products: JSON.stringify(sel),
                 options: JSON.stringify({ create_new: true, update_existing: true, sideload_images: document.getElementById('sf-opt-images').checked })
             });

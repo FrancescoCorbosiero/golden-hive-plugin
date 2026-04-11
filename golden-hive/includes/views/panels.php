@@ -157,10 +157,30 @@
                 </div>
             </div>
             <div class="cfg-row">
-                <span class="cfg-label">Regola Mapper</span>
+                <span class="cfg-label">Mapping</span>
+                <select class="cfg-select" id="csv-mapping-mode" onchange="GH.csvToggleMapping()">
+                    <option value="auto">Auto-detect (da colonne CSV)</option>
+                    <option value="preset">Preset (configurazione pronta)</option>
+                    <option value="rule">Regola mapper (manuale)</option>
+                </select>
+            </div>
+            <div class="cfg-row" id="csv-preset-row" style="display:none">
+                <span class="cfg-label">Preset</span>
+                <select class="cfg-select" id="csv-preset" style="flex:1" onchange="GH.csvOnPresetChange()">
+                    <option value="">-- Seleziona preset --</option>
+                </select>
+                <span id="csv-preset-desc" style="font-family:var(--mono);font-size:10px;color:var(--dim);max-width:300px"></span>
+            </div>
+            <div class="cfg-row" id="csv-rule-row" style="display:none">
+                <span class="cfg-label">Regola</span>
                 <select class="cfg-select" id="csv-mapping-rule" style="flex:1">
                     <option value="">-- Seleziona regola --</option>
                 </select>
+            </div>
+            <!-- Mapping preview (auto-filled after Test/Upload) -->
+            <div id="csv-mapping-preview" style="display:none;padding:8px 0">
+                <div style="font-family:var(--mono);font-size:11px;color:var(--acc);margin-bottom:6px">Mapping rilevato:</div>
+                <div id="csv-mapping-preview-list" style="font-family:var(--mono);font-size:10px;color:var(--dim)"></div>
             </div>
             <div class="cfg-row">
                 <span class="cfg-label">Frequenza</span>

@@ -453,20 +453,18 @@ function gh_csv_run_feed( string $feed_id, array $options = [] ): array|WP_Error
         return new WP_Error( 'empty_csv', $result['message'] );
     }
 
-    // 2. Map via mapper rule
-    $rule_id = $feed['mapping_rule_id'] ?? '';
-    if ( ! $rule_id ) {
-        return new WP_Error( 'no_mapping', 'Nessuna regola di mapping configurata per questo feed.' );
+    // 2. Resolve mappings (supports 3 modes: preset, auto, rule)
+    $mappings = gh_csv_resolve_mappings( $feed, $rows );
+    if ( is_wp_error( $mappings ) ) {
+        gh_csv_update_last_run( $feed_id, [
+            'status' => 'error',
+            'error'  => $mappings->get_error_message(),
+            'ran_at' => wp_date( 'c' ),
+        ] );
+        return $mappings;
     }
 
-    $rule = gh_mapper_get_rule( $rule_id );
-    if ( ! $rule ) {
-        return new WP_Error( 'rule_not_found', 'Regola di mapping non trovata: ' . $rule_id );
-    }
-
-    $mappings   = $rule['mappings'] ?? [];
-    $items_path = $rule['items_path'] ?? '';
-    $products   = gh_mapper_apply_rule_bulk( $rows, $mappings, $items_path );
+    $products = gh_mapper_apply_rule_bulk( $rows, $mappings, '' );
 
     if ( empty( $products ) ) {
         $result = [
@@ -530,6 +528,61 @@ function gh_csv_update_last_run( string $feed_id, array $run_result ): void {
         }
     }
     update_option( GH_CSV_FEEDS_KEY, $feeds, false );
+}
+
+// ── Mapping Resolution ────────────────────────────────────
+
+/**
+ * Resolves the mappings array for a feed, supporting 3 modes:
+ *
+ * - "auto"   → auto-detect from CSV column names
+ * - "preset" → use a built-in preset config (resolved against actual columns)
+ * - "rule"   → use a saved mapper rule (from Mapper UI)
+ *
+ * @param array $feed Feed config.
+ * @param array $rows Parsed CSV rows (to extract column headers).
+ * @return array|WP_Error Mappings array ready for gh_mapper_apply_rule_bulk().
+ */
+function gh_csv_resolve_mappings( array $feed, array $rows ): array|WP_Error {
+    $mode      = $feed['mapping_mode'] ?? 'rule';
+    $columns   = ! empty( $rows ) ? array_keys( $rows[0] ) : [];
+
+    if ( $mode === 'auto' ) {
+        if ( empty( $columns ) ) {
+            return new WP_Error( 'no_columns', 'CSV senza colonne: impossibile auto-mappare.' );
+        }
+        $auto = gh_csv_auto_map( $columns );
+        if ( empty( $auto['mappings'] ) ) {
+            return new WP_Error( 'no_match', 'Nessuna colonna CSV corrisponde a campi WooCommerce.' );
+        }
+        return $auto['mappings'];
+    }
+
+    if ( $mode === 'preset' ) {
+        $preset_id = $feed['preset_id'] ?? '';
+        if ( ! $preset_id ) {
+            return new WP_Error( 'no_preset', 'Nessun preset selezionato.' );
+        }
+        $preset = gh_csv_get_preset( $preset_id );
+        if ( ! $preset ) {
+            return new WP_Error( 'preset_not_found', 'Preset non trovato: ' . $preset_id );
+        }
+        // Resolve preset aliases against actual CSV columns
+        return gh_csv_resolve_preset( $preset, $columns );
+    }
+
+    // mode === 'rule' (original behavior)
+    $rule_id = $feed['mapping_rule_id'] ?? '';
+    if ( ! $rule_id ) {
+        return new WP_Error( 'no_mapping', 'Nessuna regola di mapping configurata.' );
+    }
+
+    $rule = gh_mapper_get_rule( $rule_id );
+    if ( ! $rule ) {
+        return new WP_Error( 'rule_not_found', 'Regola di mapping non trovata: ' . $rule_id );
+    }
+
+    return $rule['mappings'] ?? [];
 }
 
 // ── WP Cron ───────────────────────────────────────────────

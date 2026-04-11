@@ -174,6 +174,8 @@ add_action( 'wp_ajax_gh_ajax_csv_save_feed', function () {
         'source_url'      => esc_url_raw( $data['source_url'] ?? '' ),
         'source_path'     => sanitize_text_field( $data['source_path'] ?? '' ),
         'source_headers'  => gh_csv_sanitize_headers( $data['source_headers'] ?? [] ),
+        'mapping_mode'    => sanitize_key( $data['mapping_mode'] ?? 'auto' ),
+        'preset_id'       => sanitize_text_field( $data['preset_id'] ?? '' ),
         'mapping_rule_id' => sanitize_text_field( $data['mapping_rule_id'] ?? '' ),
         'schedule'        => sanitize_key( $data['schedule'] ?? 'manual' ),
         'status'          => sanitize_key( $data['status'] ?? 'active' ),
@@ -317,6 +319,88 @@ add_action( 'wp_ajax_gh_ajax_csv_parse_url', function () {
         'rows'    => count( $rows ),
         'columns' => $columns,
         'sample'  => array_slice( $rows, 0, 3 ),
+    ] );
+} );
+
+// ── CSV PRESETS: List available presets ─────────────────────
+add_action( 'wp_ajax_gh_ajax_csv_list_presets', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $presets = gh_csv_get_presets();
+
+    // Return summary (without column_aliases to keep it light)
+    $summary = [];
+    foreach ( $presets as $p ) {
+        $summary[] = [
+            'id'          => $p['id'],
+            'name'        => $p['name'],
+            'description' => $p['description'],
+            'fields'      => count( $p['mappings'] ),
+        ];
+    }
+
+    wp_send_json_success( $summary );
+} );
+
+// ── CSV AUTO-MAP: Preview auto-mapping for given columns ───
+add_action( 'wp_ajax_gh_ajax_csv_auto_map', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $raw     = stripslashes( $_POST['columns'] ?? '[]' );
+    $columns = json_decode( $raw, true ) ?: [];
+
+    if ( empty( $columns ) ) {
+        wp_send_json_error( 'Nessuna colonna fornita.' );
+    }
+
+    $result = gh_csv_auto_map( $columns );
+
+    // Enrich with target field labels
+    $target_fields = gh_mapper_get_target_fields();
+    foreach ( $result['mappings'] as &$m ) {
+        $t = $m['target'] ?? '';
+        $m['target_label'] = $target_fields[ $t ]['label'] ?? $t;
+    }
+    unset( $m );
+
+    wp_send_json_success( $result );
+} );
+
+// ── CSV PRESET RESOLVE: Preview preset mapping for columns ─
+add_action( 'wp_ajax_gh_ajax_csv_resolve_preset', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $preset_id = sanitize_text_field( $_POST['preset_id'] ?? '' );
+    $raw       = stripslashes( $_POST['columns'] ?? '[]' );
+    $columns   = json_decode( $raw, true ) ?: [];
+
+    if ( empty( $preset_id ) ) {
+        wp_send_json_error( 'Preset ID mancante.' );
+    }
+
+    $preset = gh_csv_get_preset( $preset_id );
+    if ( ! $preset ) {
+        wp_send_json_error( 'Preset non trovato.' );
+    }
+
+    $resolved = gh_csv_resolve_preset( $preset, $columns );
+
+    // Enrich with target field labels
+    $target_fields = gh_mapper_get_target_fields();
+    foreach ( $resolved as &$m ) {
+        $t = $m['target'] ?? '';
+        $m['target_label'] = $target_fields[ $t ]['label'] ?? $t;
+    }
+    unset( $m );
+
+    wp_send_json_success( [
+        'preset_name' => $preset['name'],
+        'mappings'    => $resolved,
+        'total_in_preset' => count( $preset['mappings'] ),
+        'resolved'        => count( $resolved ),
     ] );
 } );
 

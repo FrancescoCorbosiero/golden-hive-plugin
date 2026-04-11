@@ -107,20 +107,39 @@
         csvShowEditor(r.data);
     }
 
+    let csvDetectedColumns = [];  // columns from last test/upload
+
     async function csvShowEditor(feed) {
         document.getElementById('csv-list-view').style.display = 'none';
         document.getElementById('csv-edit-view').style.display = '';
+        csvDetectedColumns = [];
 
-        // Load mapper rules into dropdown
-        const rr = await ajax('gh_ajax_mapper_list_rules');
-        const sel = document.getElementById('csv-mapping-rule');
-        sel.innerHTML = '<option value="">-- Seleziona regola --</option>';
+        // Load mapper rules + presets in parallel
+        const [rr, pr] = await Promise.all([
+            ajax('gh_ajax_mapper_list_rules'),
+            ajax('gh_ajax_csv_list_presets'),
+        ]);
+
+        const ruleSel = document.getElementById('csv-mapping-rule');
+        ruleSel.innerHTML = '<option value="">-- Seleziona regola --</option>';
         if (rr.success) {
             for (const rule of rr.data) {
                 const o = document.createElement('option');
                 o.value = rule.id;
                 o.textContent = rule.name + ' (' + rule.mapping_count + ' campi)';
-                sel.appendChild(o);
+                ruleSel.appendChild(o);
+            }
+        }
+
+        const presetSel = document.getElementById('csv-preset');
+        presetSel.innerHTML = '<option value="">-- Seleziona preset --</option>';
+        if (pr.success) {
+            for (const p of pr.data) {
+                const o = document.createElement('option');
+                o.value = p.id;
+                o.textContent = p.name + ' (' + p.fields + ' campi)';
+                o.dataset.desc = p.description;
+                presetSel.appendChild(o);
             }
         }
 
@@ -131,6 +150,8 @@
             document.getElementById('csv-source-type').value = feed.source_type || 'url';
             document.getElementById('csv-source-url').value = feed.source_url || '';
             document.getElementById('csv-file-name').textContent = feed.source_path || '';
+            document.getElementById('csv-mapping-mode').value = feed.mapping_mode || 'auto';
+            document.getElementById('csv-preset').value = feed.preset_id || '';
             document.getElementById('csv-mapping-rule').value = feed.mapping_rule_id || '';
             document.getElementById('csv-schedule').value = feed.schedule || 'manual';
             document.getElementById('csv-opt-create').checked = feed.options?.create_new !== false;
@@ -144,6 +165,8 @@
             document.getElementById('csv-source-type').value = 'url';
             document.getElementById('csv-source-url').value = '';
             document.getElementById('csv-file-name').textContent = '';
+            document.getElementById('csv-mapping-mode').value = 'auto';
+            document.getElementById('csv-preset').value = '';
             document.getElementById('csv-mapping-rule').value = '';
             document.getElementById('csv-schedule').value = 'manual';
             document.getElementById('csv-opt-create').checked = true;
@@ -153,7 +176,9 @@
             document.getElementById('btn-csv-delete').style.display = 'none';
         }
         csvToggleSource();
+        csvToggleMapping();
         document.getElementById('csv-source-preview').style.display = 'none';
+        document.getElementById('csv-mapping-preview').style.display = 'none';
         document.getElementById('csv-results-area').innerHTML = '';
     }
 
@@ -169,6 +194,14 @@
         document.getElementById('csv-source-file-row').style.display = type === 'file' ? '' : 'none';
     }
 
+    function csvToggleMapping() {
+        const mode = document.getElementById('csv-mapping-mode').value;
+        document.getElementById('csv-preset-row').style.display = mode === 'preset' ? '' : 'none';
+        document.getElementById('csv-rule-row').style.display = mode === 'rule' ? '' : 'none';
+        // Auto-show mapping preview if we have columns
+        if (csvDetectedColumns.length) csvShowMappingPreview();
+    }
+
     async function csvTestUrl() {
         const url = document.getElementById('csv-source-url').value;
         if (!url) { toast('Inserisci URL', 'err'); return; }
@@ -177,7 +210,9 @@
         try {
             const r = await ajax('gh_ajax_csv_parse_url', { url: url, headers: '{}' });
             if (!r.success) { toast('Errore: ' + r.data, 'err'); return; }
+            csvDetectedColumns = r.data.columns || [];
             csvShowSourcePreview(r.data);
+            csvShowMappingPreview();
             toast(r.data.rows + ' righe, ' + r.data.columns.length + ' colonne', 'ok');
         } catch (e) { toast('Errore connessione', 'err'); }
         finally { sp.style.display = 'none'; }
@@ -197,6 +232,47 @@
             }
             h += '</tbody></table>';
             document.getElementById('csv-sample-table').innerHTML = h;
+        }
+    }
+
+    async function csvShowMappingPreview() {
+        if (!csvDetectedColumns.length) { document.getElementById('csv-mapping-preview').style.display = 'none'; return; }
+        const mode = document.getElementById('csv-mapping-mode').value;
+        const previewEl = document.getElementById('csv-mapping-preview');
+        const listEl = document.getElementById('csv-mapping-preview-list');
+
+        if (mode === 'auto') {
+            const r = await ajax('gh_ajax_csv_auto_map', { columns: JSON.stringify(csvDetectedColumns) });
+            if (!r.success) { previewEl.style.display = 'none'; return; }
+            let h = '<table class="ptable" style="font-size:10px"><thead><tr><th>Colonna CSV</th><th>&rarr;</th><th>Campo WooCommerce</th><th>Trasformazioni</th></tr></thead><tbody>';
+            for (const m of r.data.mappings) {
+                if (!m.source) continue;
+                const trs = m.transforms?.map(t => t.type).join(', ') || '\u2013';
+                h += '<tr><td><strong>' + esc(m.source) + '</strong></td><td>&rarr;</td><td>' + esc(m.target_label || m.target) + '</td><td style="color:var(--dim)">' + esc(trs) + '</td></tr>';
+            }
+            if (r.data.unmatched_columns?.length) {
+                h += '<tr><td colspan="4" style="color:var(--amb);padding-top:8px">Non mappate: ' + esc(r.data.unmatched_columns.join(', ')) + '</td></tr>';
+            }
+            h += '</tbody></table>';
+            listEl.innerHTML = h;
+            previewEl.style.display = '';
+        } else if (mode === 'preset') {
+            const presetId = document.getElementById('csv-preset').value;
+            if (!presetId) { previewEl.style.display = 'none'; return; }
+            const r = await ajax('gh_ajax_csv_resolve_preset', { preset_id: presetId, columns: JSON.stringify(csvDetectedColumns) });
+            if (!r.success) { previewEl.style.display = 'none'; return; }
+            let h = '<div style="margin-bottom:6px;color:var(--acc)">' + esc(r.data.preset_name) + ' \u2014 ' + r.data.resolved + '/' + r.data.total_in_preset + ' campi risolti</div>';
+            h += '<table class="ptable" style="font-size:10px"><thead><tr><th>Colonna CSV</th><th>&rarr;</th><th>Campo WooCommerce</th><th>Trasformazioni</th></tr></thead><tbody>';
+            for (const m of r.data.mappings) {
+                if (!m.source) continue;
+                const trs = m.transforms?.map(t => t.type + (t.value ? '(' + t.value + ')' : '')).join(', ') || '\u2013';
+                h += '<tr><td><strong>' + esc(m.source) + '</strong></td><td>&rarr;</td><td>' + esc(m.target_label || m.target) + '</td><td style="color:var(--dim)">' + esc(trs) + '</td></tr>';
+            }
+            h += '</tbody></table>';
+            listEl.innerHTML = h;
+            previewEl.style.display = '';
+        } else {
+            previewEl.style.display = 'none';
         }
     }
 
@@ -222,15 +298,17 @@
             const r = await resp.json();
             if (!r.success) { toast('Errore: ' + r.data, 'err'); return; }
             document.getElementById('csv-file-name').textContent = r.data.filename + ' \u00b7 ' + r.data.rows + ' righe';
-            // Store path for saving
             document.getElementById('csv-file-input').dataset.path = r.data.path;
+            csvDetectedColumns = r.data.columns || [];
             csvShowSourcePreview(r.data);
+            csvShowMappingPreview();
             toast(r.data.rows + ' righe caricate', 'ok');
         } catch (e) { toast('Errore upload', 'err'); }
     }
 
     function csvBuildFeedData() {
         const sourceType = document.getElementById('csv-source-type').value;
+        const mappingMode = document.getElementById('csv-mapping-mode').value;
         return {
             id: csvCurrentFeed?.id || '',
             name: document.getElementById('csv-name').value || 'Feed CSV',
@@ -238,7 +316,9 @@
             source_url: sourceType === 'url' ? document.getElementById('csv-source-url').value : '',
             source_path: sourceType === 'file' ? (document.getElementById('csv-file-input').dataset.path || csvCurrentFeed?.source_path || '') : '',
             source_headers: {},
-            mapping_rule_id: document.getElementById('csv-mapping-rule').value,
+            mapping_mode: mappingMode,
+            preset_id: mappingMode === 'preset' ? document.getElementById('csv-preset').value : '',
+            mapping_rule_id: mappingMode === 'rule' ? document.getElementById('csv-mapping-rule').value : '',
             schedule: document.getElementById('csv-schedule').value,
             status: 'active',
             options: {
@@ -251,9 +331,10 @@
     async function csvSaveFeed() {
         const data = csvBuildFeedData();
         if (!data.name) { toast('Nome obbligatorio', 'err'); return; }
-        if (!data.mapping_rule_id) { toast('Seleziona una regola mapper', 'err'); return; }
         if (data.source_type === 'url' && !data.source_url) { toast('URL obbligatorio', 'err'); return; }
         if (data.source_type === 'file' && !data.source_path) { toast('Carica un file CSV', 'err'); return; }
+        if (data.mapping_mode === 'preset' && !data.preset_id) { toast('Seleziona un preset', 'err'); return; }
+        if (data.mapping_mode === 'rule' && !data.mapping_rule_id) { toast('Seleziona una regola mapper', 'err'); return; }
 
         const sp = document.getElementById('csv-save-spin');
         sp.style.display = '';
@@ -383,11 +464,18 @@
         finally { btn.disabled = false; btn.textContent = '\u25b6 Run'; }
     }
 
+    function csvOnPresetChange() {
+        const sel = document.getElementById('csv-preset');
+        const opt = sel.options[sel.selectedIndex];
+        document.getElementById('csv-preset-desc').textContent = opt?.dataset?.desc || '';
+        if (csvDetectedColumns.length) csvShowMappingPreview();
+    }
+
     // ── INIT
     (async function(){const r=await ajax('rp_cm_ajax_get_tree_paths');if(r.success){(r.data.brands||[]).forEach(b=>{['cat-filter-brand','rt-filter-brand'].forEach(id=>{const s=document.getElementById(id);if(s){const o=document.createElement('option');o.value=b;o.textContent=b;s.appendChild(o)}})})}})();
     initBulkImport();
     initRtImport();
     initCsvUpload();
 
-    return{ajax,toast,esc,switchTab,loadSummary,generateCatalog,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadMapping,browseMedia,debounceBrowse,showUsage,scanOrphans,toggleOrphan,orphanAction,bulkDeleteOrphans,loadWhitelist,removeWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList};
+    return{ajax,toast,esc,switchTab,loadSummary,generateCatalog,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadMapping,browseMedia,debounceBrowse,showUsage,scanOrphans,toggleOrphan,orphanAction,bulkDeleteOrphans,loadWhitelist,removeWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange};
 })();

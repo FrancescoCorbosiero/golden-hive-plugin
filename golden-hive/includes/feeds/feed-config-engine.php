@@ -633,15 +633,18 @@ function gh_fc_apply_transforms( mixed $value, array $transforms ): mixed {
         $param = $t['value'] ?? '';
 
         $value = match ( $type ) {
-            'multiply' => round( (float) $value * (float) $param, 4 ),
-            'add'      => round( (float) $value + (float) $param, 4 ),
-            'round'    => round( (float) $value, max( 0, (int) $param ) ),
-            'prefix'   => $param . (string) $value,
-            'suffix'   => (string) $value . $param,
-            'lowercase' => mb_strtolower( (string) $value ),
-            'uppercase' => mb_strtoupper( (string) $value ),
-            'trim'      => trim( (string) $value ),
-            default     => $value,
+            'multiply'   => round( (float) $value * (float) $param, 4 ),
+            'add'        => round( (float) $value + (float) $param, 4 ),
+            'round'      => round( (float) $value, max( 0, (int) $param ) ),
+            'markup'     => round( (float) $value * ( 1 + (float) $param / 100 ), 4 ),  // markup 30 → ×1.30
+            'vat_add'    => round( (float) $value * ( 1 + (float) $param / 100 ), 4 ),  // vat_add 22 → ×1.22
+            'percentage' => round( (float) $value * (float) $param / 100, 4 ),           // percentage 130 → ×1.30
+            'prefix'     => $param . (string) $value,
+            'suffix'     => (string) $value . $param,
+            'lowercase'  => mb_strtolower( (string) $value ),
+            'uppercase'  => mb_strtoupper( (string) $value ),
+            'trim'       => trim( (string) $value ),
+            default      => $value,
         };
     }
     return $value;

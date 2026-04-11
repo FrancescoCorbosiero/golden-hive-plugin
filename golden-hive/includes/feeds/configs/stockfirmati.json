@@ -21,9 +21,9 @@
     "_pricing_notes": {
         "STREET_PRICE": "Prezzo di listino (retail) → diventa regular_price (barrato)",
         "PRICE": "Costo all'ingrosso → moltiplicato per markup → diventa sale_price",
-        "markup_percentage": "Cambia il valore 'multiply' in sale_price.transforms",
-        "vat_percentage": "Cambia il valore 'multiply' in sale_price.transforms (es: per IVA 22% aggiungi step multiply 1.22)",
-        "example": "PRICE=24.89 × 3.5 markup = 87.12€ sale_price. STREET_PRICE=162.00€ = regular_price"
+        "markup_ui": "Il ricarico si configura dalla UI (campo Ricarico %). Es: 30 = +30%, 250 = ×3.5",
+        "vat_percentage": "Per IVA aggiungi uno step { type: vat_add, value: 22 } nelle transforms",
+        "example": "Con ricarico 250%: PRICE=24.89 × 3.5 = 87€ sale_price. STREET_PRICE=162€ = regular_price (barrato)"
     },
 
     "product": {

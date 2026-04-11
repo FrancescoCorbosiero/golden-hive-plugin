@@ -60,18 +60,21 @@
     // ── STOCKFIRMATI FEED ──────────────────────────────────
     let sfProducts = null, sfSelected = new Set(), sfDiffData = null, sfAllItems = [];
 
-    function sfGetMarkup() { return parseFloat(document.getElementById('sf-markup').value) || 3.5; }
+    function sfGetMarkup() {
+        const pct = parseFloat(document.getElementById('sf-markup').value) || 250;
+        return 1 + pct / 100;  // 30 → 1.3, 250 → 3.5
+    }
 
     async function sfLoadSettings() {
         const r = await ajax('gh_ajax_feed_load_settings', { feed_key: 'stockfirmati' });
         if (r.success && r.data) {
             if (r.data.url) document.getElementById('sf-url').value = r.data.url;
-            if (r.data.markup) document.getElementById('sf-markup').value = r.data.markup;
+            if (r.data.markup_pct != null) document.getElementById('sf-markup').value = r.data.markup_pct;
         }
     }
 
     async function sfSaveSettings() {
-        const s = { url: document.getElementById('sf-url').value, markup: sfGetMarkup() };
+        const s = { url: document.getElementById('sf-url').value, markup_pct: parseFloat(document.getElementById('sf-markup').value) || 250 };
         await ajax('gh_ajax_feed_save_settings', { feed_key: 'stockfirmati', settings: JSON.stringify(s) });
         toast('Impostazioni salvate', 'ok');
     }

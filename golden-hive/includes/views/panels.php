@@ -138,9 +138,9 @@
             </div>
         </div>
         <div class="cfg-row">
-            <span class="cfg-label">Ricarico</span>
-            <input class="cfg-input" id="sf-markup" type="number" step="0.1" min="1" value="3.5" style="max-width:80px" />
-            <span style="font-family:var(--mono);font-size:10px;color:var(--dim)">&times; costo ingrosso = prezzo vendita</span>
+            <span class="cfg-label">Ricarico %</span>
+            <input class="cfg-input" id="sf-markup" type="number" step="1" min="0" value="250" style="max-width:80px" />
+            <span style="font-family:var(--mono);font-size:10px;color:var(--dim)">% sul costo ingrosso (es: 30 = +30%, 250 = &times;3.5)</span>
             <div class="filter-sep"></div>
             <label style="font-family:var(--mono);font-size:10px;color:var(--dim);display:flex;align-items:center;gap:4px"><input type="checkbox" id="sf-opt-images" /> Sideload immagini</label>
         </div>

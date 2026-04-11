@@ -154,6 +154,12 @@ function gh_build_wc_attributes( array $attrs_json ): array {
         $attr = new WC_Product_Attribute();
 
         $tax_id = wc_attribute_taxonomy_id_by_name( $name );
+
+        // Auto-register attribute taxonomy if it doesn't exist
+        if ( ! $tax_id && str_starts_with( $name, 'pa_' ) ) {
+            $tax_id = gh_ensure_attribute_taxonomy( $name );
+        }
+
         if ( $tax_id ) {
             $attr->set_id( $tax_id );
             $attr->set_name( $name );
@@ -176,4 +182,41 @@ function gh_build_wc_attributes( array $attrs_json ): array {
     }
 
     return $wc_attrs;
+}
+
+/**
+ * Ensures a WooCommerce attribute taxonomy exists, creating it if needed.
+ *
+ * @param string $taxonomy_name Taxonomy name (e.g. "pa_taglia").
+ * @return int Attribute taxonomy ID, or 0 on failure.
+ */
+function gh_ensure_attribute_taxonomy( string $taxonomy_name ): int {
+    // Already registered?
+    $existing_id = wc_attribute_taxonomy_id_by_name( $taxonomy_name );
+    if ( $existing_id ) return $existing_id;
+
+    // Derive label from slug: "pa_taglia" → "Taglia"
+    $slug  = str_replace( 'pa_', '', $taxonomy_name );
+    $label = ucfirst( str_replace( [ '-', '_' ], ' ', $slug ) );
+
+    $id = wc_create_attribute( [
+        'name'         => $label,
+        'slug'         => $slug,
+        'type'         => 'select',
+        'order_by'     => 'menu_order',
+        'has_archives' => false,
+    ] );
+
+    if ( is_wp_error( $id ) ) return 0;
+
+    // Register the taxonomy immediately so it's available in the same request
+    register_taxonomy( $taxonomy_name, 'product', [
+        'labels'       => [ 'name' => $label ],
+        'hierarchical' => false,
+        'show_ui'      => false,
+        'query_var'    => true,
+        'rewrite'      => [ 'slug' => $slug ],
+    ] );
+
+    return $id;
 }

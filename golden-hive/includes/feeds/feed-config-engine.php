@@ -201,8 +201,16 @@ function gh_fc_transform_one( array $product, array $config ): array {
     $ic    = $config['images'] ?? [];
     $mc    = $config['meta'] ?? [];
 
-    $has_sizes = count( $sizes ) > 0;
-    $type      = $has_sizes ? 'variable' : 'simple';
+    // Determine product type: variable only if multiple sizes or a single non-universal size
+    $uni_sizes  = [ 'uni', 'unica', 'tu', 'os', 'one size', 'onesize', '' ];
+    $real_sizes = array_filter( $sizes, fn( $s ) => ! in_array( strtolower( trim( $s['size'] ) ), $uni_sizes, true ) );
+    $has_sizes  = count( $real_sizes ) > 0;
+    $type       = $has_sizes ? 'variable' : 'simple';
+
+    // For simple products with a UNI size, use that row's quantity
+    if ( ! $has_sizes && count( $sizes ) > 0 ) {
+        $sizes = [];  // Treat as simple — qty comes from the UNI row or parent
+    }
 
     // Resolve product fields
     $name = gh_fc_resolve_field( $pc['name'] ?? '', $row );
@@ -235,7 +243,11 @@ function gh_fc_transform_one( array $product, array $config ): array {
         $woo['regular_price']  = $reg_price > 0 ? (string) $reg_price : '';
         $woo['sale_price']     = $sale_price > 0 ? (string) $sale_price : '';
         $woo['manage_stock']   = true;
-        $total_qty = (int) ( $row[ $vc['quantity_column'] ?? 'QUANTITY' ] ?? 0 );
+        // Use total from original sizes (incl. UNI) if available, else from parent row
+        $orig_sizes = $product['sizes'] ?? [];
+        $total_qty  = $orig_sizes
+            ? array_sum( array_column( $orig_sizes, 'quantity' ) )
+            : (int) ( $row[ $vc['quantity_column'] ?? 'QUANTITY' ] ?? 0 );
         $woo['stock_quantity'] = $total_qty;
         $woo['stock_status']   = $total_qty > 0 ? 'instock' : 'outofstock';
     } else {

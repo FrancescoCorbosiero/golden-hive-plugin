@@ -620,3 +620,43 @@ function gh_csv_unschedule( string $feed_id ): void {
 add_action( GH_CSV_CRON_HOOK, function ( string $feed_id ) {
     gh_csv_run_feed( $feed_id );
 }, 10, 1 );
+
+// ── CSV Upload Cleanup ────────────────────────────────────
+
+/**
+ * Schedules a one-time cleanup of orphaned CSV uploads (older than 24h).
+ */
+function gh_csv_schedule_cleanup(): void {
+    if ( ! wp_next_scheduled( 'gh_csv_cleanup_uploads' ) ) {
+        wp_schedule_single_event( time() + DAY_IN_SECONDS, 'gh_csv_cleanup_uploads' );
+    }
+}
+
+/**
+ * Deletes CSV files in uploads/golden-hive/csv/ that are older than 24h
+ * and not referenced by any active CSV feed config.
+ */
+add_action( 'gh_csv_cleanup_uploads', function () {
+    $upload_dir = wp_upload_dir();
+    $csv_dir    = trailingslashit( $upload_dir['basedir'] ) . 'golden-hive/csv';
+
+    if ( ! is_dir( $csv_dir ) ) return;
+
+    // Collect paths referenced by active feeds
+    $active_paths = [];
+    foreach ( gh_csv_get_feeds() as $feed ) {
+        if ( ! empty( $feed['source_path'] ) ) {
+            $active_paths[] = basename( $feed['source_path'] );
+        }
+    }
+
+    $cutoff = time() - DAY_IN_SECONDS;
+
+    foreach ( glob( $csv_dir . '/*' ) as $file ) {
+        if ( ! is_file( $file ) ) continue;
+        if ( in_array( basename( $file ), $active_paths, true ) ) continue;
+        if ( filemtime( $file ) < $cutoff ) {
+            @unlink( $file );
+        }
+    }
+} );

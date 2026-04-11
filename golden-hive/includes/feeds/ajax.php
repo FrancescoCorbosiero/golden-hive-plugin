@@ -112,6 +112,32 @@ add_action( 'wp_ajax_rp_rc_ajax_gs_apply', function () {
     wp_send_json_success( $result );
 } );
 
+// ── FEED SETTINGS: Save/load per-feed UI settings ──────────
+add_action( 'wp_ajax_gh_ajax_feed_save_settings', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $feed_key = sanitize_key( $_POST['feed_key'] ?? '' );
+    $raw      = stripslashes( $_POST['settings'] ?? '{}' );
+    $settings = json_decode( $raw, true ) ?: [];
+
+    if ( ! $feed_key ) { wp_send_json_error( 'Feed key mancante.' ); }
+
+    update_option( 'gh_feed_settings_' . $feed_key, $settings, false );
+    wp_send_json_success( 'Salvato.' );
+} );
+
+add_action( 'wp_ajax_gh_ajax_feed_load_settings', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $feed_key = sanitize_key( $_POST['feed_key'] ?? '' );
+    if ( ! $feed_key ) { wp_send_json_error( 'Feed key mancante.' ); }
+
+    $settings = get_option( 'gh_feed_settings_' . $feed_key, [] );
+    wp_send_json_success( $settings );
+} );
+
 // ── CONFIG ENGINE: List available configs ───────────────────
 add_action( 'wp_ajax_gh_ajax_fc_list_configs', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
@@ -187,9 +213,14 @@ add_action( 'wp_ajax_gh_ajax_fc_preview', function () {
     $config_id = sanitize_text_field( $_POST['config_id'] ?? '' );
     $raw       = stripslashes( $_POST['products'] ?? '[]' );
     $products  = json_decode( $raw, true ) ?: [];
+    $markup    = (float) ( $_POST['markup'] ?? 0 );
 
     $config = gh_fc_load_config( $config_id );
     if ( ! $config ) { wp_send_json_error( 'Config non trovato.' ); }
+
+    if ( $markup > 0 ) {
+        $config = gh_fc_override_markup( $config, $markup );
+    }
 
     $woo_products = gh_fc_transform_all( $products, $config );
     $diff         = gh_csv_diff( $woo_products );
@@ -207,16 +238,21 @@ add_action( 'wp_ajax_gh_ajax_fc_apply', function () {
     $products  = json_decode( $raw, true ) ?: [];
     $raw_opts  = stripslashes( $_POST['options'] ?? '{}' );
     $options   = json_decode( $raw_opts, true ) ?: [];
+    $markup    = (float) ( $_POST['markup'] ?? 0 );
 
     $config = gh_fc_load_config( $config_id );
     if ( ! $config ) { wp_send_json_error( 'Config non trovato.' ); }
+
+    if ( $markup > 0 ) {
+        $config = gh_fc_override_markup( $config, $markup );
+    }
 
     $woo_products = gh_fc_transform_all( $products, $config );
     $diff         = gh_csv_diff( $woo_products );
 
     $create   = $options['create_new'] ?? true;
     $update   = $options['update_existing'] ?? true;
-    $sideload = $options['sideload_images'] ?? true;
+    $sideload = $options['sideload_images'] ?? false;
     $results  = [];
 
     if ( $create ) {
@@ -394,7 +430,7 @@ add_action( 'wp_ajax_gh_ajax_csv_upload', function () {
         wp_send_json_error( 'Solo file .csv, .tsv o .txt sono accettati.' );
     }
 
-    // Move to uploads/golden-hive/csv/
+    // Move to uploads/golden-hive/csv/ (for feeds that reference the file)
     $upload_dir = wp_upload_dir();
     $csv_dir    = trailingslashit( $upload_dir['basedir'] ) . 'golden-hive/csv';
     wp_mkdir_p( $csv_dir );
@@ -408,7 +444,14 @@ add_action( 'wp_ajax_gh_ajax_csv_upload', function () {
 
     // Parse to return a preview of columns
     $rows = rp_rc_parse_csv( file_get_contents( $dest ) );
+
+    // Clean up: delete the file unless it will be used by a CSV feed with source_type=file
+    // The file path is returned so it CAN be saved in a feed config if needed,
+    // but we schedule cleanup of orphaned uploads older than 24h
+    gh_csv_schedule_cleanup();
+
     if ( is_wp_error( $rows ) ) {
+        @unlink( $dest );
         wp_send_json_error( $rows->get_error_message() );
     }
 

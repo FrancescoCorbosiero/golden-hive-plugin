@@ -39,11 +39,12 @@ require_once GH_DIR . 'includes/media/whitelist.php';
 require_once GH_DIR . 'includes/media/cleaner.php';
 require_once GH_DIR . 'includes/media/ajax.php';
 
-// Feeds — HTTP client, GS feed, CSV feed
+// Feeds — HTTP client, GS feed, SF feed, CSV feed
 require_once GH_DIR . 'includes/feeds/http-client.php';
 require_once GH_DIR . 'includes/feeds/response-parser.php';
 require_once GH_DIR . 'includes/feeds/saved-endpoints.php';
 require_once GH_DIR . 'includes/feeds/feed-goldensneakers.php';
+require_once GH_DIR . 'includes/feeds/feed-stockfirmati.php';
 require_once GH_DIR . 'includes/feeds/csv-presets.php';
 require_once GH_DIR . 'includes/feeds/feed-csv.php';
 require_once GH_DIR . 'includes/feeds/ajax.php';

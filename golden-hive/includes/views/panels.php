@@ -113,6 +113,54 @@
     <div class="gen-overlay" id="gs-overlay"><div class="gen-spinner"></div><div class="gen-text" id="gs-overlay-text">Fetch...</div></div>
 </div>
 
+<!-- ═══ SF FEED (StockFirmati) ═══ -->
+<div class="panel" id="panel-sffeed" style="position:relative">
+    <div class="config-form">
+        <div class="cfg-row">
+            <span class="cfg-label">Sorgente</span>
+            <select class="cfg-select" id="sf-source-type" onchange="GH.sfToggleSource()">
+                <option value="url">URL remoto</option>
+                <option value="file">File caricato</option>
+            </select>
+        </div>
+        <div class="cfg-row" id="sf-source-url-row">
+            <span class="cfg-label">URL CSV</span>
+            <input class="cfg-input" id="sf-url" placeholder="https://www.stockfirmati.com/export/..." />
+            <button class="btn btn-primary" id="btn-sf-fetch" onclick="GH.sfFetch()"><span class="spin" id="sf-fetch-spin" style="display:none"></span> Fetch</button>
+        </div>
+        <div class="cfg-row" id="sf-source-file-row" style="display:none">
+            <span class="cfg-label">File</span>
+            <div class="drop-area" id="sf-drop" style="flex:1;min-height:40px;padding:8px" onclick="document.getElementById('sf-file-input').click()">
+                <input type="file" id="sf-file-input" accept=".csv,.tsv,.txt" style="display:none" />
+                <div class="drop-area-text" style="font-size:11px">Clicca o trascina il CSV StockFirmati</div>
+                <div class="drop-area-file" id="sf-file-name" style="font-size:11px"></div>
+            </div>
+        </div>
+    </div>
+    <div class="stats-bar" id="sf-stats" style="display:none">
+        <div class="stat">Righe CSV: <span class="blue" id="sf-csv-rows">0</span></div>
+        <div class="stat">Prodotti: <span class="blue" id="sf-total">0</span></div>
+        <div class="stat">Nuovi: <span class="blue" id="sf-new">0</span></div>
+        <div class="stat">Aggiornare: <span class="amber" id="sf-update">0</span></div>
+        <div class="stat">Invariati: <span class="green" id="sf-unchanged">0</span></div>
+    </div>
+    <div class="gs-sel-bar" id="sf-sel-bar" style="display:none">
+        <button class="btn btn-ghost" onclick="GH.sfSelectAll()">Tutti</button>
+        <button class="btn btn-ghost" onclick="GH.sfSelectNone()">Nessuno</button>
+        <button class="btn btn-ghost" onclick="GH.sfSelectByType('new')">Solo nuovi</button>
+        <button class="btn btn-ghost" onclick="GH.sfSelectByType('update')">Solo aggiorn.</button>
+        <span class="gs-sel-count" id="sf-sel-count"></span>
+    </div>
+    <div class="preview-wrap" id="sf-preview"><div class="empty-state"><div class="empty-icon">&#9783;</div><div class="empty-text">Configura l'endpoint StockFirmati (URL o file CSV)</div></div></div>
+    <div class="confirm-bar" id="sf-confirm" style="display:none">
+        <div class="summary-text" id="sf-confirm-text"></div>
+        <label style="font-family:var(--mono);font-size:10px;color:var(--dim);display:flex;align-items:center;gap:4px"><input type="checkbox" id="sf-opt-images" checked /> Sideload img</label>
+        <button class="btn btn-ghost" onclick="GH.sfCancel()">Annulla</button>
+        <button class="btn btn-warn" id="btn-sf-apply" onclick="GH.sfApply()"><span class="spin" id="sf-apply-spin" style="display:none"></span> Importa</button>
+    </div>
+    <div class="gen-overlay" id="sf-overlay"><div class="gen-spinner"></div><div class="gen-text" id="sf-overlay-text">Fetch...</div></div>
+</div>
+
 <!-- ═══ CSV FEED ═══ -->
 <div class="panel" id="panel-csvfeed" style="position:relative">
     <!-- Feed list / config view -->

@@ -620,6 +620,195 @@
         if (csvDetectedColumns.length) csvShowMappingPreview();
     }
 
+    // ── SCHEDULER ───────────────────────────────────────────
+    let schedEditingId = null;
+
+    async function schedLoad() {
+        const r = await ajax('gh_ajax_sched_list');
+        if (!r.success) { toast('Errore', 'err'); return; }
+        schedRenderList(r.data);
+    }
+
+    function schedRenderList(tasks) {
+        const area = document.getElementById('sched-task-list');
+        if (!tasks.length) {
+            area.innerHTML = '<div class="empty-state"><div class="empty-icon">&#9202;</div><div class="empty-text">Nessun task schedulato</div></div>';
+            return;
+        }
+        const schedLabels = { manual: 'Manuale', hourly: 'Ogni ora', twicedaily: '2x/giorno', daily: 'Giornaliero' };
+        let h = '<table class="ptable"><thead><tr><th>Stato</th><th>Nome</th><th>Tipo</th><th>Frequenza</th><th>Ultimo run</th><th>Risultato</th><th>Prossimo</th><th>Run</th><th></th></tr></thead><tbody>';
+        for (const t of tasks) {
+            const active = t.status === 'active';
+            const statusCls = active ? 'green' : 'amber';
+            const statusLbl = active ? '\u25cf Attivo' : '\u25cb Pausa';
+            const feedLbl = t.feed_type === 'config' ? (t.config_id || '?') : 'CSV #' + (t.csv_feed_id || '?');
+            const lastRun = t.last_run ? new Date(t.last_run).toLocaleString('it-IT') : '\u2013';
+            const lastOk = t.last_result?.status === 'completed';
+            const lastRes = t.last_result ? (lastOk ? '<span class="green">' + (t.last_result.created||0) + 'C ' + (t.last_result.updated||0) + 'U</span>' : '<span class="red">' + (t.last_result.error || 'errore') + '</span>') : '\u2013';
+            const nextRun = t.next_run ? new Date(t.next_run).toLocaleString('it-IT') : '\u2013';
+            const runN = t.run_count || 0;
+
+            h += '<tr>';
+            h += '<td class="' + statusCls + '" style="cursor:pointer" onclick="GH.schedToggle(\'' + t.id + '\')">' + statusLbl + '</td>';
+            h += '<td><strong>' + esc(t.name) + '</strong></td>';
+            h += '<td style="font-size:10px">' + esc(feedLbl) + '</td>';
+            h += '<td>' + (schedLabels[t.schedule] || t.schedule) + '</td>';
+            h += '<td style="font-size:10px">' + lastRun + '</td>';
+            h += '<td style="font-size:10px">' + lastRes + '</td>';
+            h += '<td style="font-size:10px">' + nextRun + '</td>';
+            h += '<td><button class="btn btn-ghost" onclick="GH.schedRunNow(\'' + t.id + '\',this)">&#9654;</button></td>';
+            h += '<td><button class="btn btn-ghost" onclick="GH.schedEditTask(\'' + t.id + '\')">&#9998;</button> <button class="btn btn-ghost" style="color:var(--red)" onclick="GH.schedDeleteTask(\'' + t.id + '\')">&#10005;</button></td>';
+            h += '</tr>';
+        }
+        h += '</tbody></table>';
+        area.innerHTML = h;
+    }
+
+    async function schedNewTask() {
+        schedEditingId = null;
+        document.getElementById('sched-editor-title').textContent = 'Nuovo task';
+        document.getElementById('sched-name').value = '';
+        document.getElementById('sched-feed-type').value = 'config';
+        document.getElementById('sched-source-url').value = '';
+        document.getElementById('sched-schedule').value = 'daily';
+        document.getElementById('sched-opt-create').checked = true;
+        document.getElementById('sched-opt-update').checked = true;
+        document.getElementById('sched-opt-images').checked = false;
+        await schedLoadDropdowns();
+        schedToggleFeedType();
+        document.getElementById('sched-editor').style.display = '';
+    }
+
+    async function schedEditTask(id) {
+        const r = await ajax('gh_ajax_sched_list');
+        if (!r.success) return;
+        const t = r.data.find(x => x.id === id);
+        if (!t) { toast('Non trovato', 'err'); return; }
+        schedEditingId = id;
+        document.getElementById('sched-editor-title').textContent = 'Modifica: ' + t.name;
+        document.getElementById('sched-name').value = t.name || '';
+        document.getElementById('sched-feed-type').value = t.feed_type || 'config';
+        document.getElementById('sched-source-url').value = t.source_url || '';
+        document.getElementById('sched-schedule').value = t.schedule || 'daily';
+        document.getElementById('sched-opt-create').checked = t.options?.create_new !== false;
+        document.getElementById('sched-opt-update').checked = t.options?.update_existing !== false;
+        document.getElementById('sched-opt-images').checked = !!t.options?.sideload_images;
+        await schedLoadDropdowns();
+        document.getElementById('sched-config-id').value = t.config_id || '';
+        document.getElementById('sched-csv-feed-id').value = t.csv_feed_id || '';
+        schedToggleFeedType();
+        document.getElementById('sched-editor').style.display = '';
+    }
+
+    async function schedLoadDropdowns() {
+        const [cr, fr] = await Promise.all([ajax('gh_ajax_fc_list_configs'), ajax('gh_ajax_csv_list_feeds')]);
+        const cs = document.getElementById('sched-config-id');
+        cs.innerHTML = '<option value="">-- Seleziona config --</option>';
+        if (cr.success) cr.data.forEach(c => { const o = document.createElement('option'); o.value = c.id; o.textContent = c.name; cs.appendChild(o); });
+        const fs = document.getElementById('sched-csv-feed-id');
+        fs.innerHTML = '<option value="">-- Seleziona CSV feed --</option>';
+        if (fr.success) fr.data.forEach(f => { const o = document.createElement('option'); o.value = f.id; o.textContent = f.name; fs.appendChild(o); });
+    }
+
+    function schedToggleFeedType() {
+        const ft = document.getElementById('sched-feed-type').value;
+        document.getElementById('sched-config-row').style.display = ft === 'config' ? '' : 'none';
+        document.getElementById('sched-csv-row').style.display = ft === 'csv_feed' ? '' : 'none';
+        document.getElementById('sched-source-row').style.display = ft === 'config' ? '' : 'none';
+    }
+
+    function schedCancelEdit() { document.getElementById('sched-editor').style.display = 'none'; }
+
+    async function schedSaveTask() {
+        const ft = document.getElementById('sched-feed-type').value;
+        const data = {
+            id: schedEditingId || '',
+            name: document.getElementById('sched-name').value,
+            feed_type: ft,
+            config_id: ft === 'config' ? document.getElementById('sched-config-id').value : '',
+            csv_feed_id: ft === 'csv_feed' ? document.getElementById('sched-csv-feed-id').value : '',
+            source_type: 'url',
+            source_url: document.getElementById('sched-source-url').value,
+            schedule: document.getElementById('sched-schedule').value,
+            status: 'active',
+            options: {
+                create_new: document.getElementById('sched-opt-create').checked,
+                update_existing: document.getElementById('sched-opt-update').checked,
+                sideload_images: document.getElementById('sched-opt-images').checked,
+            },
+        };
+        if (!data.name) { toast('Nome obbligatorio', 'err'); return; }
+        const sp = document.getElementById('sched-save-spin');
+        sp.style.display = '';
+        try {
+            const r = await ajax('gh_ajax_sched_save', { task: JSON.stringify(data) });
+            if (!r.success) { toast('Errore: ' + r.data, 'err'); return; }
+            toast('Task salvato', 'ok');
+            document.getElementById('sched-editor').style.display = 'none';
+            schedLoad();
+        } catch (e) { toast('Errore', 'err'); }
+        finally { sp.style.display = 'none'; }
+    }
+
+    async function schedDeleteTask(id) {
+        if (!confirm('Eliminare questo task?')) return;
+        const r = await ajax('gh_ajax_sched_delete', { task_id: id });
+        if (!r.success) { toast('Errore', 'err'); return; }
+        toast('Eliminato', 'ok');
+        schedLoad();
+    }
+
+    async function schedToggle(id) {
+        const r = await ajax('gh_ajax_sched_toggle', { task_id: id });
+        if (!r.success) { toast('Errore', 'err'); return; }
+        toast(r.data.status === 'active' ? 'Attivato' : 'In pausa', 'ok');
+        schedLoad();
+    }
+
+    async function schedRunNow(id, btn) {
+        btn.disabled = true; btn.textContent = '...';
+        try {
+            const r = await ajax('gh_ajax_sched_run', { task_id: id });
+            if (!r.success) { toast('Errore: ' + r.data, 'err'); return; }
+            const s = r.data.summary || {};
+            toast((s.created||0) + ' creati, ' + (s.updated||0) + ' aggiornati, ' + (s.errors||0) + ' errori', s.errors ? 'err' : 'ok', 5000);
+            schedLoad();
+        } catch (e) { toast('Errore', 'err'); }
+        finally { btn.disabled = false; btn.textContent = '\u25b6'; }
+    }
+
+    async function schedLoadLog() {
+        const r = await ajax('gh_ajax_sched_log', { limit: '50' });
+        if (!r.success) { toast('Errore', 'err'); return; }
+        const area = document.getElementById('sched-log-area');
+        if (!r.data.length) {
+            area.innerHTML = '<div class="empty-state"><div class="empty-icon">&#9776;</div><div class="empty-text">Nessun run registrato</div></div>';
+            return;
+        }
+        let h = '<table class="ptable"><thead><tr><th>Quando</th><th>Task</th><th>Stato</th><th>Creati</th><th>Aggiornati</th><th>Errori</th><th>Durata</th></tr></thead><tbody>';
+        for (const e of r.data) {
+            const cls = e.status === 'completed' ? '' : 'st-error';
+            h += '<tr class="' + cls + '">';
+            h += '<td style="font-size:10px">' + new Date(e.ran_at).toLocaleString('it-IT') + '</td>';
+            h += '<td>' + esc(e.task_name) + '</td>';
+            h += '<td class="' + (e.status === 'completed' ? 'green' : 'red') + '">' + esc(e.status) + '</td>';
+            h += '<td class="green">' + (e.created || 0) + '</td>';
+            h += '<td class="amber">' + (e.updated || 0) + '</td>';
+            h += '<td class="red">' + (e.errors || 0) + (e.error_msg ? ' \u2014 ' + esc(e.error_msg) : '') + '</td>';
+            h += '<td style="font-size:10px">' + (e.duration ? (e.duration / 1000).toFixed(1) + 's' : '\u2013') + '</td>';
+            h += '</tr>';
+        }
+        h += '</tbody></table>';
+        area.innerHTML = h;
+    }
+
+    async function schedClearLog() {
+        if (!confirm('Svuotare il log?')) return;
+        await ajax('gh_ajax_sched_clear_log');
+        toast('Log svuotato', 'ok');
+        schedLoadLog();
+    }
+
     // ── INIT
     (async function(){const r=await ajax('rp_cm_ajax_get_tree_paths');if(r.success){(r.data.brands||[]).forEach(b=>{['cat-filter-brand','rt-filter-brand'].forEach(id=>{const s=document.getElementById(id);if(s){const o=document.createElement('option');o.value=b;o.textContent=b;s.appendChild(o)}})})}})();
     initBulkImport();
@@ -627,5 +816,5 @@
     initSfUpload();
     initCsvUpload();
 
-    return{ajax,toast,esc,switchTab,loadSummary,generateCatalog,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadMapping,browseMedia,debounceBrowse,showUsage,scanOrphans,toggleOrphan,orphanAction,bulkDeleteOrphans,loadWhitelist,removeWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfApply,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange};
+    return{ajax,toast,esc,switchTab,loadSummary,generateCatalog,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadMapping,browseMedia,debounceBrowse,showUsage,scanOrphans,toggleOrphan,orphanAction,bulkDeleteOrphans,loadWhitelist,removeWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfApply,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog};
 })();

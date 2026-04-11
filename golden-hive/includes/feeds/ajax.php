@@ -532,6 +532,106 @@ add_action( 'wp_ajax_gh_ajax_csv_resolve_preset', function () {
     ] );
 } );
 
+// ── SCHEDULER: List tasks ──────────────────────────────────
+add_action( 'wp_ajax_gh_ajax_sched_list', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $tasks = gh_sched_get_tasks();
+
+    // Enrich with next_run
+    foreach ( $tasks as &$t ) {
+        $next = gh_sched_next_run( $t['id'] );
+        $t['next_run'] = $next ? gmdate( 'c', $next ) : null;
+    }
+    unset( $t );
+
+    wp_send_json_success( $tasks );
+} );
+
+// ── SCHEDULER: Save task ───────────────────────────────────
+add_action( 'wp_ajax_gh_ajax_sched_save', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $raw  = stripslashes( $_POST['task'] ?? '' );
+    $data = json_decode( $raw, true );
+    if ( ! is_array( $data ) ) { wp_send_json_error( 'JSON non valido.' ); }
+
+    $clean = [
+        'id'            => sanitize_text_field( $data['id'] ?? '' ),
+        'name'          => sanitize_text_field( $data['name'] ?? 'Import task' ),
+        'feed_type'     => sanitize_key( $data['feed_type'] ?? 'config' ),
+        'config_id'     => sanitize_text_field( $data['config_id'] ?? '' ),
+        'csv_feed_id'   => sanitize_text_field( $data['csv_feed_id'] ?? '' ),
+        'source_type'   => sanitize_key( $data['source_type'] ?? 'url' ),
+        'source_url'    => esc_url_raw( $data['source_url'] ?? '' ),
+        'source_path'   => sanitize_text_field( $data['source_path'] ?? '' ),
+        'schedule'      => sanitize_key( $data['schedule'] ?? 'manual' ),
+        'status'        => sanitize_key( $data['status'] ?? 'active' ),
+        'options'       => [
+            'create_new'      => ! empty( $data['options']['create_new'] ?? true ),
+            'update_existing' => ! empty( $data['options']['update_existing'] ?? true ),
+            'sideload_images' => ! empty( $data['options']['sideload_images'] ?? false ),
+        ],
+    ];
+
+    wp_send_json_success( gh_sched_save_task( $clean ) );
+} );
+
+// ── SCHEDULER: Delete task ─────────────────────────────────
+add_action( 'wp_ajax_gh_ajax_sched_delete', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $id = sanitize_text_field( $_POST['task_id'] ?? '' );
+    if ( ! gh_sched_delete_task( $id ) ) { wp_send_json_error( 'Non trovato.' ); }
+    wp_send_json_success( 'Eliminato.' );
+} );
+
+// ── SCHEDULER: Toggle active/paused ────────────────────────
+add_action( 'wp_ajax_gh_ajax_sched_toggle', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $id   = sanitize_text_field( $_POST['task_id'] ?? '' );
+    $task = gh_sched_toggle_task( $id );
+    if ( ! $task ) { wp_send_json_error( 'Non trovato.' ); }
+    wp_send_json_success( $task );
+} );
+
+// ── SCHEDULER: Run now ─────────────────────────────────────
+add_action( 'wp_ajax_gh_ajax_sched_run', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $id     = sanitize_text_field( $_POST['task_id'] ?? '' );
+    $result = gh_sched_run_task( $id );
+
+    if ( is_wp_error( $result ) ) {
+        wp_send_json_error( $result->get_error_message() );
+    }
+    wp_send_json_success( $result );
+} );
+
+// ── SCHEDULER: Get log ─────────────────────────────────────
+add_action( 'wp_ajax_gh_ajax_sched_log', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $limit = (int) ( $_POST['limit'] ?? 50 );
+    wp_send_json_success( gh_sched_get_log( $limit ) );
+} );
+
+// ── SCHEDULER: Clear log ───────────────────────────────────
+add_action( 'wp_ajax_gh_ajax_sched_clear_log', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    gh_sched_clear_log();
+    wp_send_json_success( 'Log svuotato.' );
+} );
+
 /**
  * Sanitizes HTTP headers array.
  */

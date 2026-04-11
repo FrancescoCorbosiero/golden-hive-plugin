@@ -324,6 +324,75 @@
     <div class="gen-overlay" id="rt-overlay"><div class="gen-spinner"></div><div class="gen-text" id="rt-overlay-text">...</div></div>
 </div>
 
+<!-- ═══ SCHEDULER ═══ -->
+<div class="panel" id="panel-scheduler" style="position:relative">
+    <div class="toolbar">
+        <button class="btn btn-primary" id="btn-sched-new" onclick="GH.schedNewTask()">+ Nuovo task</button>
+        <div class="filter-sep"></div>
+        <button class="btn btn-ghost" onclick="GH.schedLoad()">Aggiorna</button>
+    </div>
+    <div class="preview-wrap" id="sched-task-list">
+        <div class="empty-state"><div class="empty-icon">&#9202;</div><div class="empty-text">Nessun task schedulato.<br>Crea un task per importare automaticamente da feed esterni.</div></div>
+    </div>
+
+    <!-- Task editor modal (inline) -->
+    <div id="sched-editor" style="display:none;padding:16px;border-top:1px solid var(--brd)">
+        <div style="font-family:var(--mono);font-size:12px;font-weight:500;margin-bottom:12px" id="sched-editor-title">Nuovo task</div>
+        <div class="config-form">
+            <div class="cfg-row"><span class="cfg-label">Nome</span><input class="cfg-input" id="sched-name" placeholder="Es: Import StockFirmati giornaliero" /></div>
+            <div class="cfg-row">
+                <span class="cfg-label">Tipo feed</span>
+                <select class="cfg-select" id="sched-feed-type" onchange="GH.schedToggleFeedType()">
+                    <option value="config">Config file (JSON)</option>
+                    <option value="csv_feed">CSV Feed (pipeline generica)</option>
+                </select>
+            </div>
+            <div class="cfg-row" id="sched-config-row">
+                <span class="cfg-label">Config</span>
+                <select class="cfg-select" id="sched-config-id" style="flex:1"><option value="">-- Seleziona --</option></select>
+            </div>
+            <div class="cfg-row" id="sched-csv-row" style="display:none">
+                <span class="cfg-label">CSV Feed</span>
+                <select class="cfg-select" id="sched-csv-feed-id" style="flex:1"><option value="">-- Seleziona --</option></select>
+            </div>
+            <div class="cfg-row" id="sched-source-row">
+                <span class="cfg-label">URL sorgente</span>
+                <input class="cfg-input" id="sched-source-url" placeholder="https://..." />
+            </div>
+            <div class="cfg-row">
+                <span class="cfg-label">Frequenza</span>
+                <select class="cfg-select" id="sched-schedule">
+                    <option value="manual">Manuale</option>
+                    <option value="hourly">Ogni ora</option>
+                    <option value="twicedaily">2 volte/giorno</option>
+                    <option value="daily" selected>Giornaliero</option>
+                </select>
+            </div>
+            <div class="cfg-row">
+                <label style="font-family:var(--mono);font-size:11px;color:var(--dim);display:flex;align-items:center;gap:6px"><input type="checkbox" id="sched-opt-create" checked /> Crea nuovi</label>
+                <label style="font-family:var(--mono);font-size:11px;color:var(--dim);display:flex;align-items:center;gap:6px"><input type="checkbox" id="sched-opt-update" checked /> Aggiorna esistenti</label>
+                <label style="font-family:var(--mono);font-size:11px;color:var(--dim);display:flex;align-items:center;gap:6px"><input type="checkbox" id="sched-opt-images" /> Sideload immagini</label>
+            </div>
+            <div class="cfg-row" style="gap:8px">
+                <button class="btn btn-primary" onclick="GH.schedSaveTask()"><span class="spin" id="sched-save-spin" style="display:none"></span> Salva</button>
+                <button class="btn btn-ghost" onclick="GH.schedCancelEdit()">Annulla</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ SCHEDULER LOG ═══ -->
+<div class="panel" id="panel-sched-log">
+    <div class="toolbar">
+        <button class="btn btn-ghost" onclick="GH.schedLoadLog()">Aggiorna</button>
+        <div class="filter-sep"></div>
+        <button class="btn btn-ghost" onclick="GH.schedClearLog()" style="color:var(--red)">Svuota log</button>
+    </div>
+    <div class="preview-wrap" id="sched-log-area">
+        <div class="empty-state"><div class="empty-icon">&#9776;</div><div class="empty-text">Nessun run registrato</div></div>
+    </div>
+</div>
+
 <!-- ═══ HTTP CLIENT ═══ -->
 <div class="panel" id="panel-httpclient">
     <div class="config-form">

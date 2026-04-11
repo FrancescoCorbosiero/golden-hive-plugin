@@ -10,9 +10,7 @@
 
 ## Contesto del Plugin
 
-**Golden Hive** è il plugin principale di ResellPiacenza — una suite unificata che mergia le funzionalità di tutti i plugin standalone (`rp-product-manager`, `rp-media-cleaner`, `rp-rest-caller`, `rp-catalog-manager`, `rp-email-marketing`) in un'unica interfaccia admin con sidebar a tab.
-
-Il developer gestisce un e-commerce WooCommerce italiano specializzato in sneakers resell (Nike, Jordan, Adidas, Corteiz).
+**Golden Hive** è una suite WooCommerce unificata che mergia le funzionalità di tutti i plugin standalone (`rp-product-manager`, `rp-media-cleaner`, `rp-rest-caller`, `rp-catalog-manager`, `rp-email-marketing`) in un'unica interfaccia admin con sidebar a tab.
 
 ---
 

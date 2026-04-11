@@ -1,0 +1,96 @@
+{
+    "_comment": "StockFirmati — CSV pipe-delimited con righe PRODUCT + MODEL",
+    "id": "stockfirmati",
+    "name": "StockFirmati",
+    "version": "1.0",
+
+    "source": {
+        "format": "csv",
+        "delimiter": "|",
+        "encoding": "utf-8"
+    },
+
+    "row_types": {
+        "enabled": true,
+        "column": "RECORD_TYPE",
+        "parent_type": "PRODUCT",
+        "variant_type": "MODEL",
+        "link_column": "SKU"
+    },
+
+    "product": {
+        "sku": "SKU",
+        "name": {
+            "column": "Titel_ITA",
+            "fallback": "{BRAND} {MODEL_NAME}"
+        },
+        "description": "Description_ITA",
+        "weight": "WEIGHT",
+        "status": { "static": "publish" },
+
+        "regular_price": {
+            "column": "STREET_PRICE",
+            "transforms": [{ "type": "round", "value": 0 }]
+        },
+        "sale_price": {
+            "column": "PRICE",
+            "transforms": [
+                { "type": "multiply", "value": 3.5 },
+                { "type": "round", "value": 0 }
+            ]
+        },
+        "price_logic": "sale_below_regular"
+    },
+
+    "variations": {
+        "size_column": "MODEL_SIZE",
+        "quantity_column": "QUANTITY",
+        "attribute": "pa_taglia",
+        "sku_suffix": "-{size_slug}",
+        "per_variation_price": true,
+        "extra_fields": {
+            "barcode": "BARCODE",
+            "ean": "EAN"
+        }
+    },
+
+    "taxonomy": {
+        "brand": {
+            "target": "product_brand",
+            "column": "BRAND"
+        },
+        "category": {
+            "target": "product_cat",
+            "parent_column": "CAT",
+            "child_column": "SUBCAT"
+        },
+        "tags": [
+            { "static": "stockfirmati" },
+            {
+                "column": "STAGIONE",
+                "lookup": {
+                    "AI": "autunno-inverno",
+                    "PE": "primavera-estate",
+                    "TS": "continuativo"
+                }
+            }
+        ]
+    },
+
+    "images": {
+        "columns": ["PICTURE_1", "PICTURE_2", "PICTURE_3"],
+        "first_is_featured": true,
+        "rest_is_gallery": true,
+        "filename_pattern": "{sku}-{index}.{ext}"
+    },
+
+    "meta": {
+        "_feed_source": { "static": "stockfirmati" },
+        "_sf_color": "COLOR",
+        "_sf_material": "MATERIAL",
+        "_sf_made_in": "MADE_IN",
+        "_sf_sex": "SEX",
+        "_sf_cost_price": "PRICE",
+        "_sf_source_url": "Product_url"
+    }
+}

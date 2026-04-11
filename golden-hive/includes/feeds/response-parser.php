@@ -94,7 +94,12 @@ function rp_rc_parse_csv( string $body ): array|WP_Error {
     // Auto-detect separatore
     $sep    = ',';
     $sample = implode( "\n", array_slice( $lines, 0, 3 ) );
-    $counts = [ ',' => substr_count( $sample, ',' ), ';' => substr_count( $sample, ';' ), "\t" => substr_count( $sample, "\t" ) ];
+    $counts = [
+        '|'  => substr_count( $sample, '|' ),
+        ','  => substr_count( $sample, ',' ),
+        ';'  => substr_count( $sample, ';' ),
+        "\t" => substr_count( $sample, "\t" ),
+    ];
     arsort( $counts );
     $sep = array_key_first( $counts );
 

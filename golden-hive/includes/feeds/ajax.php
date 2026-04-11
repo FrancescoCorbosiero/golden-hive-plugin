@@ -112,6 +112,134 @@ add_action( 'wp_ajax_rp_rc_ajax_gs_apply', function () {
     wp_send_json_success( $result );
 } );
 
+// ── CONFIG ENGINE: List available configs ───────────────────
+add_action( 'wp_ajax_gh_ajax_fc_list_configs', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    wp_send_json_success( gh_fc_list_configs() );
+} );
+
+// ── CONFIG ENGINE: Fetch URL + normalize via config ────────
+add_action( 'wp_ajax_gh_ajax_fc_fetch', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $config_id = sanitize_text_field( $_POST['config_id'] ?? '' );
+    $url       = esc_url_raw( $_POST['url'] ?? '' );
+
+    if ( ! $config_id ) { wp_send_json_error( 'Config ID mancante.' ); }
+    if ( ! $url )       { wp_send_json_error( 'URL mancante.' ); }
+
+    $config = gh_fc_load_config( $config_id );
+    if ( ! $config ) { wp_send_json_error( 'Config non trovato: ' . $config_id ); }
+
+    $response = rp_rc_request( [ 'url' => $url, 'method' => 'GET', 'timeout' => 120 ] );
+    if ( ! empty( $response['error'] ) ) { wp_send_json_error( $response['error'] ); }
+    if ( $response['status'] !== 200 ) { wp_send_json_error( "HTTP {$response['status']}" ); }
+
+    $rows = rp_rc_parse_csv( $response['body'] );
+    if ( is_wp_error( $rows ) ) { wp_send_json_error( $rows->get_error_message() ); }
+
+    $products = gh_fc_normalize( $rows, $config );
+
+    wp_send_json_success( [
+        'config'        => $config['name'] ?? $config_id,
+        'csv_rows'      => count( $rows ),
+        'product_count' => count( $products ),
+        'products'      => $products,
+    ] );
+} );
+
+// ── CONFIG ENGINE: Upload file + normalize ─────────────────
+add_action( 'wp_ajax_gh_ajax_fc_upload', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $config_id = sanitize_text_field( $_POST['config_id'] ?? '' );
+    if ( ! $config_id ) { wp_send_json_error( 'Config ID mancante.' ); }
+    if ( empty( $_FILES['csv_file'] ) ) { wp_send_json_error( 'Nessun file.' ); }
+
+    $config = gh_fc_load_config( $config_id );
+    if ( ! $config ) { wp_send_json_error( 'Config non trovato: ' . $config_id ); }
+
+    $body = file_get_contents( $_FILES['csv_file']['tmp_name'] );
+    if ( ! $body ) { wp_send_json_error( 'File vuoto.' ); }
+
+    $rows = rp_rc_parse_csv( $body );
+    if ( is_wp_error( $rows ) ) { wp_send_json_error( $rows->get_error_message() ); }
+
+    $products = gh_fc_normalize( $rows, $config );
+
+    wp_send_json_success( [
+        'config'        => $config['name'] ?? $config_id,
+        'csv_rows'      => count( $rows ),
+        'product_count' => count( $products ),
+        'products'      => $products,
+    ] );
+} );
+
+// ── CONFIG ENGINE: Preview (transform + diff) ──────────────
+add_action( 'wp_ajax_gh_ajax_fc_preview', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $config_id = sanitize_text_field( $_POST['config_id'] ?? '' );
+    $raw       = stripslashes( $_POST['products'] ?? '[]' );
+    $products  = json_decode( $raw, true ) ?: [];
+
+    $config = gh_fc_load_config( $config_id );
+    if ( ! $config ) { wp_send_json_error( 'Config non trovato.' ); }
+
+    $woo_products = gh_fc_transform_all( $products, $config );
+    $diff         = gh_csv_diff( $woo_products );
+
+    wp_send_json_success( $diff );
+} );
+
+// ── CONFIG ENGINE: Apply import ────────────────────────────
+add_action( 'wp_ajax_gh_ajax_fc_apply', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $config_id = sanitize_text_field( $_POST['config_id'] ?? '' );
+    $raw       = stripslashes( $_POST['products'] ?? '[]' );
+    $products  = json_decode( $raw, true ) ?: [];
+    $raw_opts  = stripslashes( $_POST['options'] ?? '{}' );
+    $options   = json_decode( $raw_opts, true ) ?: [];
+
+    $config = gh_fc_load_config( $config_id );
+    if ( ! $config ) { wp_send_json_error( 'Config non trovato.' ); }
+
+    $woo_products = gh_fc_transform_all( $products, $config );
+    $diff         = gh_csv_diff( $woo_products );
+
+    $create   = $options['create_new'] ?? true;
+    $update   = $options['update_existing'] ?? true;
+    $sideload = $options['sideload_images'] ?? true;
+    $results  = [];
+
+    if ( $create ) {
+        foreach ( $diff['new'] as $p ) {
+            $results[] = gh_fc_create_product( $p, $sideload );
+        }
+    }
+    if ( $update ) {
+        foreach ( $diff['update'] as $p ) {
+            $results[] = gh_csv_update_product( $p );
+        }
+    }
+
+    $created = count( array_filter( $results, fn( $r ) => $r['action'] === 'created' ) );
+    $updated = count( array_filter( $results, fn( $r ) => $r['action'] === 'updated' ) );
+    $errors  = count( array_filter( $results, fn( $r ) => $r['action'] === 'error' ) );
+
+    wp_send_json_success( [
+        'summary' => compact( 'created', 'updated', 'errors' ),
+        'details' => $results,
+    ] );
+} );
+
 // ── CSV FEEDS: List all ────────────────────────────────────
 add_action( 'wp_ajax_gh_ajax_csv_list_feeds', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );

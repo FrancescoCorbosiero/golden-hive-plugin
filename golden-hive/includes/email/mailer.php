@@ -31,7 +31,7 @@ function rp_em_send_test_email( string $to, string $subject = '', string $body =
     }
 
     if ( empty( $subject ) ) {
-        $subject = 'Test Email — ResellPiacenza (' . gmdate( 'H:i:s' ) . ')';
+        $subject = 'Test Email — Golden Hive (' . gmdate( 'H:i:s' ) . ')';
     }
 
     if ( empty( $body ) ) {

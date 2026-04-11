@@ -58,7 +58,23 @@
     async function hcExecute(){const btn=document.querySelector('#panel-httpclient .btn-primary'),sp=document.getElementById('hc-spin');btn.disabled=true;sp.style.display='';try{const hdrs=document.getElementById('hc-headers').value;const cfg={url:document.getElementById('hc-url').value,method:document.getElementById('hc-method').value,headers:hdrs?JSON.parse(hdrs):{},body:document.getElementById('hc-body').value};const r=await ajax('rp_rc_ajax_execute',{config:JSON.stringify(cfg)});const out=document.getElementById('hc-response');if(!r.success){out.textContent='Errore: '+r.data;return}let h='<div style="margin-bottom:12px;color:var(--dim)">HTTP '+r.data.status+' \u00b7 '+r.data.duration_ms+'ms</div>';h+=r.data.parsed?hl(JSON.stringify(r.data.parsed,null,2)):esc(r.data.body_raw||'');out.innerHTML=h}catch(e){toast('Errore','err')}finally{btn.disabled=false;sp.style.display='none'}}
 
     // ── STOCKFIRMATI FEED ──────────────────────────────────
-    let sfProducts = null, sfSelected = new Set(), sfDiffData = null;
+    let sfProducts = null, sfSelected = new Set(), sfDiffData = null, sfAllItems = [];
+
+    function sfGetMarkup() { return parseFloat(document.getElementById('sf-markup').value) || 3.5; }
+
+    async function sfLoadSettings() {
+        const r = await ajax('gh_ajax_feed_load_settings', { feed_key: 'stockfirmati' });
+        if (r.success && r.data) {
+            if (r.data.url) document.getElementById('sf-url').value = r.data.url;
+            if (r.data.markup) document.getElementById('sf-markup').value = r.data.markup;
+        }
+    }
+
+    async function sfSaveSettings() {
+        const s = { url: document.getElementById('sf-url').value, markup: sfGetMarkup() };
+        await ajax('gh_ajax_feed_save_settings', { feed_key: 'stockfirmati', settings: JSON.stringify(s) });
+        toast('Impostazioni salvate', 'ok');
+    }
 
     function sfToggleSource() {
         const type = document.getElementById('sf-source-type').value;
@@ -66,46 +82,45 @@
         document.getElementById('sf-source-file-row').style.display = type === 'file' ? '' : 'none';
     }
 
-    function initSfUpload() {
+    function initSfFeed() {
         const drop = document.getElementById('sf-drop');
         const inp = document.getElementById('sf-file-input');
-        if (!drop || !inp) return;
-        inp.addEventListener('change', () => { if (inp.files.length) sfUploadFile(inp.files[0]); });
-        drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('dragover'); });
-        drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
-        drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('dragover'); if (e.dataTransfer.files.length) sfUploadFile(e.dataTransfer.files[0]); });
+        if (drop && inp) {
+            inp.addEventListener('change', () => { if (inp.files.length) sfUploadFile(inp.files[0]); });
+            drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('dragover'); });
+            drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
+            drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('dragover'); if (e.dataTransfer.files.length) sfUploadFile(e.dataTransfer.files[0]); });
+        }
+        sfLoadSettings();
     }
 
     async function sfFetch() {
         const ov = document.getElementById('sf-overlay'), ot = document.getElementById('sf-overlay-text');
         const btn = document.getElementById('btn-sf-fetch'), sp = document.getElementById('sf-fetch-spin');
-        ot.textContent = 'Fetch CSV StockFirmati...';
+        ot.textContent = 'Fetch CSV...';
         ov.classList.add('visible'); btn.disabled = true; sp.style.display = '';
         try {
             const url = document.getElementById('sf-url').value;
-            const r = await ajax('gh_ajax_fc_fetch', { url: url, config_id: 'stockfirmati' });
+            const r = await ajax('gh_ajax_fc_fetch', { url, config_id: 'stockfirmati' });
             if (!r.success) { toast('Errore: ' + r.data, 'err'); return; }
             sfProducts = r.data.products;
             document.getElementById('sf-csv-rows').textContent = r.data.csv_rows;
-            toast(r.data.product_count + ' prodotti normalizzati', 'ok');
+            toast(r.data.product_count + ' prodotti', 'ok');
             ot.textContent = 'Confronto WooCommerce...';
-            const dr = await ajax('gh_ajax_fc_preview', { products: JSON.stringify(sfProducts), config_id: 'stockfirmati' });
+            const dr = await ajax('gh_ajax_fc_preview', { products: JSON.stringify(sfProducts), config_id: 'stockfirmati', markup: sfGetMarkup() });
             if (!dr.success) { toast('Errore diff', 'err'); return; }
-            sfRenderPreview(dr.data, r.data.csv_rows);
+            sfRenderPreview(dr.data);
         } catch (e) { toast('Errore', 'err'); }
         finally { ov.classList.remove('visible'); btn.disabled = false; sp.style.display = 'none'; }
     }
 
     async function sfUploadFile(file) {
         const ov = document.getElementById('sf-overlay'), ot = document.getElementById('sf-overlay-text');
-        ot.textContent = 'Upload e parsing...';
-        ov.classList.add('visible');
+        ot.textContent = 'Upload e parsing...'; ov.classList.add('visible');
         try {
             const fd = new FormData();
-            fd.append('action', 'gh_ajax_fc_upload');
-            fd.append('config_id', 'stockfirmati');
-            fd.append('nonce', NONCE);
-            fd.append('csv_file', file);
+            fd.append('action', 'gh_ajax_fc_upload'); fd.append('config_id', 'stockfirmati');
+            fd.append('nonce', NONCE); fd.append('csv_file', file);
             const resp = await fetch(AJAX, { method: 'POST', body: fd });
             const r = await resp.json();
             if (!r.success) { toast('Errore: ' + r.data, 'err'); return; }
@@ -114,52 +129,67 @@
             document.getElementById('sf-csv-rows').textContent = r.data.csv_rows;
             toast(r.data.product_count + ' prodotti', 'ok');
             ot.textContent = 'Confronto WooCommerce...';
-            const dr = await ajax('gh_ajax_fc_preview', { products: JSON.stringify(sfProducts), config_id: 'stockfirmati' });
+            const dr = await ajax('gh_ajax_fc_preview', { products: JSON.stringify(sfProducts), config_id: 'stockfirmati', markup: sfGetMarkup() });
             if (!dr.success) { toast('Errore diff', 'err'); return; }
-            sfRenderPreview(dr.data, r.data.csv_rows);
+            sfRenderPreview(dr.data);
         } catch (e) { toast('Errore', 'err'); }
         finally { ov.classList.remove('visible'); }
     }
 
-    function sfRenderPreview(d, csvRows) {
-        const s = d.summary;
-        sfDiffData = d;
+    function sfRenderPreview(d) {
+        const s = d.summary; sfDiffData = d;
         document.getElementById('sf-stats').style.display = 'flex';
         document.getElementById('sf-total').textContent = s.total;
         document.getElementById('sf-new').textContent = s.new;
         document.getElementById('sf-update').textContent = s.update;
         document.getElementById('sf-unchanged').textContent = s.unchanged;
-        const all = [...d.new.map(p => ({...p, _a: 'new'})), ...d.update.map(p => ({...p, _a: 'update'})), ...d.unchanged.map(p => ({...p, _a: 'unchanged'}))];
-        sfSelected = new Set(all.filter(p => p._a !== 'unchanged').map(p => p.sku));
-        let h = '<table class="ptable"><thead><tr><th style="width:28px"><input type="checkbox" id="sf-check-all" onchange="GH.sfToggleAll(this.checked)" /></th><th>Azione</th><th>SKU</th><th>Nome</th><th>Brand</th><th>Cat</th><th>Taglie</th><th>Qty</th><th>Prezzo</th></tr></thead><tbody>';
-        for (const p of all) {
+        sfAllItems = [...d.new.map(p => ({...p, _a: 'new'})), ...d.update.map(p => ({...p, _a: 'update'})), ...d.unchanged.map(p => ({...p, _a: 'unchanged'}))];
+        sfSelected = new Set(sfAllItems.filter(p => p._a !== 'unchanged').map(p => p.sku));
+        document.getElementById('sf-search').value = '';
+        document.getElementById('sf-sel-bar').style.display = 'flex';
+        sfRenderTable(sfAllItems);
+        sfUpdateSelCount(); sfUpdateConfirm();
+    }
+
+    function sfRenderTable(items) {
+        let h = '<table class="ptable"><thead><tr><th style="width:28px"><input type="checkbox" id="sf-check-all" onchange="GH.sfToggleAll(this.checked)" /></th><th>Azione</th><th>SKU</th><th>Nome</th><th>Brand</th><th>Cat</th><th>Taglie</th><th>Qty</th><th>Sale</th><th>Reg</th></tr></thead><tbody>';
+        for (const p of items) {
             const cls = p._a === 'new' ? 'st-new' : p._a === 'update' ? 'st-update' : 'st-unchanged';
             const lb = p._a === 'new' ? '+ Nuovo' : p._a === 'update' ? '\u21bb Agg.' : '\u2713';
             const sz = p.variations ? p.variations.length : 0;
-            const brand = p._sf_brand || '';
-            const cat = (p._sf_category || '') + (p._sf_subcategory ? ' > ' + p._sf_subcategory : '');
+            const brand = p._fc_brand || p._sf_brand || '';
+            const cat = (p._fc_category || p._sf_category || '') + ((p._fc_subcategory || p._sf_subcategory) ? ' > ' + (p._fc_subcategory || p._sf_subcategory) : '');
             const ck = sfSelected.has(p.sku) ? 'checked' : '';
+            const qty = p.stock_quantity ?? (p.variations ? p.variations.reduce((a, v) => a + (v.stock_quantity || 0), 0) : '?');
+            const sale = p.sale_price || (p.variations?.[0]?.sale_price || '');
+            const reg = p.regular_price || (p.variations?.[0]?.regular_price || '');
             h += '<tr><td><input type="checkbox" class="sf-check" data-sku="' + esc(p.sku) + '" data-type="' + p._a + '" ' + ck + ' onchange="GH.sfToggle(this)" /></td>';
-            h += '<td class="' + cls + '">' + lb + '</td>';
-            h += '<td>' + esc(p.sku || '') + '</td>';
-            h += '<td>' + esc(p.name || '') + '</td>';
-            h += '<td>' + esc(brand) + '</td>';
-            h += '<td style="font-size:10px">' + esc(cat) + '</td>';
-            h += '<td>' + sz + '</td>';
-            h += '<td>' + (p.stock_quantity ?? (p.variations ? p.variations.reduce((a, v) => a + (v.stock_quantity || 0), 0) : '?')) + '</td>';
-            h += '<td>' + (p.regular_price || (p.variations?.[0]?.regular_price || '?')) + '\u20ac</td></tr>';
+            h += '<td class="' + cls + '">' + lb + '</td><td style="font-size:10px">' + esc(p.sku || '') + '</td>';
+            h += '<td>' + esc(p.name || '') + '</td><td>' + esc(brand) + '</td>';
+            h += '<td style="font-size:10px">' + esc(cat) + '</td><td>' + sz + '</td><td>' + qty + '</td>';
+            h += '<td>' + (sale ? sale + '\u20ac' : '\u2013') + '</td><td style="text-decoration:line-through;color:var(--dim)">' + (reg ? reg + '\u20ac' : '') + '</td></tr>';
         }
+        if (!items.length) h += '<tr><td colspan="10" style="text-align:center;color:var(--dim);padding:20px">Nessun risultato</td></tr>';
         h += '</tbody></table>';
         document.getElementById('sf-preview').innerHTML = h;
-        document.getElementById('sf-sel-bar').style.display = 'flex';
-        sfUpdateSelCount(); sfUpdateConfirm();
+    }
+
+    function sfFilterList() {
+        const q = (document.getElementById('sf-search').value || '').toLowerCase().trim();
+        if (!q) { sfRenderTable(sfAllItems); return; }
+        const words = q.split(/\s+/);
+        const filtered = sfAllItems.filter(p => {
+            const haystack = [p.name, p.sku, p._fc_brand || p._sf_brand || '', p._fc_category || p._sf_category || '', p._fc_subcategory || p._sf_subcategory || ''].join(' ').toLowerCase();
+            return words.every(w => haystack.includes(w));
+        });
+        sfRenderTable(filtered);
     }
 
     function sfToggle(cb) { if (cb.checked) sfSelected.add(cb.dataset.sku); else sfSelected.delete(cb.dataset.sku); sfUpdateSelCount(); sfUpdateConfirm(); }
     function sfToggleAll(on) { document.querySelectorAll('#sf-preview .sf-check').forEach(c => { c.checked = on; if (on) sfSelected.add(c.dataset.sku); else sfSelected.delete(c.dataset.sku); }); sfUpdateSelCount(); sfUpdateConfirm(); }
-    function sfSelectAll() { document.querySelectorAll('#sf-preview .sf-check').forEach(c => { c.checked = true; sfSelected.add(c.dataset.sku); }); sfUpdateSelCount(); sfUpdateConfirm(); }
-    function sfSelectNone() { document.querySelectorAll('#sf-preview .sf-check').forEach(c => { c.checked = false; }); sfSelected.clear(); sfUpdateSelCount(); sfUpdateConfirm(); }
-    function sfSelectByType(type) { document.querySelectorAll('#sf-preview .sf-check').forEach(c => { const on = c.dataset.type === type; c.checked = on; if (on) sfSelected.add(c.dataset.sku); else sfSelected.delete(c.dataset.sku); }); sfUpdateSelCount(); sfUpdateConfirm(); }
+    function sfSelectAll() { sfAllItems.forEach(p => sfSelected.add(p.sku)); sfRenderTable(sfAllItems); sfUpdateSelCount(); sfUpdateConfirm(); }
+    function sfSelectNone() { sfSelected.clear(); sfRenderTable(sfAllItems); sfUpdateSelCount(); sfUpdateConfirm(); }
+    function sfSelectByType(type) { sfSelected.clear(); sfAllItems.filter(p => p._a === type).forEach(p => sfSelected.add(p.sku)); sfRenderTable(sfAllItems); sfUpdateSelCount(); sfUpdateConfirm(); }
     function sfUpdateSelCount() { const n = sfSelected.size; document.getElementById('sf-sel-count').textContent = n + ' selezionat' + (n === 1 ? 'o' : 'i'); }
     function sfUpdateConfirm() {
         const bar = document.getElementById('sf-confirm');
@@ -180,14 +210,14 @@
         const sel = sfProducts.filter(p => sfSelected.has(p.sku));
         const ov = document.getElementById('sf-overlay'), ot = document.getElementById('sf-overlay-text');
         const btn = document.getElementById('btn-sf-apply'), sp = document.getElementById('sf-apply-spin');
-        ot.textContent = 'Importazione ' + sel.length + ' prodott' + (sel.length === 1 ? 'o' : 'i') + '...';
+        ot.textContent = 'Importazione ' + sel.length + ' prodott' + (sel.length === 1 ? 'o' : 'i') + (document.getElementById('sf-opt-images').checked ? ' (con immagini — potrebbe richiedere tempo)' : '') + '...';
         ov.classList.add('visible'); btn.disabled = true; sp.style.display = '';
         try {
-            const r = await ajax('gh_ajax_fc_apply', { config_id: 'stockfirmati',
+            const r = await ajax('gh_ajax_fc_apply', { config_id: 'stockfirmati', markup: sfGetMarkup(),
                 products: JSON.stringify(sel),
                 options: JSON.stringify({ create_new: true, update_existing: true, sideload_images: document.getElementById('sf-opt-images').checked })
             });
-            if (!r.success) { toast('Errore', 'err'); return; }
+            if (!r.success) { toast('Errore: ' + (r.data || 'timeout — riprova senza immagini'), 'err'); return; }
             const s = r.data.summary;
             let h = '<table class="ptable"><thead><tr><th>Risultato</th><th>ID</th><th>SKU</th><th>Nome</th></tr></thead><tbody>';
             for (const d of r.data.details) {
@@ -199,8 +229,8 @@
             document.getElementById('sf-preview').innerHTML = h;
             document.getElementById('sf-confirm').style.display = 'none';
             document.getElementById('sf-sel-bar').style.display = 'none';
-            toast(s.created + ' creati, ' + s.updated + ' aggiornati', 'ok', 5000);
-        } catch (e) { toast('Errore', 'err'); }
+            toast(s.created + ' creati, ' + s.updated + ' aggiornati', s.errors ? 'err' : 'ok', 5000);
+        } catch (e) { toast('Errore / timeout', 'err'); }
         finally { ov.classList.remove('visible'); btn.disabled = false; sp.style.display = 'none'; }
     }
 
@@ -813,8 +843,8 @@
     (async function(){const r=await ajax('rp_cm_ajax_get_tree_paths');if(r.success){(r.data.brands||[]).forEach(b=>{['cat-filter-brand','rt-filter-brand'].forEach(id=>{const s=document.getElementById(id);if(s){const o=document.createElement('option');o.value=b;o.textContent=b;s.appendChild(o)}})})}})();
     initBulkImport();
     initRtImport();
-    initSfUpload();
+    initSfFeed();
     initCsvUpload();
 
-    return{ajax,toast,esc,switchTab,loadSummary,generateCatalog,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadMapping,browseMedia,debounceBrowse,showUsage,scanOrphans,toggleOrphan,orphanAction,bulkDeleteOrphans,loadWhitelist,removeWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfApply,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog};
+    return{ajax,toast,esc,switchTab,loadSummary,generateCatalog,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadMapping,browseMedia,debounceBrowse,showUsage,scanOrphans,toggleOrphan,orphanAction,bulkDeleteOrphans,loadWhitelist,removeWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfApply,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog};
 })();

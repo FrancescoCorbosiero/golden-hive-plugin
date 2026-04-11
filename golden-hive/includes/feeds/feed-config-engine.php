@@ -663,6 +663,26 @@ function gh_fc_apply_transforms( mixed $value, array $transforms ): mixed {
 }
 
 /**
+ * Overrides the sale_price multiplier in a config at runtime.
+ * Finds the first "multiply" transform in sale_price and replaces its value.
+ *
+ * @param array $config The feed config.
+ * @param float $markup New multiplier value (e.g. 3.5).
+ * @return array Modified config.
+ */
+function gh_fc_override_markup( array $config, float $markup ): array {
+    if ( isset( $config['product']['sale_price']['transforms'] ) ) {
+        foreach ( $config['product']['sale_price']['transforms'] as $i => $t ) {
+            if ( ( $t['type'] ?? '' ) === 'multiply' ) {
+                $config['product']['sale_price']['transforms'][ $i ]['value'] = $markup;
+                break;
+            }
+        }
+    }
+    return $config;
+}
+
+/**
  * Cleans a CSV value.
  */
 function gh_fc_clean( string $value ): string {

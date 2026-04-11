@@ -126,6 +126,7 @@
         <div class="cfg-row" id="sf-source-url-row">
             <span class="cfg-label">URL CSV</span>
             <input class="cfg-input" id="sf-url" placeholder="https://www.stockfirmati.com/export/..." />
+            <button class="btn btn-ghost" onclick="GH.sfSaveSettings()" style="font-size:10px">Salva</button>
             <button class="btn btn-primary" id="btn-sf-fetch" onclick="GH.sfFetch()"><span class="spin" id="sf-fetch-spin" style="display:none"></span> Fetch</button>
         </div>
         <div class="cfg-row" id="sf-source-file-row" style="display:none">
@@ -136,6 +137,13 @@
                 <div class="drop-area-file" id="sf-file-name" style="font-size:11px"></div>
             </div>
         </div>
+        <div class="cfg-row">
+            <span class="cfg-label">Ricarico</span>
+            <input class="cfg-input" id="sf-markup" type="number" step="0.1" min="1" value="3.5" style="max-width:80px" />
+            <span style="font-family:var(--mono);font-size:10px;color:var(--dim)">&times; costo ingrosso = prezzo vendita</span>
+            <div class="filter-sep"></div>
+            <label style="font-family:var(--mono);font-size:10px;color:var(--dim);display:flex;align-items:center;gap:4px"><input type="checkbox" id="sf-opt-images" /> Sideload immagini</label>
+        </div>
     </div>
     <div class="stats-bar" id="sf-stats" style="display:none">
         <div class="stat">Righe CSV: <span class="blue" id="sf-csv-rows">0</span></div>
@@ -144,7 +152,10 @@
         <div class="stat">Aggiornare: <span class="amber" id="sf-update">0</span></div>
         <div class="stat">Invariati: <span class="green" id="sf-unchanged">0</span></div>
     </div>
+    <!-- Shared product list toolbar: search + quick filters -->
     <div class="gs-sel-bar" id="sf-sel-bar" style="display:none">
+        <input class="cfg-input" id="sf-search" placeholder="Cerca nome, SKU, brand..." style="max-width:250px;font-size:11px" oninput="GH.sfFilterList()" />
+        <div class="filter-sep"></div>
         <button class="btn btn-ghost" onclick="GH.sfSelectAll()">Tutti</button>
         <button class="btn btn-ghost" onclick="GH.sfSelectNone()">Nessuno</button>
         <button class="btn btn-ghost" onclick="GH.sfSelectByType('new')">Solo nuovi</button>
@@ -154,7 +165,6 @@
     <div class="preview-wrap" id="sf-preview"><div class="empty-state"><div class="empty-icon">&#9783;</div><div class="empty-text">Configura l'endpoint StockFirmati (URL o file CSV)</div></div></div>
     <div class="confirm-bar" id="sf-confirm" style="display:none">
         <div class="summary-text" id="sf-confirm-text"></div>
-        <label style="font-family:var(--mono);font-size:10px;color:var(--dim);display:flex;align-items:center;gap:4px"><input type="checkbox" id="sf-opt-images" checked /> Sideload img</label>
         <button class="btn btn-ghost" onclick="GH.sfCancel()">Annulla</button>
         <button class="btn btn-warn" id="btn-sf-apply" onclick="GH.sfApply()"><span class="spin" id="sf-apply-spin" style="display:none"></span> Importa</button>
     </div>

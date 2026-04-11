@@ -63,10 +63,28 @@ function gh_create_variation( int $parent_id, array $data ): int {
     $v = new WC_Product_Variation();
     $v->set_parent_id( $parent_id );
 
-    // Attributi
+    // Attributi — for taxonomy attributes, WooCommerce expects the term slug
     $attrs = [];
     foreach ( $data['attributes'] ?? [] as $key => $val ) {
-        $attrs[ str_starts_with( $key, 'attribute_' ) ? $key : 'attribute_' . $key ] = $val;
+        $attr_key = str_starts_with( $key, 'attribute_' ) ? $key : 'attribute_' . $key;
+        $taxonomy = str_replace( 'attribute_', '', $attr_key );
+
+        if ( taxonomy_exists( $taxonomy ) ) {
+            // Ensure term exists and use its slug
+            $term = get_term_by( 'name', $val, $taxonomy );
+            if ( ! $term ) {
+                $term = get_term_by( 'slug', sanitize_title( $val ), $taxonomy );
+            }
+            if ( ! $term ) {
+                $inserted = wp_insert_term( $val, $taxonomy );
+                if ( ! is_wp_error( $inserted ) ) {
+                    $term = get_term( $inserted['term_id'], $taxonomy );
+                }
+            }
+            $attrs[ $attr_key ] = $term ? $term->slug : sanitize_title( $val );
+        } else {
+            $attrs[ $attr_key ] = $val;
+        }
     }
     $v->set_attributes( $attrs );
 

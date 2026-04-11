@@ -1,10 +1,10 @@
 <?php
 /**
  * Plugin Name:  Golden Hive
- * Plugin URI:   https://resellpiacenza.it
- * Description:  Suite completa per ResellPiacenza: catalogo, tassonomia, media, import/export, feed esterni.
+ * Plugin URI:   https://github.com/FrancescoCorbosiero/golden-hive-plugin
+ * Description:  WooCommerce suite: catalogo, tassonomia, media, import/export, feed esterni.
  * Version:      1.0.0
- * Author:       ResellPiacenza
+ * Author:       Golden Hive
  * License:      Private
  * Requires PHP: 8.0
  * Requires at least: 6.0

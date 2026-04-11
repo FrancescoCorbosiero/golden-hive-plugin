@@ -29,7 +29,7 @@ function gh_render_page(): void {
 <div id="gh">
     <div class="header">
         <div class="header-logo">Golden Hive</div>
-        <div class="header-desc">Suite gestione ResellPiacenza</div>
+        <div class="header-desc">WooCommerce Management Suite</div>
     </div>
 
     <div class="main">

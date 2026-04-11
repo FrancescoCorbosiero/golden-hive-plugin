@@ -133,7 +133,7 @@ function gh_sf_transform_to_woo( array $product ): array {
 
     // Calcolo prezzi:
     // regular_price = STREET_PRICE (prezzo barrato originale)
-    // sale_price = PRICE × moltiplicatore (prezzo di vendita resell)
+    // sale_price = PRICE × moltiplicatore (prezzo di vendita)
     $sale_price = round( $cost_price * GH_SF_PRICE_MULTIPLIER );
     $reg_price  = round( $street_price );
 

@@ -1,4 +1,4 @@
-# CONVENTIONS.md — ResellPiacenza Plugins
+# CONVENTIONS.md — Golden Hive Plugins
 
 > Questo file è la source of truth per tutto ciò che è condiviso tra i plugin.
 > Ogni `CLAUDE.md` di plugin lo referenzia. In caso di conflitto, vince questo file.
@@ -8,7 +8,7 @@
 ## Struttura del Monorepo
 
 ```
-resellpiacenza-plugins/
+golden-hive-plugin/
 ├── CONVENTIONS.md               ← questo file
 ├── golden-hive/                 ← PLUGIN PRINCIPALE: suite unificata
 │   ├── golden-hive.php          ← Entry point

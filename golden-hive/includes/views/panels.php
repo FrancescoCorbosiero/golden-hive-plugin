@@ -113,6 +113,110 @@
     <div class="gen-overlay" id="gs-overlay"><div class="gen-spinner"></div><div class="gen-text" id="gs-overlay-text">Fetch...</div></div>
 </div>
 
+<!-- ═══ CSV FEED ═══ -->
+<div class="panel" id="panel-csvfeed" style="position:relative">
+    <!-- Feed list / config view -->
+    <div id="csv-list-view">
+        <div class="toolbar">
+            <button class="btn btn-primary" id="btn-csv-new" onclick="GH.csvNewFeed()">+ Nuovo Feed CSV</button>
+            <div class="filter-sep"></div>
+            <button class="btn btn-ghost" id="btn-csv-refresh" onclick="GH.csvLoadFeeds()">Aggiorna lista</button>
+        </div>
+        <div class="preview-wrap" id="csv-feed-list">
+            <div class="empty-state"><div class="empty-icon">&#9783;</div><div class="empty-text">Nessun feed CSV configurato</div></div>
+        </div>
+    </div>
+
+    <!-- Feed editor (hidden by default) -->
+    <div id="csv-edit-view" style="display:none">
+        <div class="toolbar">
+            <button class="btn btn-ghost" onclick="GH.csvBackToList()">&larr; Torna alla lista</button>
+            <div class="filter-sep"></div>
+            <span class="filter-label" id="csv-edit-title" style="font-weight:500"></span>
+        </div>
+        <div class="config-form" style="padding:16px">
+            <div class="cfg-row"><span class="cfg-label">Nome</span><input class="cfg-input" id="csv-name" placeholder="Es: Supplier X Products" /></div>
+            <div class="cfg-row">
+                <span class="cfg-label">Sorgente</span>
+                <select class="cfg-select" id="csv-source-type" onchange="GH.csvToggleSource()">
+                    <option value="url">URL remoto</option>
+                    <option value="file">File caricato</option>
+                </select>
+            </div>
+            <div class="cfg-row" id="csv-source-url-row">
+                <span class="cfg-label">URL</span>
+                <input class="cfg-input" id="csv-source-url" placeholder="https://example.com/products.csv" />
+                <button class="btn btn-ghost" onclick="GH.csvTestUrl()"><span class="spin" id="csv-test-spin" style="display:none"></span> Test</button>
+            </div>
+            <div class="cfg-row" id="csv-source-file-row" style="display:none">
+                <span class="cfg-label">File</span>
+                <div class="drop-area" id="csv-drop" style="flex:1;min-height:40px;padding:8px" onclick="document.getElementById('csv-file-input').click()">
+                    <input type="file" id="csv-file-input" accept=".csv,.tsv,.txt" style="display:none" />
+                    <div class="drop-area-text" style="font-size:11px">Clicca o trascina un file .csv</div>
+                    <div class="drop-area-file" id="csv-file-name" style="font-size:11px"></div>
+                </div>
+            </div>
+            <div class="cfg-row">
+                <span class="cfg-label">Mapping</span>
+                <select class="cfg-select" id="csv-mapping-mode" onchange="GH.csvToggleMapping()">
+                    <option value="auto">Auto-detect (da colonne CSV)</option>
+                    <option value="preset">Preset (configurazione pronta)</option>
+                    <option value="rule">Regola mapper (manuale)</option>
+                </select>
+            </div>
+            <div class="cfg-row" id="csv-preset-row" style="display:none">
+                <span class="cfg-label">Preset</span>
+                <select class="cfg-select" id="csv-preset" style="flex:1" onchange="GH.csvOnPresetChange()">
+                    <option value="">-- Seleziona preset --</option>
+                </select>
+                <span id="csv-preset-desc" style="font-family:var(--mono);font-size:10px;color:var(--dim);max-width:300px"></span>
+            </div>
+            <div class="cfg-row" id="csv-rule-row" style="display:none">
+                <span class="cfg-label">Regola</span>
+                <select class="cfg-select" id="csv-mapping-rule" style="flex:1">
+                    <option value="">-- Seleziona regola --</option>
+                </select>
+            </div>
+            <!-- Mapping preview (auto-filled after Test/Upload) -->
+            <div id="csv-mapping-preview" style="display:none;padding:8px 0">
+                <div style="font-family:var(--mono);font-size:11px;color:var(--acc);margin-bottom:6px">Mapping rilevato:</div>
+                <div id="csv-mapping-preview-list" style="font-family:var(--mono);font-size:10px;color:var(--dim)"></div>
+            </div>
+            <div class="cfg-row">
+                <span class="cfg-label">Frequenza</span>
+                <select class="cfg-select" id="csv-schedule">
+                    <option value="manual">Manuale</option>
+                    <option value="hourly">Ogni ora</option>
+                    <option value="twicedaily">2 volte/giorno</option>
+                    <option value="daily">Giornaliero</option>
+                </select>
+            </div>
+            <div class="cfg-row">
+                <label style="font-family:var(--mono);font-size:11px;color:var(--dim);display:flex;align-items:center;gap:6px"><input type="checkbox" id="csv-opt-create" checked /> Crea nuovi prodotti</label>
+                <label style="font-family:var(--mono);font-size:11px;color:var(--dim);display:flex;align-items:center;gap:6px"><input type="checkbox" id="csv-opt-update" checked /> Aggiorna esistenti (by SKU)</label>
+            </div>
+            <div class="cfg-row" style="gap:8px">
+                <button class="btn btn-primary" id="btn-csv-save" onclick="GH.csvSaveFeed()"><span class="spin" id="csv-save-spin" style="display:none"></span> Salva Feed</button>
+                <button class="btn btn-ghost" id="btn-csv-preview" onclick="GH.csvPreview()" style="display:none"><span class="spin" id="csv-preview-spin" style="display:none"></span> Preview</button>
+                <button class="btn btn-warn" id="btn-csv-run" onclick="GH.csvRunFeed()" style="display:none"><span class="spin" id="csv-run-spin" style="display:none"></span> Importa ora</button>
+                <button class="btn btn-ghost" id="btn-csv-delete" onclick="GH.csvDeleteFeed()" style="display:none;margin-left:auto;color:var(--red)">Elimina</button>
+            </div>
+        </div>
+
+        <!-- Source preview (columns/sample) -->
+        <div id="csv-source-preview" style="display:none;padding:0 16px">
+            <div class="section-title" style="margin:0 0 8px">Colonne CSV rilevate</div>
+            <div id="csv-columns-list" style="font-family:var(--mono);font-size:11px;color:var(--dim);margin-bottom:12px"></div>
+            <div id="csv-sample-table" class="preview-wrap" style="max-height:200px;overflow:auto"></div>
+        </div>
+
+        <!-- Diff / results -->
+        <div id="csv-results-area" style="padding:0 16px"></div>
+    </div>
+
+    <div class="gen-overlay" id="csv-overlay"><div class="gen-spinner"></div><div class="gen-text" id="csv-overlay-text">Elaborazione...</div></div>
+</div>
+
 <!-- ═══ BULK IMPORT ═══ -->
 <div class="panel" id="panel-bulkimport" style="position:relative">
     <div class="section-title">Importa prodotti da JSON</div>

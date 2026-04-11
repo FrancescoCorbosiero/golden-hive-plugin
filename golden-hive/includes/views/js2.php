@@ -57,10 +57,337 @@
     // ── HTTP CLIENT
     async function hcExecute(){const btn=document.querySelector('#panel-httpclient .btn-primary'),sp=document.getElementById('hc-spin');btn.disabled=true;sp.style.display='';try{const hdrs=document.getElementById('hc-headers').value;const cfg={url:document.getElementById('hc-url').value,method:document.getElementById('hc-method').value,headers:hdrs?JSON.parse(hdrs):{},body:document.getElementById('hc-body').value};const r=await ajax('rp_rc_ajax_execute',{config:JSON.stringify(cfg)});const out=document.getElementById('hc-response');if(!r.success){out.textContent='Errore: '+r.data;return}let h='<div style="margin-bottom:12px;color:var(--dim)">HTTP '+r.data.status+' \u00b7 '+r.data.duration_ms+'ms</div>';h+=r.data.parsed?hl(JSON.stringify(r.data.parsed,null,2)):esc(r.data.body_raw||'');out.innerHTML=h}catch(e){toast('Errore','err')}finally{btn.disabled=false;sp.style.display='none'}}
 
+    // ── CSV FEED ────────────────────────────────────────────
+    let csvCurrentFeed = null;   // feed being edited (null = new)
+    let csvFeeds = [];           // cached feed list
+
+    async function csvLoadFeeds() {
+        const r = await ajax('gh_ajax_csv_list_feeds');
+        if (!r.success) { toast('Errore caricamento feed', 'err'); return; }
+        csvFeeds = r.data;
+        csvRenderList();
+    }
+
+    function csvRenderList() {
+        const area = document.getElementById('csv-feed-list');
+        if (!csvFeeds.length) {
+            area.innerHTML = '<div class="empty-state"><div class="empty-icon">&#9783;</div><div class="empty-text">Nessun feed CSV configurato.<br>Crea un nuovo feed per importare prodotti da CSV.</div></div>';
+            return;
+        }
+        let h = '<table class="ptable"><thead><tr><th>Nome</th><th>Sorgente</th><th>Mapper</th><th>Frequenza</th><th>Ultimo run</th><th>Stato</th><th></th></tr></thead><tbody>';
+        const schedLabels = { manual: 'Manuale', hourly: 'Ogni ora', twicedaily: '2x/giorno', daily: 'Giornaliero' };
+        for (const f of csvFeeds) {
+            const src = f.source_type === 'url' ? esc(f.source_url || '').substring(0, 40) + '...' : esc(f.source_path || '');
+            const lastRun = f.last_run ? new Date(f.last_run).toLocaleString('it-IT') : '\u2013';
+            const lastStatus = f.last_result?.status || '\u2013';
+            const statusCls = lastStatus === 'completed' ? 'green' : lastStatus === 'error' ? 'red' : '';
+            h += '<tr style="cursor:pointer" onclick="GH.csvEditFeed(\'' + f.id + '\')">';
+            h += '<td><strong>' + esc(f.name) + '</strong></td>';
+            h += '<td style="font-size:10px;color:var(--dim)">' + f.source_type.toUpperCase() + ': ' + src + '</td>';
+            h += '<td style="font-size:10px">' + esc(f.mapping_rule_id || '\u2013') + '</td>';
+            h += '<td>' + (schedLabels[f.schedule] || f.schedule) + '</td>';
+            h += '<td style="font-size:10px">' + lastRun + '</td>';
+            h += '<td class="' + statusCls + '">' + lastStatus + '</td>';
+            h += '<td><button class="btn btn-ghost" onclick="event.stopPropagation();GH.csvRunFeedFromList(\'' + f.id + '\',this)">&#9654; Run</button></td>';
+            h += '</tr>';
+        }
+        h += '</tbody></table>';
+        area.innerHTML = h;
+    }
+
+    function csvNewFeed() {
+        csvCurrentFeed = null;
+        csvShowEditor(null);
+    }
+
+    async function csvEditFeed(id) {
+        const r = await ajax('gh_ajax_csv_get_feed', { feed_id: id });
+        if (!r.success) { toast('Feed non trovato', 'err'); return; }
+        csvCurrentFeed = r.data;
+        csvShowEditor(r.data);
+    }
+
+    async function csvShowEditor(feed) {
+        document.getElementById('csv-list-view').style.display = 'none';
+        document.getElementById('csv-edit-view').style.display = '';
+
+        // Load mapper rules into dropdown
+        const rr = await ajax('gh_ajax_mapper_list_rules');
+        const sel = document.getElementById('csv-mapping-rule');
+        sel.innerHTML = '<option value="">-- Seleziona regola --</option>';
+        if (rr.success) {
+            for (const rule of rr.data) {
+                const o = document.createElement('option');
+                o.value = rule.id;
+                o.textContent = rule.name + ' (' + rule.mapping_count + ' campi)';
+                sel.appendChild(o);
+            }
+        }
+
+        // Populate form
+        if (feed) {
+            document.getElementById('csv-edit-title').textContent = 'Modifica: ' + feed.name;
+            document.getElementById('csv-name').value = feed.name || '';
+            document.getElementById('csv-source-type').value = feed.source_type || 'url';
+            document.getElementById('csv-source-url').value = feed.source_url || '';
+            document.getElementById('csv-file-name').textContent = feed.source_path || '';
+            document.getElementById('csv-mapping-rule').value = feed.mapping_rule_id || '';
+            document.getElementById('csv-schedule').value = feed.schedule || 'manual';
+            document.getElementById('csv-opt-create').checked = feed.options?.create_new !== false;
+            document.getElementById('csv-opt-update').checked = feed.options?.update_existing !== false;
+            document.getElementById('btn-csv-preview').style.display = '';
+            document.getElementById('btn-csv-run').style.display = '';
+            document.getElementById('btn-csv-delete').style.display = '';
+        } else {
+            document.getElementById('csv-edit-title').textContent = 'Nuovo Feed CSV';
+            document.getElementById('csv-name').value = '';
+            document.getElementById('csv-source-type').value = 'url';
+            document.getElementById('csv-source-url').value = '';
+            document.getElementById('csv-file-name').textContent = '';
+            document.getElementById('csv-mapping-rule').value = '';
+            document.getElementById('csv-schedule').value = 'manual';
+            document.getElementById('csv-opt-create').checked = true;
+            document.getElementById('csv-opt-update').checked = true;
+            document.getElementById('btn-csv-preview').style.display = 'none';
+            document.getElementById('btn-csv-run').style.display = 'none';
+            document.getElementById('btn-csv-delete').style.display = 'none';
+        }
+        csvToggleSource();
+        document.getElementById('csv-source-preview').style.display = 'none';
+        document.getElementById('csv-results-area').innerHTML = '';
+    }
+
+    function csvBackToList() {
+        document.getElementById('csv-edit-view').style.display = 'none';
+        document.getElementById('csv-list-view').style.display = '';
+        csvLoadFeeds();
+    }
+
+    function csvToggleSource() {
+        const type = document.getElementById('csv-source-type').value;
+        document.getElementById('csv-source-url-row').style.display = type === 'url' ? '' : 'none';
+        document.getElementById('csv-source-file-row').style.display = type === 'file' ? '' : 'none';
+    }
+
+    async function csvTestUrl() {
+        const url = document.getElementById('csv-source-url').value;
+        if (!url) { toast('Inserisci URL', 'err'); return; }
+        const sp = document.getElementById('csv-test-spin');
+        sp.style.display = '';
+        try {
+            const r = await ajax('gh_ajax_csv_parse_url', { url: url, headers: '{}' });
+            if (!r.success) { toast('Errore: ' + r.data, 'err'); return; }
+            csvShowSourcePreview(r.data);
+            toast(r.data.rows + ' righe, ' + r.data.columns.length + ' colonne', 'ok');
+        } catch (e) { toast('Errore connessione', 'err'); }
+        finally { sp.style.display = 'none'; }
+    }
+
+    function csvShowSourcePreview(data) {
+        document.getElementById('csv-source-preview').style.display = '';
+        document.getElementById('csv-columns-list').textContent = data.columns.join(', ');
+        if (data.sample && data.sample.length) {
+            let h = '<table class="ptable" style="font-size:10px"><thead><tr>';
+            for (const col of data.columns) h += '<th>' + esc(col) + '</th>';
+            h += '</tr></thead><tbody>';
+            for (const row of data.sample) {
+                h += '<tr>';
+                for (const col of data.columns) h += '<td>' + esc(String(row[col] ?? '')) + '</td>';
+                h += '</tr>';
+            }
+            h += '</tbody></table>';
+            document.getElementById('csv-sample-table').innerHTML = h;
+        }
+    }
+
+    function initCsvUpload() {
+        const drop = document.getElementById('csv-drop');
+        const inp = document.getElementById('csv-file-input');
+        if (!drop || !inp) return;
+        inp.addEventListener('change', () => { if (inp.files.length) csvUploadFile(inp.files[0]); });
+        drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('dragover'); });
+        drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
+        drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('dragover'); if (e.dataTransfer.files.length) csvUploadFile(e.dataTransfer.files[0]); });
+    }
+
+    async function csvUploadFile(file) {
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (!['csv', 'tsv', 'txt'].includes(ext)) { toast('Solo .csv, .tsv, .txt', 'err'); return; }
+        const fd = new FormData();
+        fd.append('action', 'gh_ajax_csv_upload');
+        fd.append('nonce', NONCE);
+        fd.append('csv_file', file);
+        try {
+            const resp = await fetch(AJAX, { method: 'POST', body: fd });
+            const r = await resp.json();
+            if (!r.success) { toast('Errore: ' + r.data, 'err'); return; }
+            document.getElementById('csv-file-name').textContent = r.data.filename + ' \u00b7 ' + r.data.rows + ' righe';
+            // Store path for saving
+            document.getElementById('csv-file-input').dataset.path = r.data.path;
+            csvShowSourcePreview(r.data);
+            toast(r.data.rows + ' righe caricate', 'ok');
+        } catch (e) { toast('Errore upload', 'err'); }
+    }
+
+    function csvBuildFeedData() {
+        const sourceType = document.getElementById('csv-source-type').value;
+        return {
+            id: csvCurrentFeed?.id || '',
+            name: document.getElementById('csv-name').value || 'Feed CSV',
+            source_type: sourceType,
+            source_url: sourceType === 'url' ? document.getElementById('csv-source-url').value : '',
+            source_path: sourceType === 'file' ? (document.getElementById('csv-file-input').dataset.path || csvCurrentFeed?.source_path || '') : '',
+            source_headers: {},
+            mapping_rule_id: document.getElementById('csv-mapping-rule').value,
+            schedule: document.getElementById('csv-schedule').value,
+            status: 'active',
+            options: {
+                create_new: document.getElementById('csv-opt-create').checked,
+                update_existing: document.getElementById('csv-opt-update').checked,
+            },
+        };
+    }
+
+    async function csvSaveFeed() {
+        const data = csvBuildFeedData();
+        if (!data.name) { toast('Nome obbligatorio', 'err'); return; }
+        if (!data.mapping_rule_id) { toast('Seleziona una regola mapper', 'err'); return; }
+        if (data.source_type === 'url' && !data.source_url) { toast('URL obbligatorio', 'err'); return; }
+        if (data.source_type === 'file' && !data.source_path) { toast('Carica un file CSV', 'err'); return; }
+
+        const sp = document.getElementById('csv-save-spin');
+        sp.style.display = '';
+        try {
+            const r = await ajax('gh_ajax_csv_save_feed', { feed: JSON.stringify(data) });
+            if (!r.success) { toast('Errore: ' + r.data, 'err'); return; }
+            csvCurrentFeed = r.data;
+            toast('Feed salvato', 'ok');
+            // Show action buttons after save
+            document.getElementById('btn-csv-preview').style.display = '';
+            document.getElementById('btn-csv-run').style.display = '';
+            document.getElementById('btn-csv-delete').style.display = '';
+            document.getElementById('csv-edit-title').textContent = 'Modifica: ' + r.data.name;
+        } catch (e) { toast('Errore', 'err'); }
+        finally { sp.style.display = 'none'; }
+    }
+
+    async function csvDeleteFeed() {
+        if (!csvCurrentFeed?.id) return;
+        if (!confirm('Eliminare il feed "' + csvCurrentFeed.name + '"?')) return;
+        const r = await ajax('gh_ajax_csv_delete_feed', { feed_id: csvCurrentFeed.id });
+        if (!r.success) { toast('Errore', 'err'); return; }
+        toast('Feed eliminato', 'ok');
+        csvBackToList();
+    }
+
+    async function csvPreview() {
+        if (!csvCurrentFeed?.id) { toast('Salva il feed prima di fare preview', 'err'); return; }
+        const ov = document.getElementById('csv-overlay'), ot = document.getElementById('csv-overlay-text');
+        const sp = document.getElementById('csv-preview-spin');
+        ot.textContent = 'Lettura CSV e mapping...';
+        ov.classList.add('visible');
+        sp.style.display = '';
+        try {
+            const r = await ajax('gh_ajax_csv_preview', { feed_id: csvCurrentFeed.id });
+            if (!r.success) { toast('Errore: ' + r.data, 'err'); return; }
+            csvRenderDiff(r.data.diff, r.data.rows_read);
+        } catch (e) { toast('Errore', 'err'); }
+        finally { ov.classList.remove('visible'); sp.style.display = 'none'; }
+    }
+
+    function csvRenderDiff(diff, rowsRead) {
+        const s = diff.summary;
+        const area = document.getElementById('csv-results-area');
+        let h = '<div class="stats-bar" style="display:flex;margin:12px 0">';
+        h += '<div class="stat">Righe CSV: <span class="blue">' + rowsRead + '</span></div>';
+        h += '<div class="stat">Nuovi: <span class="blue">' + s.new + '</span></div>';
+        h += '<div class="stat">Da aggiornare: <span class="amber">' + s.update + '</span></div>';
+        h += '<div class="stat">Invariati: <span class="green">' + s.unchanged + '</span></div>';
+        h += '</div>';
+
+        const all = [
+            ...diff.new.map(p => ({ ...p, _a: 'new' })),
+            ...diff.update.map(p => ({ ...p, _a: 'update' })),
+            ...diff.unchanged.map(p => ({ ...p, _a: 'unchanged' })),
+        ];
+
+        if (all.length) {
+            h += '<table class="ptable"><thead><tr><th>Azione</th><th>SKU</th><th>Nome</th><th>Prezzo</th><th>Stock</th><th>Modifiche</th></tr></thead><tbody>';
+            for (const p of all.slice(0, 100)) {
+                const cls = p._a === 'new' ? 'st-new' : p._a === 'update' ? 'st-update' : 'st-unchanged';
+                const lb = p._a === 'new' ? '+ Nuovo' : p._a === 'update' ? '\u21bb Agg.' : '\u2713';
+                const changes = p._changes ? p._changes.join(', ') : '';
+                h += '<tr>';
+                h += '<td class="' + cls + '">' + lb + '</td>';
+                h += '<td>' + esc(p.sku || '\u2013') + '</td>';
+                h += '<td>' + esc(p.name || '\u2013') + '</td>';
+                h += '<td>' + esc(String(p.regular_price || p.sale_price || '\u2013')) + '</td>';
+                h += '<td>' + (p.stock_quantity != null ? p.stock_quantity : '\u2013') + '</td>';
+                h += '<td style="font-size:10px;color:var(--dim)">' + esc(changes) + '</td>';
+                h += '</tr>';
+            }
+            if (all.length > 100) h += '<tr><td colspan="6" style="text-align:center;color:var(--dim)">... e altri ' + (all.length - 100) + '</td></tr>';
+            h += '</tbody></table>';
+        }
+
+        area.innerHTML = h;
+    }
+
+    async function csvRunFeed() {
+        if (!csvCurrentFeed?.id) { toast('Salva il feed prima', 'err'); return; }
+        if (!confirm('Eseguire l\'importazione?')) return;
+        const ov = document.getElementById('csv-overlay'), ot = document.getElementById('csv-overlay-text');
+        const sp = document.getElementById('csv-run-spin');
+        ot.textContent = 'Importazione in corso...';
+        ov.classList.add('visible');
+        sp.style.display = '';
+        try {
+            const r = await ajax('gh_ajax_csv_run', { feed_id: csvCurrentFeed.id, options: '{}' });
+            if (!r.success) { toast('Errore: ' + r.data, 'err'); return; }
+            const s = r.data.summary;
+            const area = document.getElementById('csv-results-area');
+            let h = '<div class="stats-bar" style="display:flex;margin:12px 0">';
+            h += '<div class="stat">Righe CSV: <span class="blue">' + r.data.rows_read + '</span></div>';
+            h += '<div class="stat">Creati: <span class="green">' + s.created + '</span></div>';
+            h += '<div class="stat">Aggiornati: <span class="amber">' + s.updated + '</span></div>';
+            h += '<div class="stat">Errori: <span class="red">' + s.errors + '</span></div>';
+            h += '</div>';
+
+            if (r.data.details?.length) {
+                h += '<table class="ptable"><thead><tr><th>Risultato</th><th>ID</th><th>SKU</th><th>Nome</th></tr></thead><tbody>';
+                for (const d of r.data.details) {
+                    const c = d.action === 'created' ? 'st-created' : d.action === 'updated' ? 'st-updated' : 'st-error';
+                    const l = d.action === 'created' ? '+ Creato' : d.action === 'updated' ? '\u2713 Agg.' : '\u2717 Err';
+                    h += '<tr><td class="' + c + '">' + l + '</td><td>' + (d.id || '\u2013') + '</td><td>' + esc(d.sku || '') + '</td><td>' + esc(d.name || '') + '</td></tr>';
+                }
+                h += '</tbody></table>';
+            }
+
+            area.innerHTML = h;
+            toast(s.created + ' creati, ' + s.updated + ' aggiornati', s.errors ? 'err' : 'ok', 5000);
+        } catch (e) { toast('Errore', 'err'); }
+        finally { ov.classList.remove('visible'); sp.style.display = 'none'; }
+    }
+
+    async function csvRunFeedFromList(feedId, btn) {
+        if (!confirm('Eseguire importazione per questo feed?')) return;
+        btn.disabled = true;
+        btn.textContent = '...';
+        try {
+            const r = await ajax('gh_ajax_csv_run', { feed_id: feedId, options: '{}' });
+            if (!r.success) { toast('Errore: ' + r.data, 'err'); return; }
+            const s = r.data.summary;
+            toast(s.created + ' creati, ' + s.updated + ' aggiornati, ' + s.errors + ' errori', s.errors ? 'err' : 'ok', 5000);
+            csvLoadFeeds();
+        } catch (e) { toast('Errore', 'err'); }
+        finally { btn.disabled = false; btn.textContent = '\u25b6 Run'; }
+    }
+
     // ── INIT
     (async function(){const r=await ajax('rp_cm_ajax_get_tree_paths');if(r.success){(r.data.brands||[]).forEach(b=>{['cat-filter-brand','rt-filter-brand'].forEach(id=>{const s=document.getElementById(id);if(s){const o=document.createElement('option');o.value=b;o.textContent=b;s.appendChild(o)}})})}})();
     initBulkImport();
     initRtImport();
+    initCsvUpload();
 
-    return{ajax,toast,esc,switchTab,loadSummary,generateCatalog,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadMapping,browseMedia,debounceBrowse,showUsage,scanOrphans,toggleOrphan,orphanAction,bulkDeleteOrphans,loadWhitelist,removeWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute};
+    return{ajax,toast,esc,switchTab,loadSummary,generateCatalog,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadMapping,browseMedia,debounceBrowse,showUsage,scanOrphans,toggleOrphan,orphanAction,bulkDeleteOrphans,loadWhitelist,removeWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList};
 })();

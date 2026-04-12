@@ -51,6 +51,17 @@ require_once GH_DIR . 'includes/feeds/feed-config-engine.php';
 require_once GH_DIR . 'includes/feeds/scheduler.php';
 require_once GH_DIR . 'includes/feeds/ajax.php';
 
+// Jobs — unified scheduler (cron-expression based, chunked, pluggable)
+require_once GH_DIR . 'includes/jobs/cron-expr.php';
+require_once GH_DIR . 'includes/jobs/registry.php';
+require_once GH_DIR . 'includes/jobs/storage.php';
+require_once GH_DIR . 'includes/jobs/log.php';
+require_once GH_DIR . 'includes/jobs/runner.php';
+require_once GH_DIR . 'includes/jobs/handlers-feeds.php';
+require_once GH_DIR . 'includes/jobs/handlers-ops.php';
+require_once GH_DIR . 'includes/jobs/ajax.php';
+require_once GH_DIR . 'includes/jobs/migrate.php';
+
 // Filter — composable query engine
 require_once GH_DIR . 'includes/filter/conditions.php';
 require_once GH_DIR . 'includes/filter/query-engine.php';

@@ -54,9 +54,9 @@ function gh_render_page(): void {
             <div class="tab-item" onclick="GH.switchTab('csvfeed',this);GH.csvLoadFeeds()"><span class="tab-icon">&#9783;</span><span class="tab-label">CSV Feed</span></div>
             <div class="tab-item" onclick="GH.switchTab('bulkimport',this)"><span class="tab-icon">&#8615;</span><span class="tab-label">Bulk JSON</span></div>
             <div class="tab-item" onclick="GH.switchTab('roundtrip',this)"><span class="tab-icon">&#8644;</span><span class="tab-label">Roundtrip</span></div>
+            <div class="tab-section">JOBS</div>
+            <div class="tab-item" onclick="GH.switchTab('jobs',this)"><span class="tab-icon">&#9202;</span><span class="tab-label">Jobs</span></div>
             <div class="tab-section">TOOLS</div>
-            <div class="tab-item" onclick="GH.switchTab('scheduler',this);GH.schedLoad()"><span class="tab-icon">&#9202;</span><span class="tab-label">Scheduler</span></div>
-            <div class="tab-item" onclick="GH.switchTab('sched-log',this);GH.schedLoadLog()"><span class="tab-icon">&#9776;</span><span class="tab-label">Run Log</span></div>
             <div class="tab-item" onclick="GH.switchTab('httpclient',this)"><span class="tab-icon">&#8680;</span><span class="tab-label">HTTP Client</span></div>
             <div class="tab-item" onclick="GH.switchTab('whitelist',this)"><span class="tab-icon">&#9737;</span><span class="tab-label">Whitelist</span></div>
         </div>
@@ -65,6 +65,7 @@ function gh_render_page(): void {
             <?php include GH_DIR . 'includes/views/panels.php'; ?>
             <?php include GH_DIR . 'includes/views/panels-operations.php'; ?>
             <?php include GH_DIR . 'includes/views/panels-mapper.php'; ?>
+            <?php include GH_DIR . 'includes/views/panels-jobs.php'; ?>
         </div>
     </div>
     <div id="gh-toasts" class="toast-wrap"></div>
@@ -75,6 +76,7 @@ function gh_render_page(): void {
 <?php include GH_DIR . 'includes/views/js2.php'; ?>
 <?php include GH_DIR . 'includes/views/js-operations.php'; ?>
 <?php include GH_DIR . 'includes/views/js-mapper.php'; ?>
+<?php include GH_DIR . 'includes/views/js-jobs.php'; ?>
 </script>
 <?php
 }

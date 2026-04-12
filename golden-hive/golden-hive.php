@@ -58,6 +58,7 @@ require_once GH_DIR . 'includes/jobs/storage.php';
 require_once GH_DIR . 'includes/jobs/log.php';
 require_once GH_DIR . 'includes/jobs/runner.php';
 require_once GH_DIR . 'includes/jobs/handlers-feeds.php';
+require_once GH_DIR . 'includes/jobs/handlers-ops.php';
 require_once GH_DIR . 'includes/jobs/ajax.php';
 require_once GH_DIR . 'includes/jobs/migrate.php';
 

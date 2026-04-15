@@ -9,9 +9,20 @@ defined( 'ABSPATH' ) || exit;
 // Prevent double-loading when both golden-hive and rp-email-marketing are active.
 if ( has_action( 'wp_ajax_rp_em_ajax_send_test' ) ) return;
 
+/**
+ * Verifica nonce: accetta sia rp_em_nonce (UI standalone) sia gh_nonce (UI golden-hive).
+ * Termina con wp_die se entrambi falliscono.
+ */
+function rp_em_check_nonce(): void {
+    $nonce = $_REQUEST['nonce'] ?? '';
+    if ( wp_verify_nonce( $nonce, 'rp_em_nonce' ) ) return;
+    if ( wp_verify_nonce( $nonce, 'gh_nonce' ) )    return;
+    wp_die( 'Invalid nonce', 'Forbidden', [ 'response' => 403 ] );
+}
+
 // ── TEST EMAIL ──────────────────────────────────────────────────
 add_action( 'wp_ajax_rp_em_ajax_send_test', function () {
-    check_ajax_referer( 'rp_em_nonce', 'nonce' );
+    rp_em_check_nonce();
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
     $to      = sanitize_email( $_POST['to'] ?? '' );
@@ -29,7 +40,7 @@ add_action( 'wp_ajax_rp_em_ajax_send_test', function () {
 
 // ── GET HUSTLE MODULES ──────────────────────────────────────────
 add_action( 'wp_ajax_rp_em_ajax_get_modules', function () {
-    check_ajax_referer( 'rp_em_nonce', 'nonce' );
+    rp_em_check_nonce();
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
     wp_send_json_success( rp_em_get_hustle_modules() );
@@ -37,7 +48,7 @@ add_action( 'wp_ajax_rp_em_ajax_get_modules', function () {
 
 // ── GET CONTACTS ────────────────────────────────────────────────
 add_action( 'wp_ajax_rp_em_ajax_get_contacts', function () {
-    check_ajax_referer( 'rp_em_nonce', 'nonce' );
+    rp_em_check_nonce();
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
     $source_type = sanitize_key( $_POST['source_type'] ?? 'hustle' );
@@ -73,7 +84,7 @@ add_action( 'wp_ajax_rp_em_ajax_get_contacts', function () {
 
 // ── UPLOAD CSV ──────────────────────────────────────────────────
 add_action( 'wp_ajax_rp_em_ajax_upload_csv', function () {
-    check_ajax_referer( 'rp_em_nonce', 'nonce' );
+    rp_em_check_nonce();
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
     if ( empty( $_FILES['csv_file'] ) || $_FILES['csv_file']['error'] !== UPLOAD_ERR_OK ) {
@@ -103,7 +114,7 @@ add_action( 'wp_ajax_rp_em_ajax_upload_csv', function () {
 
 // ── EXPORT CONTACTS CSV ─────────────────────────────────────────
 add_action( 'wp_ajax_rp_em_ajax_export_csv', function () {
-    check_ajax_referer( 'rp_em_nonce', 'nonce' );
+    rp_em_check_nonce();
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
     $module_ids = [];
@@ -117,7 +128,7 @@ add_action( 'wp_ajax_rp_em_ajax_export_csv', function () {
 
 // ── GET CAMPAIGNS ───────────────────────────────────────────────
 add_action( 'wp_ajax_rp_em_ajax_get_campaigns', function () {
-    check_ajax_referer( 'rp_em_nonce', 'nonce' );
+    rp_em_check_nonce();
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
     wp_send_json_success( rp_em_get_campaigns() );
@@ -125,7 +136,7 @@ add_action( 'wp_ajax_rp_em_ajax_get_campaigns', function () {
 
 // ── SAVE CAMPAIGN ───────────────────────────────────────────────
 add_action( 'wp_ajax_rp_em_ajax_save_campaign', function () {
-    check_ajax_referer( 'rp_em_nonce', 'nonce' );
+    rp_em_check_nonce();
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
     $raw  = stripslashes( $_POST['campaign'] ?? '{}' );
@@ -163,7 +174,7 @@ add_action( 'wp_ajax_rp_em_ajax_save_campaign', function () {
 
 // ── DELETE CAMPAIGN ─────────────────────────────────────────────
 add_action( 'wp_ajax_rp_em_ajax_delete_campaign', function () {
-    check_ajax_referer( 'rp_em_nonce', 'nonce' );
+    rp_em_check_nonce();
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
     $id = sanitize_key( $_POST['campaign_id'] ?? '' );
@@ -175,7 +186,7 @@ add_action( 'wp_ajax_rp_em_ajax_delete_campaign', function () {
 
 // ── SEND CAMPAIGN (immediate) ───────────────────────────────────
 add_action( 'wp_ajax_rp_em_ajax_send_campaign', function () {
-    check_ajax_referer( 'rp_em_nonce', 'nonce' );
+    rp_em_check_nonce();
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
     $id = sanitize_key( $_POST['campaign_id'] ?? '' );
@@ -195,7 +206,7 @@ add_action( 'wp_ajax_rp_em_ajax_send_campaign', function () {
 
 // ── SCHEDULE CAMPAIGN ───────────────────────────────────────────
 add_action( 'wp_ajax_rp_em_ajax_schedule_campaign', function () {
-    check_ajax_referer( 'rp_em_nonce', 'nonce' );
+    rp_em_check_nonce();
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
     $id       = sanitize_key( $_POST['campaign_id'] ?? '' );
@@ -218,7 +229,7 @@ add_action( 'wp_ajax_rp_em_ajax_schedule_campaign', function () {
 
 // ── PREVIEW CAMPAIGN ────────────────────────────────────────────
 add_action( 'wp_ajax_rp_em_ajax_preview_campaign', function () {
-    check_ajax_referer( 'rp_em_nonce', 'nonce' );
+    rp_em_check_nonce();
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
     $id = sanitize_key( $_POST['campaign_id'] ?? '' );
@@ -236,4 +247,30 @@ add_action( 'wp_ajax_rp_em_ajax_preview_campaign', function () {
         'subject'        => $campaign['subject'],
         'contact_count'  => count( $contacts ),
     ] );
+} );
+
+// ── EMAIL LOG (HISTORY) ─────────────────────────────────────────
+add_action( 'wp_ajax_rp_em_ajax_get_log', function () {
+    rp_em_check_nonce();
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $args = [
+        'limit'  => intval( $_POST['limit']  ?? 200 ),
+        'type'   => sanitize_key( $_POST['type']   ?? '' ),
+        'status' => sanitize_key( $_POST['status'] ?? '' ),
+        'search' => sanitize_text_field( $_POST['search'] ?? '' ),
+    ];
+
+    wp_send_json_success( [
+        'entries' => rp_em_get_email_log( $args ),
+        'stats'   => rp_em_email_log_stats(),
+    ] );
+} );
+
+add_action( 'wp_ajax_rp_em_ajax_clear_log', function () {
+    rp_em_check_nonce();
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    rp_em_clear_email_log();
+    wp_send_json_success( [ 'message' => 'Storico email svuotato.' ] );
 } );

@@ -77,6 +77,26 @@ function gh_get_bulk_action_definitions(): array {
             'description' => 'Aggiunge/sottrae un importo al regular_price (+10 o -5).',
             'params'      => [ 'amount' => 'number', 'target' => 'select:regular_price,sale_price' ],
         ],
+        'markup_percent' => [
+            'label'       => 'Aumento prezzo %',
+            'group'       => 'price',
+            'description' => 'Aumenta il prezzo della percentuale indicata (es. 30 = +30%). Salta i prodotti con prezzo target a 0.',
+            'params'      => [
+                'percent'  => 'number',
+                'target'   => 'select:regular_price,sale_price',
+                'rounding' => 'select:none,2dec,99,00,nearest_1,nearest_5,nearest_10',
+            ],
+        ],
+        'discount_percent' => [
+            'label'       => 'Sconto prezzo %',
+            'group'       => 'price',
+            'description' => 'Riduce il prezzo della percentuale indicata (es. 20 = -20%). Salta i prodotti con prezzo target a 0.',
+            'params'      => [
+                'percent'  => 'number',
+                'target'   => 'select:regular_price,sale_price',
+                'rounding' => 'select:none,2dec,99,00,nearest_1,nearest_5,nearest_10',
+            ],
+        ],
 
         // ── STOCK ───────────────────────────────────────
         'set_stock_status' => [
@@ -196,6 +216,18 @@ function gh_apply_bulk_action( WC_Product $product, string $action, array $param
         'set_sale_percent' => gh_set_sale_percent( $product, floatval( $params['percent'] ?? 0 ) ),
         'remove_sale'      => gh_remove_sale( $product ),
         'adjust_price'     => gh_adjust_price( $product, floatval( $params['amount'] ?? 0 ), $params['target'] ?? 'regular_price' ),
+        'markup_percent'   => gh_apply_percent_change(
+            $product,
+            1 + ( floatval( $params['percent'] ?? 0 ) / 100 ),
+            $params['target']   ?? 'regular_price',
+            $params['rounding'] ?? '2dec'
+        ),
+        'discount_percent' => gh_apply_percent_change(
+            $product,
+            1 - ( floatval( $params['percent'] ?? 0 ) / 100 ),
+            $params['target']   ?? 'regular_price',
+            $params['rounding'] ?? '2dec'
+        ),
 
         // ── STOCK ───────────────────────────────────────
         'set_stock_status'   => gh_set_stock_status( $product, $params['stock_status'] ?? 'instock' ),
@@ -421,4 +453,103 @@ function gh_set_menu_order( int $product_id, int $order ): true {
 
     wp_update_post( [ 'ID' => $product_id, 'menu_order' => $order ] );
     return true;
+}
+
+/**
+ * Applica un cambio percentuale (markup o sconto) al prezzo di un prodotto.
+ *
+ * Il fattore moltiplicativo e gia calcolato dal chiamante:
+ *   - markup +30%  → factor = 1.30
+ *   - sconto -20%  → factor = 0.80
+ *
+ * Comportamento:
+ * - Salta prodotti con il prezzo target a 0 (no-op safe: non scriviamo "0" su
+ *   un sale vuoto, e non modifichiamo prodotti senza prezzo regolare).
+ * - Per prodotti variabili itera su tutte le varianti e poi richiama
+ *   WC_Product_Variable::sync(), come fanno set_sale_percent / adjust_price.
+ * - Il risultato e arrotondato secondo $rounding (vedi gh_round_price()).
+ * - Clamp finale a 0 per coerenza con adjust_price.
+ *
+ * @param WC_Product $product
+ * @param float      $factor   Moltiplicatore. >1 = aumento, <1 = sconto.
+ * @param string     $target   'regular_price' | 'sale_price'
+ * @param string     $rounding Chiave preset di gh_round_price().
+ * @return true
+ */
+function gh_apply_percent_change( WC_Product $product, float $factor, string $target, string $rounding ): true {
+
+    // No-op: factor = 1 significa percent = 0.
+    if ( abs( $factor - 1 ) < 0.0001 ) return true;
+
+    $target = $target === 'sale_price' ? 'sale_price' : 'regular_price';
+
+    if ( $product->is_type( 'variable' ) ) {
+        foreach ( $product->get_children() as $var_id ) {
+            $v = wc_get_product( $var_id );
+            if ( ! $v ) continue;
+            gh_apply_percent_to_single( $v, $factor, $target, $rounding );
+        }
+        WC_Product_Variable::sync( $product->get_id() );
+    } else {
+        gh_apply_percent_to_single( $product, $factor, $target, $rounding );
+    }
+
+    return true;
+}
+
+/**
+ * Applica un cambio percentuale a un singolo prodotto (simple o variation).
+ * Helper interno di gh_apply_percent_change(): non chiamare dall'esterno.
+ */
+function gh_apply_percent_to_single( WC_Product $product, float $factor, string $target, string $rounding ): void {
+
+    $current = (float) ( $target === 'sale_price'
+        ? $product->get_sale_price()
+        : $product->get_regular_price() );
+
+    // Skip se il target e vuoto/zero: evitiamo di sovrascrivere un sale_price
+    // vuoto con uno scritto a zero, e di "creare" un prezzo dal nulla.
+    if ( $current <= 0 ) return;
+
+    $new = max( 0, gh_round_price( $current * $factor, $rounding ) );
+
+    if ( $target === 'sale_price' ) {
+        $product->set_sale_price( $new > 0 ? $new : '' );
+    } else {
+        $product->set_regular_price( $new );
+    }
+    $product->save();
+}
+
+/**
+ * Arrotonda un prezzo secondo un preset.
+ *
+ * Preset disponibili:
+ * - 'none'       → nessun arrotondamento (full precision)
+ * - '2dec'       → round a 2 decimali (default storico del codice)
+ * - '99'         → ending .99 (es. 12.34 → 12.99, 13.01 → 13.99)
+ * - '00'         → ending .00 (round al piu vicino intero, es. 12.34 → 12)
+ * - 'nearest_1'  → alias di '00' — round al piu vicino intero
+ * - 'nearest_5'  → multiplo di 5 piu vicino  (es. 23 → 25, 27 → 25)
+ * - 'nearest_10' → multiplo di 10 piu vicino (es. 23 → 20, 27 → 30)
+ *
+ * Helper riusabile da future bulk action o da feature non-bulk: tienilo qui
+ * come "primitiva" del modulo bulk.
+ *
+ * @param float  $value
+ * @param string $mode
+ * @return float
+ */
+function gh_round_price( float $value, string $mode ): float {
+
+    if ( $value <= 0 ) return 0.0;
+
+    return match ( $mode ) {
+        'none'                  => $value,
+        '99'                    => floor( $value ) + 0.99,
+        '00', 'nearest_1'       => (float) round( $value ),
+        'nearest_5'             => (float) ( round( $value / 5 ) * 5 ),
+        'nearest_10'            => (float) ( round( $value / 10 ) * 10 ),
+        default                 => round( $value, 2 ), // '2dec' e fallback sicuro.
+    };
 }

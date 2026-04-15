@@ -228,7 +228,16 @@ function rp_em_execute_campaign( string $campaign_id ): array {
     }
 
     $rate_limit = intval( $campaign['rate_limit'] ?? 200000 );
-    $result     = rp_em_send_campaign( $contacts, $campaign['subject'], $campaign['body'], $rate_limit );
+    $result     = rp_em_send_campaign(
+        $contacts,
+        $campaign['subject'],
+        $campaign['body'],
+        $rate_limit,
+        [
+            'campaign_id'   => $campaign['id']   ?? '',
+            'campaign_name' => $campaign['name'] ?? '',
+        ]
+    );
 
     // Aggiorna campagna con risultati
     $status = $result['failed'] > 0 && $result['sent'] === 0

@@ -351,6 +351,18 @@
         const wrap = document.getElementById('bulk-params');
         wrap.innerHTML = '';
         if (!action) return;
+        const percentChangeUI = function(label) {
+            return '<input type="number" class="filter-select" id="bulk-percent" placeholder="' + label + '" min="0" step="0.1" style="width:80px;"><span style="color:var(--dim);font-size:11px;">%</span>'
+                 + '<select class="filter-select" id="bulk-target"><option value="regular_price">Regular</option><option value="sale_price">Sale</option></select>'
+                 + '<select class="filter-select" id="bulk-rounding" title="Arrotondamento">'
+                 +   '<option value="2dec">2 decimali</option>'
+                 +   '<option value="none">Nessuno</option>'
+                 +   '<option value="99">Termina .99</option>'
+                 +   '<option value="00">Termina .00</option>'
+                 +   '<option value="nearest_5">Multiplo 5</option>'
+                 +   '<option value="nearest_10">Multiplo 10</option>'
+                 + '</select>';
+        };
         const pm = {
             'assign_categories': categorySelector('bulk-cat-ids'),
             'remove_categories': categorySelector('bulk-cat-ids'),
@@ -361,6 +373,8 @@
             'set_sale_percent':  '<input type="number" class="filter-select" id="bulk-percent" placeholder="%" min="1" max="99" style="width:70px;"><span style="color:var(--dim);font-size:11px;">%</span>',
             'remove_sale':       '<span style="color:var(--dim);font-size:11px;">Rimuove sale_price</span>',
             'adjust_price':      '<input type="number" class="filter-select" id="bulk-amount" placeholder="+/-" step="0.01" style="width:80px;"><select class="filter-select" id="bulk-target"><option value="regular_price">Regular</option><option value="sale_price">Sale</option></select>',
+            'markup_percent':    percentChangeUI('+%'),
+            'discount_percent':  percentChangeUI('-%'),
             'set_stock_status':  '<select class="filter-select" id="bulk-stock-status"><option value="instock">In stock</option><option value="outofstock">Out of stock</option></select>',
             'set_stock_quantity':'<input type="number" class="filter-select" id="bulk-qty" placeholder="Qty" min="0" style="width:80px;">',
             'set_seo_template':  '<input type="text" class="filter-select" id="bulk-seo-title" placeholder="Meta title: {name} | {brand}" style="min-width:200px;"><input type="text" class="filter-select" id="bulk-seo-desc" placeholder="Meta desc" style="min-width:200px;">',
@@ -408,6 +422,8 @@
             'assign_tags':{tag_ids:gm('bulk-tag-ids')}, 'remove_tags':{tag_ids:gm('bulk-tag-ids')},
             'set_status':{status:g('bulk-status')}, 'set_sale_percent':{percent:parseFloat(g('bulk-percent')||0)}, 'remove_sale':{},
             'adjust_price':{amount:parseFloat(g('bulk-amount')||0),target:g('bulk-target')},
+            'markup_percent':{percent:parseFloat(g('bulk-percent')||0),target:g('bulk-target'),rounding:g('bulk-rounding')},
+            'discount_percent':{percent:parseFloat(g('bulk-percent')||0),target:g('bulk-target'),rounding:g('bulk-rounding')},
             'set_stock_status':{stock_status:g('bulk-stock-status')}, 'set_stock_quantity':{quantity:parseInt(g('bulk-qty')||0)},
             'set_seo_template':{meta_title_template:g('bulk-seo-title'),meta_description_template:g('bulk-seo-desc')},
             'set_menu_order':{menu_order:parseInt(g('bulk-order')||0)},

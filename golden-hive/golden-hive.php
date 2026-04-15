@@ -77,7 +77,9 @@ require_once GH_DIR . 'includes/mapper/engine.php';
 require_once GH_DIR . 'includes/mapper/storage.php';
 require_once GH_DIR . 'includes/mapper/ajax.php';
 
-// Email — contacts, mailer, campaigns
+// Email — log (history) loaded first con guard indipendente,
+// poi contacts, mailer, campaigns, ajax.
+require_once GH_DIR . 'includes/email/log.php';
 require_once GH_DIR . 'includes/email/contacts.php';
 require_once GH_DIR . 'includes/email/mailer.php';
 require_once GH_DIR . 'includes/email/campaigns.php';

@@ -12,13 +12,6 @@ defined( 'ABSPATH' ) || exit;
 if ( function_exists( 'rp_em_send_test_email' ) ) return;
 
 /**
- * Option key per il log delle email inviate (history lightweight).
- * Capped a RP_EM_LOG_MAX entries per evitare bloat di wp_options.
- */
-const RP_EM_LOG_KEY = 'rp_em_email_log';
-const RP_EM_LOG_MAX = 500;
-
-/**
  * Invia una email di test a un singolo destinatario.
  * Simile al test email di WooCommerce ma con template personalizzabile.
  *
@@ -49,13 +42,17 @@ function rp_em_send_test_email( string $to, string $subject = '', string $body =
     $headers = [ 'Content-Type: text/html; charset=UTF-8' ];
     $sent    = wp_mail( $to, $subject, $body, $headers );
 
-    rp_em_log_email( [
-        'to'      => $to,
-        'subject' => $subject,
-        'type'    => 'test',
-        'status'  => $sent ? 'sent' : 'failed',
-        'error'   => $sent ? '' : 'wp_mail returned false',
-    ] );
+    // Logging difensivo: un fallimento del log non deve MAI rompere il flusso
+    // di invio / la risposta AJAX. Vedi email/log.php::rp_em_log_email_safe().
+    if ( function_exists( 'rp_em_log_email_safe' ) ) {
+        rp_em_log_email_safe( [
+            'to'      => $to,
+            'subject' => $subject,
+            'type'    => 'test',
+            'status'  => $sent ? 'sent' : 'failed',
+            'error'   => $sent ? '' : 'wp_mail returned false',
+        ] );
+    }
 
     return [
         'success' => $sent,
@@ -99,15 +96,18 @@ function rp_em_send_campaign( array $contacts, string $subject, string $body, in
             $errors[] = "{$contact->email}: wp_mail failed";
         }
 
-        rp_em_log_email( [
-            'to'            => $contact->email,
-            'subject'       => $subject,
-            'type'          => 'campaign',
-            'campaign_id'   => $campaign_id,
-            'campaign_name' => $campaign_name,
-            'status'        => $ok ? 'sent' : 'failed',
-            'error'         => $ok ? '' : 'wp_mail returned false',
-        ] );
+        // Logging difensivo — non far mai crashare il ciclo d'invio.
+        if ( function_exists( 'rp_em_log_email_safe' ) ) {
+            rp_em_log_email_safe( [
+                'to'            => $contact->email,
+                'subject'       => $subject,
+                'type'          => 'campaign',
+                'campaign_id'   => $campaign_id,
+                'campaign_name' => $campaign_name,
+                'status'        => $ok ? 'sent' : 'failed',
+                'error'         => $ok ? '' : 'wp_mail returned false',
+            ] );
+        }
 
         if ( $rate_limit > 0 ) {
             usleep( $rate_limit );
@@ -225,119 +225,4 @@ function rp_em_build_test_template( string $site_name, string $to ): string {
     HTML;
 }
 
-// ── EMAIL LOG (HISTORY) ───────────────────────────────────────────────────────
-
-/**
- * Registra una email inviata nel log lightweight.
- * Capped a RP_EM_LOG_MAX entries — le piu vecchie vengono troncate.
- *
- * Struttura entry:
- * - id:            string  ID univoco
- * - to:            string  Destinatario
- * - subject:       string  Oggetto
- * - type:          string  'test' | 'campaign'
- * - campaign_id:   string  ID campagna (vuoto per test)
- * - campaign_name: string  Nome campagna (vuoto per test)
- * - status:        string  'sent' | 'failed'
- * - error:         string  Messaggio d'errore (vuoto se sent)
- * - sent_at:       string  Datetime mysql
- *
- * @param array $entry Dati dell'email inviata.
- * @return void
- */
-function rp_em_log_email( array $entry ): void {
-
-    $log = get_option( RP_EM_LOG_KEY, [] );
-    if ( ! is_array( $log ) ) $log = [];
-
-    $log[] = [
-        'id'            => substr( md5( uniqid( '', true ) ), 0, 10 ),
-        'to'            => sanitize_email( $entry['to'] ?? '' ),
-        'subject'       => sanitize_text_field( $entry['subject'] ?? '' ),
-        'type'          => sanitize_key( $entry['type'] ?? 'test' ),
-        'campaign_id'   => sanitize_text_field( $entry['campaign_id'] ?? '' ),
-        'campaign_name' => sanitize_text_field( $entry['campaign_name'] ?? '' ),
-        'status'        => sanitize_key( $entry['status'] ?? 'sent' ),
-        'error'         => sanitize_text_field( $entry['error'] ?? '' ),
-        'sent_at'       => current_time( 'mysql' ),
-    ];
-
-    // Cap log size: tieni solo le ultime RP_EM_LOG_MAX entries.
-    if ( count( $log ) > RP_EM_LOG_MAX ) {
-        $log = array_slice( $log, -RP_EM_LOG_MAX );
-    }
-
-    update_option( RP_EM_LOG_KEY, $log, false );
-}
-
-/**
- * Ritorna lo storico delle email, ordinato dal piu recente.
- *
- * @param array $args Filtri opzionali:
- *   - limit:  int    Massimo numero di entries (default 200)
- *   - type:   string Filtra per type ('test' | 'campaign')
- *   - status: string Filtra per status ('sent' | 'failed')
- *   - search: string Cerca in to / subject / campaign_name
- * @return array Lista di entries.
- */
-function rp_em_get_email_log( array $args = [] ): array {
-
-    $log = get_option( RP_EM_LOG_KEY, [] );
-    if ( ! is_array( $log ) ) return [];
-
-    $type   = $args['type']   ?? '';
-    $status = $args['status'] ?? '';
-    $search = strtolower( trim( $args['search'] ?? '' ) );
-    $limit  = max( 1, intval( $args['limit'] ?? 200 ) );
-
-    if ( $type !== '' || $status !== '' || $search !== '' ) {
-        $log = array_filter( $log, function ( $e ) use ( $type, $status, $search ) {
-            if ( $type   !== '' && ( $e['type']   ?? '' ) !== $type )   return false;
-            if ( $status !== '' && ( $e['status'] ?? '' ) !== $status ) return false;
-            if ( $search !== '' ) {
-                $hay = strtolower( ( $e['to'] ?? '' ) . ' ' . ( $e['subject'] ?? '' ) . ' ' . ( $e['campaign_name'] ?? '' ) );
-                if ( strpos( $hay, $search ) === false ) return false;
-            }
-            return true;
-        } );
-    }
-
-    // Ordine: piu recenti prima.
-    $log = array_reverse( array_values( $log ) );
-
-    return array_slice( $log, 0, $limit );
-}
-
-/**
- * Conta totale, sent, failed nel log corrente.
- *
- * @return array { total: int, sent: int, failed: int }
- */
-function rp_em_email_log_stats(): array {
-
-    $log = get_option( RP_EM_LOG_KEY, [] );
-    if ( ! is_array( $log ) ) $log = [];
-
-    $sent   = 0;
-    $failed = 0;
-    foreach ( $log as $e ) {
-        if ( ( $e['status'] ?? '' ) === 'sent' )   $sent++;
-        if ( ( $e['status'] ?? '' ) === 'failed' ) $failed++;
-    }
-
-    return [
-        'total'  => count( $log ),
-        'sent'   => $sent,
-        'failed' => $failed,
-    ];
-}
-
-/**
- * Svuota completamente il log delle email.
- *
- * @return bool
- */
-function rp_em_clear_email_log(): bool {
-
-    return update_option( RP_EM_LOG_KEY, [], false );
-}
+// Email log / history functions live in email/log.php con guard indipendente.

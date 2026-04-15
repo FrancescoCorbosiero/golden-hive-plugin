@@ -83,7 +83,39 @@
     async function bulkDeleteOrphans(){const ids=Array.from(state.selected);if(!ids.length||!confirm('Eliminare '+ids.length+' immagini?'))return;const r=await ajax('rp_mm_ajax_bulk_delete',{ids:JSON.stringify(ids)});if(!r.success){toast('Errore','err');return}toast('Eliminati: '+r.data.deleted.length+', Spazio: '+r.data.freed_human,'ok',5000);state.orphans=state.orphans.filter(a=>!r.data.deleted.includes(a.id));state.selected=new Set();renderOrphanGrid()}
 
     // ── WHITELIST
-    async function loadWhitelist(){const r=await ajax('rp_mm_ajax_get_whitelist');if(!r.success)return;const a=document.getElementById('wl-area');if(!r.data.length){a.innerHTML='<div class="empty-state"><div class="empty-text">Whitelist vuota</div></div>';return}a.innerHTML=r.data.map(e=>'<div class="wl-row"><img class="wl-thumb" src="'+esc(e.url||'')+'" /><div class="wl-info"><div class="wl-name">'+esc(e.reason||'Nessun motivo')+'</div><div class="wl-reason">'+esc(e.url||'')+'</div></div><span class="wl-id">#'+(e.id||'?')+'</span><button class="btn btn-ghost" onclick="GH.removeWL('+e.id+')">Rimuovi</button></div>').join('')}
+    async function loadWhitelist(){
+        const r=await ajax('rp_mm_ajax_get_whitelist');
+        if(!r.success){toast('Errore caricamento whitelist','err');return}
+        const a=document.getElementById('wl-area');
+        if(!r.data.length){a.innerHTML='<div class="empty-state"><div class="empty-icon">&#9737;</div><div class="empty-text">Whitelist vuota. Aggiungi un attachment con ID o URL dalla toolbar sopra, oppure proteggi un orfano da Safe Cleanup.</div></div>';return}
+        a.innerHTML=r.data.map(e=>'<div class="wl-row"><img class="wl-thumb" src="'+esc(e.url||'')+'" /><div class="wl-info"><div class="wl-name">'+esc(e.reason||'Nessun motivo')+'</div><div class="wl-reason">'+esc(e.url||'')+'</div></div><span class="wl-id">#'+(e.id||'?')+'</span><button class="btn btn-ghost" onclick="GH.removeWL('+(e.id||0)+')">Rimuovi</button></div>').join('');
+    }
+    // Aggiunta manuale da toolbar del panel Whitelist.
+    // Accetta o attachment_id (numero) o url (stringa assoluta). Almeno uno
+    // dei due e richiesto lato server; il motivo e obbligatorio lato UI per
+    // evitare whitelist "ciechi" senza giustificazione.
+    async function whitelistAdd(){
+        const id=parseInt(document.getElementById('wl-add-id').value||'0');
+        const url=(document.getElementById('wl-add-url').value||'').trim();
+        const reason=(document.getElementById('wl-add-reason').value||'').trim();
+        if(!id && !url){toast('Serve un attachment ID o un URL','err');return}
+        if(!reason){toast('Il motivo e obbligatorio','err');return}
+        const btn=document.getElementById('btn-wl-add'),sp=document.getElementById('wl-add-spin');
+        btn.disabled=true; sp.style.display='';
+        try{
+            const body={reason};
+            if(id) body.attachment_id=id;
+            if(url) body.url=url;
+            const r=await ajax('rp_mm_ajax_add_whitelist',body);
+            if(!r.success){toast('Errore: '+(r.data||''),'err');return}
+            document.getElementById('wl-add-id').value='';
+            document.getElementById('wl-add-url').value='';
+            document.getElementById('wl-add-reason').value='';
+            toast('Protetto','ok');
+            loadWhitelist();
+        }catch(e){toast('Errore','err')}
+        finally{btn.disabled=false; sp.style.display='none'}
+    }
     async function addWL(id,reason){await ajax('rp_mm_ajax_add_whitelist',{attachment_id:id,reason:reason});toast('#'+id+' protetto','ok');scanOrphans()}
     async function removeWL(id){await ajax('rp_mm_ajax_remove_whitelist',{attachment_id:id});toast('#'+id+' rimosso','ok');loadWhitelist()}
 
@@ -916,5 +948,5 @@
     initSfFeed();
     initCsvUpload();
 
-    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadMapping,mapRemoveGalleryImg,showUsage,scanOrphans,toggleOrphan,orphanAction,bulkDeleteOrphans,loadWhitelist,removeWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfApply,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog};
+    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadMapping,mapRemoveGalleryImg,showUsage,scanOrphans,toggleOrphan,orphanAction,bulkDeleteOrphans,loadWhitelist,whitelistAdd,removeWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfApply,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog};
 })();

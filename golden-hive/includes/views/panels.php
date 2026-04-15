@@ -423,9 +423,20 @@
 </div>
 
 <!-- ═══ WHITELIST ═══ -->
+<!--
+    La whitelist protegge gli attachment dall'eliminazione nel Safe Cleanup.
+    Entries possono essere aggiunte da qui (ID o URL + motivo) oppure via
+    click su una card orfana in Safe Cleanup (pattern originale).
+-->
 <div class="panel" id="panel-whitelist">
-    <div class="toolbar">
-        <button class="btn btn-primary" onclick="GH.loadWhitelist()">Aggiorna</button>
+    <div class="toolbar" style="flex-wrap:wrap;gap:8px;">
+        <input class="cfg-input" id="wl-add-id" type="number" placeholder="Attachment ID" style="max-width:140px;font-size:11px" />
+        <span class="filter-label" style="color:var(--dim)">oppure</span>
+        <input class="cfg-input" id="wl-add-url" placeholder="URL attachment" style="flex:1;min-width:220px;font-size:11px" />
+        <input class="cfg-input" id="wl-add-reason" placeholder="Motivo (obbligatorio)" style="flex:1;min-width:180px;font-size:11px" />
+        <button class="btn btn-primary" id="btn-wl-add" onclick="GH.whitelistAdd()"><span class="spin" id="wl-add-spin" style="display:none"></span> + Proteggi</button>
+        <div class="filter-sep"></div>
+        <button class="btn btn-ghost" onclick="GH.loadWhitelist()">Aggiorna</button>
     </div>
     <div class="wl-wrap" id="wl-area"><div class="empty-state"><div class="empty-icon">&#9737;</div><div class="empty-text">La whitelist protegge le immagini dall'eliminazione</div></div></div>
 </div>

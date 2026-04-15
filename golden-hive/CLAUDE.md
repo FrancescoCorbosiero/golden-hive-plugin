@@ -101,19 +101,50 @@ views/*.php, admin-page.php        → "UI" (zero logica business)
 | OPERAZIONI | Filtra & Agisci | Query builder + tabella + inline edit + bulk actions (default) |
 | | Ordinamento | Sort preview + apply menu_order |
 | | Tassonomie | CRUD albero `product_cat` e `product_brand` |
-| MEDIA | Mapping | Prodotto-immagini |
-| | Browse | Ricerca media library |
-| | Orphans | Immagini orfane |
+| MEDIA | Safe Cleanup | Mapping-based diff → orfani 100% sicuri (ex-"Orphans") |
+| | Mapping | Prodotto-immagini + inline "×" per rimuovere da gallery |
+| | Whitelist | Protezione immagini dall'eliminazione |
 | IMPORT | GS Feed | Golden Sneakers feed |
 | | Bulk JSON | Import prodotti da JSON |
 | | Roundtrip | Export/import snapshot |
 | TOOLS | HTTP Client | Test API generiche |
-| | Whitelist | Proteggi immagini |
 
-> Le tab **Overview** e **Catalog** sono state rimosse: la prima era lenta e
-> non informativa, la seconda costruiva un JSON aggregato senza azioni
-> collegate. La loro logica PHP (`rp_cm_export_catalog`, summary builder) resta
-> disponibile per il modulo Jobs, ma non e piu esposta via AJAX/UI.
+> **CATALOGO** rimosso: Overview era lenta e non informativa, Catalog
+> costruiva un JSON aggregato senza operazioni collegate. La logica PHP
+> `rp_cm_export_catalog` / summary builder resta disponibile per il modulo
+> Jobs ma non e piu esposta via AJAX/UI.
+>
+> **Media Browse** rimosso: una ricerca wordpress-like della media library
+> senza operazioni utili. Rimpiazzato dalle operazioni bulk media in
+> Filtra & Agisci (vedi sotto).
+>
+> **Whitelist** spostata da TOOLS a MEDIA: e un supporto del Safe Cleanup,
+> non uno strumento a se.
+
+---
+
+## Media Safe Cleanup — Architettura
+
+**Flusso a due fasi visibile all'utente:**
+
+1. **Mapping phase** — `rp_mm_build_usage_map()` scansiona tutte le sorgenti
+   che referenziano media e ritorna un breakdown ispezionabile:
+   - `featured_products` — featured image di prodotti simple/variable
+   - `featured_variations` — thumbnail di `product_variation`
+   - `gallery_products` — ID in `_product_image_gallery` (CSV meta)
+   - `featured_posts` — featured image di post/page
+   - `inline_content` — URL in `<img src>` / `<a href>` nel content/excerpt
+   - `all_used` — unione deduplicata delle precedenti
+2. **Diff phase** — `rp_mm_get_orphan_attachments($usage_map)` sottrae
+   `all_used` dall'elenco completo degli attachment mime=image. Gli orfani
+   restituiti sono "100% sicuri" rispetto alle sorgenti coperte.
+
+**Safety net:**
+- La whitelist (`rp_mm_whitelist` option) blocca l'eliminazione anche se
+  un attachment risulta orfano dal diff.
+- `rp_mm_delete_attachment()` ricontrolla whitelist + `rp_mm_is_used()`
+  puntuale prima di ogni cancellazione.
+- Ogni cancellazione e loggata in `rp_mm_deletion_log` (FIFO max 500).
 
 ---
 
@@ -142,6 +173,7 @@ views/*.php, admin-page.php        → "UI" (zero logica business)
 | Price | set_sale_percent, remove_sale, adjust_price, markup_percent, discount_percent |
 | Stock | set_stock_status, set_stock_quantity |
 | SEO | set_seo_template (con placeholder {name}, {sku}, {price}, {brand}, {type}) |
+| Media | remove_first_gallery_image, clear_gallery |
 | Order | set_menu_order |
 
 > Le azioni `assign_brands` / `remove_brands` / `set_brands` sono implementate

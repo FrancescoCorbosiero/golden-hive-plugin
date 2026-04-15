@@ -6,33 +6,38 @@
 
 defined( 'ABSPATH' ) || exit;
 
-// ── SCAN: Find orphans ──────────────────────────────────────
+// ── SCAN: Safe cleanup (mapping + diff) ─────────────────────
+// Flusso a due fasi visibile all'utente:
+// 1. Mapping: costruiamo rp_mm_build_usage_map() e ritorniamo il breakdown
+//    per sorgente (featured, variations, gallery, posts, inline).
+// 2. Diff: rp_mm_get_orphan_attachments() su tutta la media library con lo
+//    stesso usage_map. Gli orfani che arrivano al client sono il complemento
+//    esatto dell'insieme "mapped/used", quindi "100% sicuri".
 add_action( 'wp_ajax_rp_mm_ajax_scan', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
-    $orphans    = rp_mm_get_orphan_attachments();
-    $used_ids   = rp_mm_get_used_attachment_ids();
-    $size_info  = rp_mm_estimate_orphan_size();
+    $usage_map   = rp_mm_build_usage_map();
+    $all_media   = rp_mm_get_all_attachments( 'image' );
+    $orphans     = rp_mm_get_orphan_attachments( $usage_map );
+    $size_info   = rp_mm_estimate_orphan_size( $orphans );
+
+    $breakdown = [
+        'featured_products'   => count( $usage_map['featured_products'] ),
+        'featured_variations' => count( $usage_map['featured_variations'] ),
+        'gallery_products'    => count( $usage_map['gallery_products'] ),
+        'featured_posts'      => count( $usage_map['featured_posts'] ),
+        'inline_content'      => count( $usage_map['inline_content'] ),
+    ];
 
     wp_send_json_success( [
-        'orphans'        => $orphans,
-        'used_count'     => count( $used_ids ),
+        'breakdown'      => $breakdown,
+        'total_media'    => count( $all_media ),
+        'used_count'     => count( $usage_map['all_used'] ),
         'orphan_count'   => count( $orphans ),
+        'orphans'        => $orphans,
         'estimated_size' => $size_info,
     ] );
-} );
-
-// ── BROWSE: Search media library ────────────────────────────
-add_action( 'wp_ajax_rp_mm_ajax_browse', function () {
-    check_ajax_referer( 'gh_nonce', 'nonce' );
-    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
-
-    $query = sanitize_text_field( $_POST['query'] ?? '' );
-    $mime  = sanitize_text_field( $_POST['mime'] ?? 'all' );
-    $limit = intval( $_POST['limit'] ?? 50 );
-
-    wp_send_json_success( rp_mm_search_attachments( $query, $mime, $limit ) );
 } );
 
 // ── MAPPING: Product-media map ──────────────────────────────

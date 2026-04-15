@@ -384,6 +384,8 @@
             'set_stock_status':  '<select class="filter-select" id="bulk-stock-status"><option value="instock">In stock</option><option value="outofstock">Out of stock</option></select>',
             'set_stock_quantity':'<input type="number" class="filter-select" id="bulk-qty" placeholder="Qty" min="0" style="width:80px;">',
             'set_seo_template':  '<input type="text" class="filter-select" id="bulk-seo-title" placeholder="Meta title: {name} | {brand}" style="min-width:200px;"><input type="text" class="filter-select" id="bulk-seo-desc" placeholder="Meta desc" style="min-width:200px;">',
+            'remove_first_gallery_image': '<span style="color:var(--dim);font-size:11px;">Rimuove la prima immagine della gallery (non tocca la featured)</span>',
+            'clear_gallery':     '<span style="color:var(--dim);font-size:11px;">Svuota la gallery completamente (non tocca la featured)</span>',
             'set_menu_order':    '<input type="number" class="filter-select" id="bulk-order" placeholder="Ordine" min="0" style="width:80px;">',
         };
         wrap.innerHTML = pm[action] || '';
@@ -441,6 +443,7 @@
             'discount_percent':{percent:parseFloat(g('bulk-percent')||0),target:g('bulk-target'),rounding:g('bulk-rounding')},
             'set_stock_status':{stock_status:g('bulk-stock-status')}, 'set_stock_quantity':{quantity:parseInt(g('bulk-qty')||0)},
             'set_seo_template':{meta_title_template:g('bulk-seo-title'),meta_description_template:g('bulk-seo-desc')},
+            'remove_first_gallery_image':{}, 'clear_gallery':{},
             'set_menu_order':{menu_order:parseInt(g('bulk-order')||0)},
         }[action] || {};
     }

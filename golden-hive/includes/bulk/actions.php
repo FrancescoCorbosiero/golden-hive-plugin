@@ -138,6 +138,20 @@ function gh_get_bulk_action_definitions(): array {
             'params'      => [ 'meta_title_template' => 'text', 'meta_description_template' => 'text' ],
         ],
 
+        // ── MEDIA ───────────────────────────────────────
+        'remove_first_gallery_image' => [
+            'label'       => 'Rimuovi prima immagine galleria',
+            'group'       => 'media',
+            'description' => 'Rimuove la PRIMA immagine della gallery (non tocca la featured). Utile quando un feed importa una thumb duplicata come primo elemento.',
+            'params'      => [],
+        ],
+        'clear_gallery' => [
+            'label'       => 'Svuota galleria',
+            'group'       => 'media',
+            'description' => 'Rimuove TUTTE le immagini della gallery (non tocca la featured).',
+            'params'      => [],
+        ],
+
         // ── SORTING ─────────────────────────────────────
         'set_menu_order' => [
             'label'       => 'Imposta ordine',
@@ -257,6 +271,10 @@ function gh_apply_bulk_action( WC_Product $product, string $action, array $param
 
         // ── SEO ─────────────────────────────────────────
         'set_seo_template' => gh_apply_seo_template( $product, $params ),
+
+        // ── MEDIA ───────────────────────────────────────
+        'remove_first_gallery_image' => gh_remove_first_gallery_image( $product ),
+        'clear_gallery'              => gh_clear_gallery( $product ),
 
         // ── ORDER ───────────────────────────────────────
         'set_menu_order' => gh_set_menu_order( $pid, intval( $params['menu_order'] ?? 0 ) ),
@@ -482,6 +500,38 @@ function gh_apply_seo_template( WC_Product $product, array $params ): true {
 function gh_set_menu_order( int $product_id, int $order ): true {
 
     wp_update_post( [ 'ID' => $product_id, 'menu_order' => $order ] );
+    return true;
+}
+
+/**
+ * Rimuove la prima immagine della gallery del prodotto (non tocca la featured).
+ *
+ * No-op se la gallery e gia vuota: la action ritorna true e il product non
+ * viene ri-salvato. Scenario tipico di uso: un feed importa una thumb
+ * duplicata come primo elemento della gallery e vogliamo ripulirla in bulk.
+ *
+ * @return true|string
+ */
+function gh_remove_first_gallery_image( WC_Product $product ): true|string {
+
+    $ids = $product->get_gallery_image_ids();
+    if ( empty( $ids ) ) return true;
+
+    array_shift( $ids );
+    $product->set_gallery_image_ids( array_map( 'intval', $ids ) );
+    $product->save();
+    return true;
+}
+
+/**
+ * Svuota completamente la gallery del prodotto (non tocca la featured).
+ *
+ * @return true
+ */
+function gh_clear_gallery( WC_Product $product ): true {
+
+    $product->set_gallery_image_ids( [] );
+    $product->save();
     return true;
 }
 

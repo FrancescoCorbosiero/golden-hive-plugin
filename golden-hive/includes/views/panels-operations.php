@@ -50,6 +50,10 @@
                     <optgroup label="SEO">
                         <option value="set_seo_template">Template SEO</option>
                     </optgroup>
+                    <optgroup label="Media">
+                        <option value="remove_first_gallery_image">Rimuovi prima img galleria</option>
+                        <option value="clear_gallery">Svuota galleria</option>
+                    </optgroup>
                     <optgroup label="Ordine">
                         <option value="set_menu_order">Imposta ordine</option>
                     </optgroup>

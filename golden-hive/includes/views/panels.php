@@ -21,36 +21,60 @@
 </div>
 
 <!-- ═══ MEDIA MAPPING ═══ -->
+<!--
+    Vista di riferimento prodotto → immagini. Mostra cosa e dove.
+    Operazioni inline disponibili:
+    - click su "×" su una gallery thumb → rimuove quell'immagine dalla gallery
+    - click su "★" su una gallery thumb → la promuove a featured
+    Per operazioni bulk su molti prodotti usare Operazioni > Filtra & Agisci.
+-->
 <div class="panel" id="panel-mapping" style="position:relative">
     <div class="toolbar">
+        <span class="filter-label">Stato</span>
+        <select class="filter-select" id="map-filter-status"><option value="any">Tutti</option><option value="publish" selected>Pubblicati</option><option value="draft">Bozze</option></select>
+        <div class="filter-sep"></div>
         <button class="btn btn-primary" id="btn-map" onclick="GH.loadMapping()"><span class="spin" id="map-spin" style="display:none"></span> Carica mapping</button>
+        <span class="filter-label" style="margin-left:auto;color:var(--dim)">Click su una thumb per azioni inline</span>
     </div>
     <div class="map-wrap" id="map-area"><div class="empty-state"><div class="empty-icon">&#9636;</div><div class="empty-text">Carica il mapping prodotto-immagini</div></div></div>
 </div>
 
-<!-- ═══ MEDIA BROWSE ═══ -->
-<div class="panel" id="panel-browse">
-    <div class="toolbar">
-        <input class="search-input" id="browse-search" placeholder="Cerca media..." oninput="GH.debounceBrowse()" />
-        <button class="btn btn-ghost" onclick="GH.browseMedia()">Cerca</button>
-    </div>
-    <div class="media-grid" id="browse-grid"><div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">&#9871;</div><div class="empty-text">Cerca nella media library</div></div></div>
-</div>
-
-<!-- ═══ ORPHANS ═══ -->
+<!-- ═══ ORPHANS (Safe Cleanup) ═══ -->
+<!--
+    Flusso esplicito a due fasi per la pulizia sicura dei media:
+    1. Mapping  — si scansiona TUTTO cio che referenzia media (featured,
+                  variation thumbs, gallery, featured di post/page, inline
+                  src/href) e si mostra un breakdown ispezionabile.
+    2. Diff     — tutti i media immagine meno l'insieme "mapped/used" =
+                  orfani 100% sicuri da eliminare.
+    Nessuno scenario di falso positivo per le sorgenti coperte.
+-->
 <div class="panel" id="panel-orphans" style="position:relative">
     <div class="toolbar">
-        <button class="btn btn-primary" id="btn-scan" onclick="GH.scanOrphans()"><span class="spin" id="scan-spin" style="display:none"></span> Avvia scansione</button>
+        <button class="btn btn-primary" id="btn-scan" onclick="GH.scanOrphans()"><span class="spin" id="scan-spin" style="display:none"></span> Avvia Safe Cleanup</button>
         <div class="filter-sep"></div>
         <button class="btn btn-danger" id="btn-bulk-del" onclick="GH.bulkDeleteOrphans()" style="display:none">Elimina selezionati</button>
         <span class="stat" id="sel-stat" style="display:none"><span id="sel-n">0</span> selezionati</span>
     </div>
+
+    <!-- Phase 1 breakdown: cosa e stato mappato come "in uso" -->
+    <div class="stats-bar" id="orphan-breakdown" style="display:none;flex-wrap:wrap;gap:8px">
+        <div class="stat" title="Featured image di prodotti simple/variable">Featured prod.: <span class="blue" id="bd-featured-prod">0</span></div>
+        <div class="stat" title="Thumbnail delle varianti (product_variation)">Variation thumb: <span class="blue" id="bd-featured-var">0</span></div>
+        <div class="stat" title="ID in _product_image_gallery">Gallery: <span class="blue" id="bd-gallery">0</span></div>
+        <div class="stat" title="Featured image di post/page">Post/Page: <span class="blue" id="bd-featured-posts">0</span></div>
+        <div class="stat" title="Immagini referenziate via src/href nel content">Inline content: <span class="blue" id="bd-inline">0</span></div>
+    </div>
+
+    <!-- Phase 2 diff: cosa e orfano -->
     <div class="stats-bar" id="orphan-stats" style="display:none">
-        <div class="stat">Orfani: <span class="red" id="st-orphans">0</span></div>
-        <div class="stat">In uso: <span class="green" id="st-used">0</span></div>
+        <div class="stat">Totale media: <span id="st-total-media">0</span></div>
+        <div class="stat">In uso (mapped): <span class="green" id="st-used">0</span></div>
+        <div class="stat">Orfani (diff): <span class="red" id="st-orphans">0</span></div>
         <div class="stat">Spazio recuperabile: <span id="st-size">0</span></div>
     </div>
-    <div class="media-grid" id="orphan-grid"><div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">&#9888;</div><div class="empty-text">Scansiona per trovare immagini orfane</div></div></div>
+
+    <div class="media-grid" id="orphan-grid"><div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">&#9888;</div><div class="empty-text">Premi "Avvia Safe Cleanup" per mappare i media in uso e trovare gli orfani</div></div></div>
     <div class="gen-overlay" id="scan-overlay"><div class="gen-spinner"></div><div class="gen-text">Scansione in corso...</div></div>
 </div>
 

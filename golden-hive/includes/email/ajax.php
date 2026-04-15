@@ -6,19 +6,24 @@
 
 defined( 'ABSPATH' ) || exit;
 
-// Prevent double-loading when both golden-hive and rp-email-marketing are active.
-if ( has_action( 'wp_ajax_rp_em_ajax_send_test' ) ) return;
-
 /**
  * Verifica nonce: accetta sia rp_em_nonce (UI standalone) sia gh_nonce (UI golden-hive).
  * Termina con wp_die se entrambi falliscono.
+ *
+ * Definita PRIMA della guard di double-loading e protetta da function_exists,
+ * cosi e sempre disponibile indipendentemente dall'ordine di load dei due plugin.
  */
-function rp_em_check_nonce(): void {
-    $nonce = $_REQUEST['nonce'] ?? '';
-    if ( wp_verify_nonce( $nonce, 'rp_em_nonce' ) ) return;
-    if ( wp_verify_nonce( $nonce, 'gh_nonce' ) )    return;
-    wp_die( 'Invalid nonce', 'Forbidden', [ 'response' => 403 ] );
+if ( ! function_exists( 'rp_em_check_nonce' ) ) {
+    function rp_em_check_nonce(): void {
+        $nonce = $_REQUEST['nonce'] ?? '';
+        if ( wp_verify_nonce( $nonce, 'rp_em_nonce' ) ) return;
+        if ( wp_verify_nonce( $nonce, 'gh_nonce' ) )    return;
+        wp_die( 'Invalid nonce', 'Forbidden', [ 'response' => 403 ] );
+    }
 }
+
+// Prevent double-loading when both golden-hive and rp-email-marketing are active.
+if ( has_action( 'wp_ajax_rp_em_ajax_send_test' ) ) return;
 
 // ── TEST EMAIL ──────────────────────────────────────────────────
 add_action( 'wp_ajax_rp_em_ajax_send_test', function () {

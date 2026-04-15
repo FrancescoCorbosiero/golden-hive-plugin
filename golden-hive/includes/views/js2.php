@@ -50,13 +50,23 @@
     async function showUsage(id){const r=await ajax('rp_mm_ajax_usage',{attachment_id:id});if(!r.success)return;if(!r.data.length){toast('#'+id+': non usata','inf');return}toast('#'+id+': '+r.data.map(u=>u.name+' ('+u.usage+')').join(', '),'inf',5000)}
 
     // ── ORPHANS: Safe Cleanup (mapping phase + diff phase in un unica call)
+    //
+    // Comportamento per store grandi (17k+ media):
+    // - Il backend ritorna TUTTI gli orphan_ids (array di int, leggero) e
+    //   solo i primi N con metadati completi per il rendering (display_cap).
+    //   state.orphanIds    → tutti gli ID (per "Elimina tutti")
+    //   state.orphans      → subset con metadati (renderizzato nella grid)
+    // - Bulk delete viene chunkato lato server (param chunk_size) per
+    //   evitare timeout su migliaia di immagini.
     async function scanOrphans(){
         const ov=document.getElementById('scan-overlay'),btn=document.getElementById('btn-scan'),sp=document.getElementById('scan-spin');
         ov.classList.add('visible'); btn.disabled=true; sp.style.display='';
         try {
-            const r=await ajax('rp_mm_ajax_scan');
-            if(!r.success){toast('Errore','err');return}
-            state.orphans=r.data.orphans; state.selected=new Set();
+            const r=await ajax('rp_mm_ajax_scan',{display_cap:2000});
+            if(!r.success){toast('Errore: '+(r.data||'scan'),'err');return}
+            state.orphans=r.data.orphans||[];
+            state.orphanIds=r.data.orphan_ids||[];
+            state.selected=new Set();
             // Phase 1: breakdown delle sorgenti mappate
             const bd=r.data.breakdown||{};
             document.getElementById('orphan-breakdown').style.display='flex';
@@ -70,17 +80,84 @@
             document.getElementById('st-total-media').textContent=r.data.total_media||0;
             document.getElementById('st-used').textContent=r.data.used_count||0;
             document.getElementById('st-orphans').textContent=r.data.orphan_count||0;
-            document.getElementById('st-size').textContent=r.data.estimated_size.total_human;
+            document.getElementById('st-size').textContent=(r.data.estimated_size&&r.data.estimated_size.total_human)||'—';
+            // Delete-all button: visibile sempre che ci siano orfani
+            const btnAll=document.getElementById('btn-delete-all');
+            if(btnAll){btnAll.style.display=r.data.orphan_count>0?'':'none';btnAll.textContent='Elimina tutti ('+r.data.orphan_count+')'}
+            // Capped notice
+            const cap=document.getElementById('orphan-cap-notice');
+            if(cap){
+                if(r.data.capped){cap.style.display='';cap.textContent='Mostrati i primi '+state.orphans.length+' di '+r.data.orphan_count+' orfani. Usa "Elimina tutti" per operare sull\'intero set senza preview.';}
+                else{cap.style.display='none';cap.textContent=''}
+            }
             renderOrphanGrid();
             toast(r.data.orphan_count+' orfani (su '+r.data.total_media+' media)',r.data.orphan_count?'err':'ok');
-        } catch(e){toast('Errore','err')}
+        } catch(e){toast('Errore scan','err')}
         finally{ov.classList.remove('visible'); btn.disabled=false; sp.style.display='none'}
     }
-    function renderOrphanGrid(){const g=document.getElementById('orphan-grid'),o=state.orphans;if(!o.length){g.innerHTML='<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">\u2713</div><div class="empty-text">Nessun orfano</div></div>';return}g.innerHTML=o.map(a=>{const wl=a.is_whitelisted;return'<div class="media-card'+(wl?' whitelisted':'')+(state.selected.has(a.id)?' selected':'')+'">'+(wl?'<span class="media-badge badge-wl">WL</span>':'<input type="checkbox" class="media-check" '+(state.selected.has(a.id)?'checked':'')+' onclick="event.stopPropagation();GH.toggleOrphan('+a.id+')" />')+'<img class="media-thumb" src="'+esc(a.thumbnail_url)+'" loading="lazy" onclick="GH.orphanAction('+a.id+','+wl+')" /><div class="media-info"><div class="media-filename">'+esc(a.filename)+'</div><div class="media-size">'+a.filesize_human+'</div></div></div>'}).join('');updSel()}
+    function renderOrphanGrid(){const g=document.getElementById('orphan-grid'),o=state.orphans;if(!o||!o.length){g.innerHTML='<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">\u2713</div><div class="empty-text">Nessun orfano</div></div>';return}g.innerHTML=o.map(a=>{const wl=a.is_whitelisted;return'<div class="media-card'+(wl?' whitelisted':'')+(state.selected.has(a.id)?' selected':'')+'">'+(wl?'<span class="media-badge badge-wl">WL</span>':'<input type="checkbox" class="media-check" '+(state.selected.has(a.id)?'checked':'')+' onclick="event.stopPropagation();GH.toggleOrphan('+a.id+')" />')+'<img class="media-thumb" src="'+esc(a.thumbnail_url)+'" loading="lazy" onclick="GH.orphanAction('+a.id+','+wl+')" /><div class="media-info"><div class="media-filename">'+esc(a.filename)+'</div><div class="media-size">'+(a.filesize_human||'—')+'</div></div></div>'}).join('');updSel()}
     function toggleOrphan(id){state.selected.has(id)?state.selected.delete(id):state.selected.add(id);renderOrphanGrid()}
     function updSel(){const n=state.selected.size;document.getElementById('btn-bulk-del').style.display=n?'':'none';document.getElementById('sel-stat').style.display=n?'':'none';document.getElementById('sel-n').textContent=n}
     function orphanAction(id,wl){if(wl){if(confirm('Rimuovere #'+id+' dalla whitelist?'))removeWL(id)}else{const r=prompt('Aggiungere #'+id+' alla whitelist? Motivo:');if(r!==null)addWL(id,r)}}
-    async function bulkDeleteOrphans(){const ids=Array.from(state.selected);if(!ids.length||!confirm('Eliminare '+ids.length+' immagini?'))return;const r=await ajax('rp_mm_ajax_bulk_delete',{ids:JSON.stringify(ids)});if(!r.success){toast('Errore','err');return}toast('Eliminati: '+r.data.deleted.length+', Spazio: '+r.data.freed_human,'ok',5000);state.orphans=state.orphans.filter(a=>!r.data.deleted.includes(a.id));state.selected=new Set();renderOrphanGrid()}
+
+    // Chunk delete: invia gli ID in batch da 200 lato server (che ri-fa
+    // delete 1-a-1 con tutti i safety check: whitelist, is_used, log).
+    async function chunkedDelete(ids, label){
+        const total=ids.length;
+        if(!total)return{deleted:[],errors:{},freed_bytes:0,freed_human:'0 B'};
+        const chunk=200;
+        let deleted=[],errors={},freedBytes=0;
+        let remaining=ids.slice();
+        const ov=document.getElementById('scan-overlay'),ot=ov?ov.querySelector('.gen-text'):null;
+        if(ov) ov.classList.add('visible');
+        if(ot) ot.textContent=label+' 0/'+total;
+        try {
+            while(remaining.length){
+                const batch=remaining.slice(0,chunk);
+                const r=await ajax('rp_mm_ajax_bulk_delete',{ids:JSON.stringify(batch),chunk_size:chunk});
+                if(!r.success){toast('Errore: '+(r.data||'delete'),'err');break}
+                deleted=deleted.concat(r.data.deleted||[]);
+                Object.assign(errors,r.data.errors||{});
+                freedBytes+=r.data.freed_bytes||0;
+                remaining=remaining.slice(batch.length);
+                if(ot) ot.textContent=label+' '+deleted.length+'/'+total;
+            }
+        } finally { if(ov) ov.classList.remove('visible') }
+        const human=fmtBytes(freedBytes);
+        return{deleted,errors,freed_bytes:freedBytes,freed_human:human};
+    }
+    function fmtBytes(b){if(b<1024)return b+' B';if(b<1048576)return(b/1024).toFixed(1)+' KB';if(b<1073741824)return(b/1048576).toFixed(1)+' MB';return(b/1073741824).toFixed(2)+' GB'}
+
+    async function bulkDeleteOrphans(){
+        const ids=Array.from(state.selected);
+        if(!ids.length){toast('Nessun orfano selezionato','err');return}
+        if(!confirm('Eliminare '+ids.length+' immagini selezionate?\n\nVerranno rispettati whitelist + safety check per ogni elemento.'))return;
+        const r=await chunkedDelete(ids,'Eliminazione');
+        toast('Eliminati: '+r.deleted.length+', Spazio: '+r.freed_human,'ok',5000);
+        const deletedSet=new Set(r.deleted);
+        state.orphans=state.orphans.filter(a=>!deletedSet.has(a.id));
+        state.orphanIds=(state.orphanIds||[]).filter(id=>!deletedSet.has(id));
+        state.selected=new Set();
+        document.getElementById('st-orphans').textContent=state.orphanIds.length;
+        const btnAll=document.getElementById('btn-delete-all');
+        if(btnAll){btnAll.style.display=state.orphanIds.length>0?'':'none';btnAll.textContent='Elimina tutti ('+state.orphanIds.length+')'}
+        renderOrphanGrid();
+    }
+    async function deleteAllOrphans(){
+        const ids=(state.orphanIds||[]).slice();
+        if(!ids.length){toast('Nessun orfano da eliminare','err');return}
+        if(!confirm('ATTENZIONE: stai per eliminare '+ids.length+' immagini senza preview individuale.\n\nLa whitelist e gli altri safety check vengono comunque applicati per ogni elemento.\n\nProcedere?'))return;
+        const r=await chunkedDelete(ids,'Eliminazione totale');
+        toast('Eliminati: '+r.deleted.length+'/'+ids.length+', Spazio: '+r.freed_human,'ok',7000);
+        const deletedSet=new Set(r.deleted);
+        state.orphans=state.orphans.filter(a=>!deletedSet.has(a.id));
+        state.orphanIds=(state.orphanIds||[]).filter(id=>!deletedSet.has(id));
+        state.selected=new Set();
+        document.getElementById('st-orphans').textContent=state.orphanIds.length;
+        const btnAll=document.getElementById('btn-delete-all');
+        if(btnAll){btnAll.style.display=state.orphanIds.length>0?'':'none';btnAll.textContent='Elimina tutti ('+state.orphanIds.length+')'}
+        renderOrphanGrid();
+    }
 
     // ── WHITELIST
     async function loadWhitelist(){
@@ -948,5 +1025,5 @@
     initSfFeed();
     initCsvUpload();
 
-    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadMapping,mapRemoveGalleryImg,showUsage,scanOrphans,toggleOrphan,orphanAction,bulkDeleteOrphans,loadWhitelist,whitelistAdd,removeWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfApply,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog};
+    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadMapping,mapRemoveGalleryImg,showUsage,scanOrphans,toggleOrphan,orphanAction,bulkDeleteOrphans,deleteAllOrphans,loadWhitelist,whitelistAdd,removeWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfApply,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog};
 })();

@@ -10,34 +10,59 @@ defined( 'ABSPATH' ) || exit;
 // Flusso a due fasi visibile all'utente:
 // 1. Mapping: costruiamo rp_mm_build_usage_map() e ritorniamo il breakdown
 //    per sorgente (featured, variations, gallery, posts, inline).
-// 2. Diff: rp_mm_get_orphan_attachments() su tutta la media library con lo
-//    stesso usage_map. Gli orfani che arrivano al client sono il complemento
-//    esatto dell'insieme "mapped/used", quindi "100% sicuri".
+// 2. Diff: rp_mm_get_orphan_attachments() con lo stesso usage_map. Gli
+//    orfani che arrivano al client sono il complemento esatto dell'insieme
+//    "mapped/used", quindi "100% sicuri".
+//
+// Performance: le ottimizzazioni vivono in scanner.php (query $wpdb dirette,
+// niente file I/O su media in uso, URL map precomputata per il content scan).
+// Qui ci limitiamo a bump limits + error trap per convertire i fatal PHP in
+// un JSON pulito che l'UI puo mostrare come toast invece di un 500 muto.
 add_action( 'wp_ajax_rp_mm_ajax_scan', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
-    $usage_map   = rp_mm_build_usage_map();
-    $all_media   = rp_mm_get_all_attachments( 'image' );
-    $orphans     = rp_mm_get_orphan_attachments( $usage_map );
-    $size_info   = rp_mm_estimate_orphan_size( $orphans );
+    // Store grandi: alza i limiti solo per questa request.
+    @set_time_limit( 300 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) {
+        wp_raise_memory_limit( 'admin' );
+    }
 
-    $breakdown = [
-        'featured_products'   => count( $usage_map['featured_products'] ),
-        'featured_variations' => count( $usage_map['featured_variations'] ),
-        'gallery_products'    => count( $usage_map['gallery_products'] ),
-        'featured_posts'      => count( $usage_map['featured_posts'] ),
-        'inline_content'      => count( $usage_map['inline_content'] ),
-    ];
+    // Cap sul numero di orfani con metadati completi restituiti all'UI.
+    // Gli ID sono sempre tutti ritornati cosi bulkDelete + "delete all"
+    // funzionano anche sopra il cap.
+    $display_cap = max( 100, min( 5000, intval( $_POST['display_cap'] ?? 2000 ) ) );
 
-    wp_send_json_success( [
-        'breakdown'      => $breakdown,
-        'total_media'    => count( $all_media ),
-        'used_count'     => count( $usage_map['all_used'] ),
-        'orphan_count'   => count( $orphans ),
-        'orphans'        => $orphans,
-        'estimated_size' => $size_info,
-    ] );
+    try {
+        $usage_map    = rp_mm_build_usage_map();
+        $all_ids      = rp_mm_get_all_attachment_ids( 'image' );
+        $orphan_pack  = rp_mm_get_orphan_attachments( $usage_map, $display_cap );
+        $orphans      = $orphan_pack['orphans'];
+        $orphan_ids   = $orphan_pack['orphan_ids'];
+        $size_info    = rp_mm_estimate_orphan_size( $orphans );
+
+        $breakdown = [
+            'featured_products'   => count( $usage_map['featured_products'] ),
+            'featured_variations' => count( $usage_map['featured_variations'] ),
+            'gallery_products'    => count( $usage_map['gallery_products'] ),
+            'featured_posts'      => count( $usage_map['featured_posts'] ),
+            'inline_content'      => count( $usage_map['inline_content'] ),
+        ];
+
+        wp_send_json_success( [
+            'breakdown'      => $breakdown,
+            'total_media'    => count( $all_ids ),
+            'used_count'     => count( $usage_map['all_used'] ),
+            'orphan_count'   => count( $orphan_ids ),
+            'orphans'        => $orphans,       // capped a display_cap
+            'orphan_ids'     => $orphan_ids,    // tutti gli ID, non cappati
+            'display_cap'    => $display_cap,
+            'capped'         => count( $orphan_ids ) > count( $orphans ),
+            'estimated_size' => $size_info,     // basata sul subset
+        ] );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Scan fallita: ' . $e->getMessage() );
+    }
 } );
 
 // ── MAPPING: Product-media map ──────────────────────────────
@@ -146,16 +171,39 @@ add_action( 'wp_ajax_rp_mm_ajax_delete_one', function () {
 } );
 
 // ── DELETE: Bulk ────────────────────────────────────────────
+// Supporta delete in chunk: se il client passa `chunk_size`, la action
+// elimina solo i primi N ID e ritorna 'remaining' cosi l'UI puo loopare
+// senza far andare in timeout una singola request.
 add_action( 'wp_ajax_rp_mm_ajax_bulk_delete', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    @set_time_limit( 300 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) {
+        wp_raise_memory_limit( 'admin' );
+    }
 
     $raw = stripslashes( $_POST['ids'] ?? '[]' );
     $ids = json_decode( $raw, true );
 
     if ( ! is_array( $ids ) || empty( $ids ) ) { wp_send_json_error( 'Nessun ID fornito.' ); }
 
-    wp_send_json_success( rp_mm_bulk_delete( $ids ) );
+    $chunk_size = intval( $_POST['chunk_size'] ?? 0 );
+    $remaining  = [];
+
+    if ( $chunk_size > 0 && count( $ids ) > $chunk_size ) {
+        $remaining = array_slice( $ids, $chunk_size );
+        $ids       = array_slice( $ids, 0, $chunk_size );
+    }
+
+    try {
+        $result = rp_mm_bulk_delete( $ids );
+        $result['remaining_ids']   = $remaining;
+        $result['remaining_count'] = count( $remaining );
+        wp_send_json_success( $result );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Bulk delete fallito: ' . $e->getMessage() );
+    }
 } );
 
 // ── LOG: Deletion log ───────────────────────────────────────

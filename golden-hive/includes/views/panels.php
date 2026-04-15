@@ -50,12 +50,15 @@
     Nessuno scenario di falso positivo per le sorgenti coperte.
 -->
 <div class="panel" id="panel-orphans" style="position:relative">
-    <div class="toolbar">
+    <div class="toolbar" style="flex-wrap:wrap;gap:8px;">
         <button class="btn btn-primary" id="btn-scan" onclick="GH.scanOrphans()"><span class="spin" id="scan-spin" style="display:none"></span> Avvia Safe Cleanup</button>
         <div class="filter-sep"></div>
         <button class="btn btn-danger" id="btn-bulk-del" onclick="GH.bulkDeleteOrphans()" style="display:none">Elimina selezionati</button>
         <span class="stat" id="sel-stat" style="display:none"><span id="sel-n">0</span> selezionati</span>
+        <div class="filter-sep"></div>
+        <button class="btn btn-danger" id="btn-delete-all" onclick="GH.deleteAllOrphans()" style="display:none">Elimina tutti</button>
     </div>
+    <div id="orphan-cap-notice" style="display:none;padding:8px 16px;background:var(--s1);border-bottom:1px solid var(--b1);font-family:var(--mono);font-size:11px;color:var(--amb)"></div>
 
     <!-- Phase 1 breakdown: cosa e stato mappato come "in uso" -->
     <div class="stats-bar" id="orphan-breakdown" style="display:none;flex-wrap:wrap;gap:8px">

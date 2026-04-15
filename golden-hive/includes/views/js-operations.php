@@ -73,7 +73,10 @@
         if (vt === 'boolean') return '<select class="filter-select" onchange="GH.condValueChanged('+idx+',this.value===\'1\')" style="min-width:80px;"><option value="1"'+(val===true?' selected':'')+'>Si</option><option value="0"'+(val===false?' selected':'')+'>No</option></select>';
         if (vt === 'select') { let h='<select class="filter-select" onchange="GH.condValueChanged('+idx+',this.value)" style="min-width:120px;">'; (def.options||[]).forEach(function(o){h+='<option value="'+o+'"'+(val===o?' selected':'')+'>'+o+'</option>';}); return h+'</select>'; }
         if (vt === 'term_ids') {
-            const items = cond.type==='category'?(filterMeta.categories||[]):cond.type==='tag'?(filterMeta.tags||[]):[];
+            const items = cond.type==='category'?(filterMeta.categories||[])
+                        : cond.type==='brand'?(filterMeta.brands||[])
+                        : cond.type==='tag'?(filterMeta.tags||[])
+                        : [];
             let h='<select class="filter-select" multiple onchange="GH.condTermsChanged('+idx+',this)" style="min-width:200px;min-height:32px;">';
             items.forEach(function(t){h+='<option value="'+t.id+'"'+(Array.isArray(val)&&val.includes(t.id)?' selected':'')+'>'+esc(t.name)+'</option>';});
             return h+'</select>';
@@ -367,6 +370,9 @@
             'assign_categories': categorySelector('bulk-cat-ids'),
             'remove_categories': categorySelector('bulk-cat-ids'),
             'set_categories':    categorySelector('bulk-cat-ids'),
+            'assign_brands':     brandSelector('bulk-brand-ids'),
+            'remove_brands':     brandSelector('bulk-brand-ids'),
+            'set_brands':        brandSelector('bulk-brand-ids'),
             'assign_tags':       tagSelector('bulk-tag-ids'),
             'remove_tags':       tagSelector('bulk-tag-ids'),
             'set_status':        '<select class="filter-select" id="bulk-status"><option value="publish">Publish</option><option value="draft">Draft</option><option value="private">Private</option></select>',
@@ -387,6 +393,14 @@
         if (!filterMeta) return '';
         let h = '<select class="filter-select" id="'+id+'" multiple style="min-width:200px;min-height:32px;">';
         (filterMeta.categories||[]).forEach(function(c){h+='<option value="'+c.id+'">'+(c.parent?'&nbsp;&nbsp;':'')+esc(c.name)+'</option>';});
+        return h + '</select>';
+    }
+    function brandSelector(id) {
+        if (!filterMeta) return '';
+        const brands = filterMeta.brands || [];
+        if (!brands.length) return '<span style="color:var(--dim);font-size:11px;">Nessun brand (product_brand non registrato)</span>';
+        let h = '<select class="filter-select" id="'+id+'" multiple style="min-width:200px;min-height:32px;">';
+        brands.forEach(function(b){h+='<option value="'+b.id+'">'+(b.parent?'&nbsp;&nbsp;':'')+esc(b.name)+'</option>';});
         return h + '</select>';
     }
     function tagSelector(id) {
@@ -419,6 +433,7 @@
         const gm=function(id){const e=document.getElementById(id);if(!e)return[];return Array.from(e.selectedOptions).map(function(o){return parseInt(o.value);});};
         return {
             'assign_categories':{category_ids:gm('bulk-cat-ids')}, 'remove_categories':{category_ids:gm('bulk-cat-ids')}, 'set_categories':{category_ids:gm('bulk-cat-ids')},
+            'assign_brands':{brand_ids:gm('bulk-brand-ids')}, 'remove_brands':{brand_ids:gm('bulk-brand-ids')}, 'set_brands':{brand_ids:gm('bulk-brand-ids')},
             'assign_tags':{tag_ids:gm('bulk-tag-ids')}, 'remove_tags':{tag_ids:gm('bulk-tag-ids')},
             'set_status':{status:g('bulk-status')}, 'set_sale_percent':{percent:parseFloat(g('bulk-percent')||0)}, 'remove_sale':{},
             'adjust_price':{amount:parseFloat(g('bulk-amount')||0),target:g('bulk-target')},
@@ -481,4 +496,7 @@
     }
     const origSwitch = GH.switchTab;
     GH.switchTab = function(tab, el) { origSwitch(tab, el); if (tab==='filter'||tab==='sorting') loadFilterMeta(); };
+
+    // Preload filter meta: "Filtra & Agisci" e ora la tab attiva all'apertura.
+    loadFilterMeta();
 })();

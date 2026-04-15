@@ -134,6 +134,17 @@ function gh_get_filter_meta(): array {
         }
     }
 
+    // Brand (woo brands taxonomy — presente solo se WooCommerce Brands e attivo)
+    $brands = [];
+    if ( taxonomy_exists( 'product_brand' ) ) {
+        $brand_terms = get_terms( [ 'taxonomy' => 'product_brand', 'hide_empty' => false, 'orderby' => 'name' ] );
+        if ( ! is_wp_error( $brand_terms ) ) {
+            foreach ( $brand_terms as $t ) {
+                $brands[] = [ 'id' => $t->term_id, 'name' => $t->name, 'slug' => $t->slug, 'parent' => $t->parent ];
+            }
+        }
+    }
+
     // Tag
     $tag_terms = get_terms( [ 'taxonomy' => 'product_tag', 'hide_empty' => false, 'orderby' => 'name' ] );
     $tags = [];
@@ -165,6 +176,7 @@ function gh_get_filter_meta(): array {
     return [
         'conditions' => $definitions,
         'categories' => $categories,
+        'brands'     => $brands,
         'tags'       => $tags,
         'attributes' => $attributes,
     ];
@@ -213,6 +225,21 @@ function gh_build_db_query( array $conditions ): array {
                         'operator' => 'NOT IN',
                     ]
                     : null ),
+            'brand' => $op === 'in' && ! empty( $val )
+                ? $args['tax_query'][] = [
+                    'taxonomy' => 'product_brand',
+                    'field'    => 'term_id',
+                    'terms'    => array_map( 'intval', (array) $val ),
+                    'operator' => 'IN',
+                ]
+                : ( $op === 'not_in' && ! empty( $val )
+                    ? $args['tax_query'][] = [
+                        'taxonomy' => 'product_brand',
+                        'field'    => 'term_id',
+                        'terms'    => array_map( 'intval', (array) $val ),
+                        'operator' => 'NOT IN',
+                    ]
+                    : null ),
             'tag' => $op === 'in' && ! empty( $val )
                 ? $args['tax_query'][] = [
                     'taxonomy' => 'product_tag',
@@ -242,9 +269,8 @@ function gh_build_db_query( array $conditions ): array {
 function gh_get_memory_conditions( array $conditions ): array {
 
     // Questi tipi sono gia gestiti in gh_build_db_query
-    $db_types = [ 'status', 'type', 'category', 'tag' ];
+    $db_types = [ 'status', 'type', 'category', 'brand', 'tag' ];
 
-    // Ma status con is_not e category/tag sono gia gestiti, tranne casi speciali
     return array_values( array_filter( $conditions, function ( $c ) use ( $db_types ) {
         $type = $c['type'] ?? '';
         $op   = $c['operator'] ?? '';
@@ -253,8 +279,8 @@ function gh_get_memory_conditions( array $conditions ): array {
         if ( $type === 'status' && $op === 'is' ) return false;
         // type con is/is_not e gestito a DB
         if ( $type === 'type' ) return false;
-        // category/tag in/not_in gestiti a DB
-        if ( in_array( $type, [ 'category', 'tag' ], true ) && in_array( $op, [ 'in', 'not_in' ], true ) ) return false;
+        // category/brand/tag in/not_in gestiti a DB
+        if ( in_array( $type, [ 'category', 'brand', 'tag' ], true ) && in_array( $op, [ 'in', 'not_in' ], true ) ) return false;
 
         return true;
     } ) );
@@ -285,10 +311,29 @@ function gh_serialize_product_row( WC_Product $product ): array {
         'stock_quantity' => $product->get_stock_quantity(),
         'menu_order'     => (int) get_post_field( 'menu_order', $pid ),
         'categories'     => rp_cm_get_product_category_names( $pid ),
+        'brands'         => gh_get_product_brand_names( $pid ),
         'has_image'      => (bool) $product->get_image_id(),
         'variant_count'  => $product->is_type( 'variable' ) ? count( $product->get_children() ) : 0,
         'date_created'   => $product->get_date_created()?->date( 'Y-m-d' ) ?? '',
         'date_modified'  => $product->get_date_modified()?->date( 'Y-m-d' ) ?? '',
         'permalink'      => get_permalink( $pid ),
     ];
+}
+
+/**
+ * Ritorna i nomi dei brand (termini product_brand) assegnati a un prodotto.
+ *
+ * Se la tassonomia product_brand non e registrata (Woo Brands non attivo),
+ * ritorna array vuoto: evitiamo errori su installazioni dove il plugin Woo
+ * Brands e assente.
+ *
+ * @param int $product_id
+ * @return string[]
+ */
+function gh_get_product_brand_names( int $product_id ): array {
+
+    if ( ! taxonomy_exists( 'product_brand' ) ) return [];
+
+    $terms = wp_get_post_terms( $product_id, 'product_brand', [ 'fields' => 'names' ] );
+    return is_wp_error( $terms ) ? [] : array_values( $terms );
 }

@@ -37,6 +37,24 @@ function gh_get_bulk_action_definitions(): array {
             'description' => 'Sostituisce TUTTE le categorie dei prodotti selezionati.',
             'params'      => [ 'category_ids' => 'term_ids' ],
         ],
+        'assign_brands' => [
+            'label'       => 'Aggiungi brand',
+            'group'       => 'taxonomy',
+            'description' => 'Aggiunge uno o piu brand (product_brand) ai prodotti selezionati.',
+            'params'      => [ 'brand_ids' => 'term_ids' ],
+        ],
+        'remove_brands' => [
+            'label'       => 'Rimuovi brand',
+            'group'       => 'taxonomy',
+            'description' => 'Rimuove brand specifici dai prodotti selezionati.',
+            'params'      => [ 'brand_ids' => 'term_ids' ],
+        ],
+        'set_brands' => [
+            'label'       => 'Imposta brand',
+            'group'       => 'taxonomy',
+            'description' => 'Sostituisce TUTTI i brand dei prodotti selezionati.',
+            'params'      => [ 'brand_ids' => 'term_ids' ],
+        ],
         'assign_tags' => [
             'label'       => 'Aggiungi tag',
             'group'       => 'taxonomy',
@@ -205,6 +223,10 @@ function gh_apply_bulk_action( WC_Product $product, string $action, array $param
         'assign_categories' => rp_cm_assign_product_categories( $pid, $params['category_ids'] ?? [] ),
         'remove_categories' => rp_cm_remove_product_categories( $pid, $params['category_ids'] ?? [] ),
         'set_categories'    => rp_cm_set_product_categories( $pid, $params['category_ids'] ?? [] ),
+
+        'assign_brands' => rp_cm_assign_product_categories( $pid, $params['brand_ids'] ?? [], 'product_brand' ),
+        'remove_brands' => rp_cm_remove_product_categories( $pid, $params['brand_ids'] ?? [], 'product_brand' ),
+        'set_brands'    => rp_cm_set_product_categories( $pid, $params['brand_ids'] ?? [], 'product_brand' ),
 
         'assign_tags' => gh_assign_product_tags( $pid, $params['tag_ids'] ?? [] ),
         'remove_tags' => gh_remove_product_tags( $pid, $params['tag_ids'] ?? [] ),
@@ -421,9 +443,17 @@ function gh_apply_seo_template( WC_Product $product, array $params ): true {
 
     $pid = $product->get_id();
 
-    // Resolve brand (prima categoria di profondita 1)
-    $cats  = rp_cm_get_product_category_names( $pid );
-    $brand = $cats[0] ?? '';
+    // Resolve brand: prima prova la tassonomia product_brand (Woo Brands),
+    // altrimenti fallback alla prima product_cat (legacy).
+    $brand_names = function_exists( 'gh_get_product_brand_names' )
+        ? gh_get_product_brand_names( $pid )
+        : [];
+    if ( ! empty( $brand_names ) ) {
+        $brand = $brand_names[0];
+    } else {
+        $cats  = rp_cm_get_product_category_names( $pid );
+        $brand = $cats[0] ?? '';
+    }
 
     $replacements = [
         '{name}'  => $product->get_name(),

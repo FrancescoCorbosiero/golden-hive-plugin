@@ -1,39 +1,15 @@
-<!-- ═══ OVERVIEW ═══ -->
-<div class="panel active" id="panel-overview">
-    <div style="padding:20px">
-        <button class="btn btn-primary" id="btn-summary" onclick="GH.loadSummary()"><span class="spin" id="sum-spin" style="display:none"></span> Genera Overview</button>
-    </div>
-    <div id="summary-container">
-        <div class="empty-state"><div class="empty-icon">&#9673;</div><div class="empty-text">Premi "Genera Overview" per una panoramica rapida</div></div>
-    </div>
-</div>
-
-<!-- ═══ CATALOG ═══ -->
-<div class="panel" id="panel-catalog" style="position:relative">
-    <div class="toolbar">
-        <span class="filter-label">Stato</span>
-        <select class="filter-select" id="cat-filter-status"><option value="publish">Pubblicati</option><option value="draft">Bozze</option><option value="any">Tutti</option></select>
-        <span class="filter-label">Brand</span>
-        <select class="filter-select" id="cat-filter-brand"><option value="">Tutti</option></select>
-        <label class="filter-toggle"><input type="checkbox" id="cat-filter-stock" /><span class="filter-label" style="letter-spacing:0">Solo in stock</span></label>
-        <div class="filter-sep"></div>
-        <button class="btn btn-primary" id="btn-catalog" onclick="GH.generateCatalog()"><span class="spin" id="cat-spin" style="display:none"></span> Genera Catalog</button>
-    </div>
-    <div class="json-area" id="catalog-viewer"><div class="empty-state"><div class="empty-icon">&#9776;</div><div class="empty-text">Genera il catalogo aggregato</div></div></div>
-    <div class="json-toolbar" id="catalog-toolbar" style="display:none">
-        <button class="btn btn-ghost" onclick="GH.copyJSON('catalog')">&#9112; Copia</button>
-        <button class="btn btn-ghost" onclick="GH.downloadJSON('catalog')">&#8681; Download</button>
-        <span class="file-size" id="catalog-size"></span>
-    </div>
-    <div class="gen-overlay" id="cat-overlay"><div class="gen-spinner"></div><div class="gen-text">Generazione catalogo...</div></div>
-</div>
-
 <!-- ═══ TAXONOMY ═══ -->
 <div class="panel" id="panel-taxonomy" style="position:relative">
     <div class="toolbar">
-        <button class="btn btn-primary" id="btn-tax-load" onclick="GH.loadTaxonomy()"><span class="spin" id="tax-spin" style="display:none"></span> Carica albero</button>
+        <span class="filter-label">Sorgente</span>
+        <select class="filter-select" id="tax-source" onchange="GH.loadTaxonomy()">
+            <option value="product_cat">Categorie (product_cat)</option>
+            <option value="product_brand">Brand (product_brand)</option>
+        </select>
         <div class="filter-sep"></div>
-        <button class="btn btn-ghost" onclick="GH.taxCreateRoot()">+ Sezione</button>
+        <button class="btn btn-primary" id="btn-tax-load" onclick="GH.loadTaxonomy()"><span class="spin" id="tax-spin" style="display:none"></span> Ricarica albero</button>
+        <div class="filter-sep"></div>
+        <button class="btn btn-ghost" onclick="GH.taxCreateRoot()">+ Root</button>
     </div>
     <div style="flex:1;display:flex;overflow:hidden">
         <div class="tax-wrap" id="tax-tree-area"><div class="empty-state"><div class="empty-icon">&#9698;</div><div class="empty-text">Carica l'albero tassonomia</div></div></div>

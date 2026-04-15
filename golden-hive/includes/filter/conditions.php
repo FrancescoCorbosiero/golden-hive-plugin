@@ -35,6 +35,13 @@ function gh_get_condition_definitions(): array {
             'value_type' => 'term_ids',
             'multi'      => true,
         ],
+        'brand' => [
+            'label'      => 'Brand',
+            'group'      => 'taxonomy',
+            'operators'  => [ 'in', 'not_in' ],
+            'value_type' => 'term_ids',
+            'multi'      => true,
+        ],
         'tag' => [
             'label'      => 'Tag',
             'group'      => 'taxonomy',
@@ -193,6 +200,7 @@ function gh_evaluate_condition( WC_Product $product, array $condition, array &$c
 
         // ── TAXONOMY ────────────────────────────────────
         'category' => gh_eval_taxonomy( $pid, 'product_cat', $operator, (array) $value ),
+        'brand'    => gh_eval_taxonomy( $pid, 'product_brand', $operator, (array) $value ),
         'tag'      => gh_eval_taxonomy( $pid, 'product_tag', $operator, (array) $value ),
         'attribute' => gh_eval_attribute(
             $product,

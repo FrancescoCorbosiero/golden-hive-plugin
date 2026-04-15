@@ -98,11 +98,9 @@ views/*.php, admin-page.php        → "UI" (zero logica business)
 
 | Sezione | Tab | Pannello |
 |---|---|---|
-| CATALOGO | Overview | Statistiche rapide |
-| | Catalog | Export catalogo aggregato |
-| | Taxonomy | CRUD albero categorie |
-| OPERAZIONI | Filtra & Agisci | Query builder + tabella + inline edit + bulk actions |
+| OPERAZIONI | Filtra & Agisci | Query builder + tabella + inline edit + bulk actions (default) |
 | | Ordinamento | Sort preview + apply menu_order |
+| | Tassonomie | CRUD albero `product_cat` e `product_brand` |
 | MEDIA | Mapping | Prodotto-immagini |
 | | Browse | Ricerca media library |
 | | Orphans | Immagini orfane |
@@ -112,6 +110,11 @@ views/*.php, admin-page.php        → "UI" (zero logica business)
 | TOOLS | HTTP Client | Test API generiche |
 | | Whitelist | Proteggi immagini |
 
+> Le tab **Overview** e **Catalog** sono state rimosse: la prima era lenta e
+> non informativa, la seconda costruiva un JSON aggregato senza azioni
+> collegate. La loro logica PHP (`rp_cm_export_catalog`, summary builder) resta
+> disponibile per il modulo Jobs, ma non e piu esposta via AJAX/UI.
+
 ---
 
 ## Filter Engine — Architettura
@@ -120,22 +123,33 @@ views/*.php, admin-page.php        → "UI" (zero logica business)
 1. **Fase DB** — `WC_Product_Query` per status, tipo, categoria, tag (veloce, SQL)
 2. **Fase memoria** — `gh_evaluate_condition()` per attributi, varianti, SEO, regex (flessibile, PHP)
 
-**18 tipi di condizione:** category, tag, attribute, status, type, price_range, has_sale, stock_status, stock_qty, sku_pattern, name_contains, date_created, date_modified, seo_field, has_image, gallery_count, variant_count, has_size, menu_order
+**19 tipi di condizione:** category, brand, tag, attribute, status, type, price_range, has_sale, stock_status, stock_qty, sku_pattern, name_contains, date_created, date_modified, seo_field, has_image, gallery_count, variant_count, has_size, menu_order
+
+> `brand` opera sulla tassonomia `product_brand` (WooCommerce Brands). Se la
+> tassonomia non e registrata la condizione ritorna `true` (no-op) per evitare
+> falsi negativi, e il selettore UI mostra "Nessun brand".
 
 **Inline editing:** double-click su cella → input/select inline → AJAX save → aggiornamento in-place
 
 ---
 
-## Bulk Actions — 13 Azioni
+## Bulk Actions
 
 | Gruppo | Azioni |
 |---|---|
-| Taxonomy | assign_categories, remove_categories, set_categories, assign_tags, remove_tags |
+| Taxonomy | assign_categories, remove_categories, set_categories, assign_brands, remove_brands, set_brands, assign_tags, remove_tags |
 | Status | set_status |
-| Price | set_sale_percent, remove_sale, adjust_price |
+| Price | set_sale_percent, remove_sale, adjust_price, markup_percent, discount_percent |
 | Stock | set_stock_status, set_stock_quantity |
-| SEO | set_seo_template (con placeholder {name}, {sku}, {price}, {brand}) |
+| SEO | set_seo_template (con placeholder {name}, {sku}, {price}, {brand}, {type}) |
 | Order | set_menu_order |
+
+> Le azioni `assign_brands` / `remove_brands` / `set_brands` sono implementate
+> riutilizzando `rp_cm_{assign,remove,set}_product_categories` col parametro
+> `$taxonomy = 'product_brand'`. Stesso codice, diversa tassonomia.
+>
+> Il placeholder `{brand}` in `set_seo_template` risolve prima da
+> `product_brand` (Woo Brands) e in fallback dal primo `product_cat`.
 
 ---
 

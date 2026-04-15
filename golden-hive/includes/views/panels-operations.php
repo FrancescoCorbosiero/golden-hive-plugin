@@ -1,5 +1,5 @@
 <!-- ═══ FILTER & ACT ═══ -->
-<div class="panel" id="panel-filter" style="position:relative">
+<div class="panel active" id="panel-filter" style="position:relative">
     <div class="toolbar" style="flex-wrap:wrap;gap:8px;">
         <button class="btn btn-primary" id="btn-run-filter" onclick="GH.runFilter()"><span class="spin" id="filter-spin" style="display:none"></span> Filtra</button>
         <button class="btn btn-ghost" onclick="GH.addCondition()">+ Condizione</button>
@@ -27,6 +27,9 @@
                         <option value="assign_categories">Aggiungi categorie</option>
                         <option value="remove_categories">Rimuovi categorie</option>
                         <option value="set_categories">Imposta categorie</option>
+                        <option value="assign_brands">Aggiungi brand</option>
+                        <option value="remove_brands">Rimuovi brand</option>
+                        <option value="set_brands">Imposta brand</option>
                         <option value="assign_tags">Aggiungi tag</option>
                         <option value="remove_tags">Rimuovi tag</option>
                     </optgroup>

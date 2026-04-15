@@ -37,6 +37,8 @@
                         <option value="set_sale_percent">Imposta sconto %</option>
                         <option value="remove_sale">Rimuovi saldo</option>
                         <option value="adjust_price">Modifica prezzo</option>
+                        <option value="markup_percent">Aumento prezzo %</option>
+                        <option value="discount_percent">Sconto prezzo %</option>
                     </optgroup>
                     <optgroup label="Stock">
                         <option value="set_stock_status">Imposta stato stock</option>

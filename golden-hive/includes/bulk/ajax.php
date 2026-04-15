@@ -128,6 +128,18 @@ function gh_sanitize_bulk_params( string $action, array $params ): array {
             'target' => sanitize_key( $params['target'] ?? 'regular_price' ),
         ],
 
+        'markup_percent', 'discount_percent' => [
+            'percent'  => max( 0, floatval( $params['percent'] ?? 0 ) ),
+            'target'   => in_array( $params['target'] ?? '', [ 'regular_price', 'sale_price' ], true )
+                ? $params['target']
+                : 'regular_price',
+            'rounding' => in_array(
+                $params['rounding'] ?? '',
+                [ 'none', '2dec', '99', '00', 'nearest_1', 'nearest_5', 'nearest_10' ],
+                true
+            ) ? $params['rounding'] : '2dec',
+        ],
+
         'set_stock_status' =>
             [ 'stock_status' => sanitize_key( $params['stock_status'] ?? 'instock' ) ],
 

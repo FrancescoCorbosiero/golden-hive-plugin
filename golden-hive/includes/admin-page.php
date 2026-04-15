@@ -34,17 +34,14 @@ function gh_render_page(): void {
 
     <div class="main">
         <div class="tabs-col">
-            <div class="tab-section">CATALOGO</div>
-            <div class="tab-item active" onclick="GH.switchTab('overview',this)"><span class="tab-icon">&#9673;</span><span class="tab-label">Overview</span></div>
-            <div class="tab-item" onclick="GH.switchTab('catalog',this)"><span class="tab-icon">&#9776;</span><span class="tab-label">Catalog</span></div>
-            <div class="tab-item" onclick="GH.switchTab('taxonomy',this)"><span class="tab-icon">&#9698;</span><span class="tab-label">Taxonomy</span></div>
             <div class="tab-section">OPERAZIONI</div>
-            <div class="tab-item" onclick="GH.switchTab('filter',this)"><span class="tab-icon">&#9881;</span><span class="tab-label">Filtra & Agisci</span></div>
+            <div class="tab-item active" onclick="GH.switchTab('filter',this)"><span class="tab-icon">&#9881;</span><span class="tab-label">Filtra & Agisci</span></div>
             <div class="tab-item" onclick="GH.switchTab('sorting',this)"><span class="tab-icon">&#8693;</span><span class="tab-label">Ordinamento</span></div>
+            <div class="tab-item" onclick="GH.switchTab('taxonomy',this);GH.loadTaxonomy()"><span class="tab-icon">&#9698;</span><span class="tab-label">Tassonomie</span></div>
             <div class="tab-section">MEDIA</div>
+            <div class="tab-item" onclick="GH.switchTab('orphans',this)"><span class="tab-icon">&#9888;</span><span class="tab-label">Safe Cleanup</span></div>
             <div class="tab-item" onclick="GH.switchTab('mapping',this)"><span class="tab-icon">&#9636;</span><span class="tab-label">Mapping</span></div>
-            <div class="tab-item" onclick="GH.switchTab('browse',this)"><span class="tab-icon">&#9871;</span><span class="tab-label">Browse</span></div>
-            <div class="tab-item" onclick="GH.switchTab('orphans',this)"><span class="tab-icon">&#9888;</span><span class="tab-label">Orphans</span></div>
+            <div class="tab-item" onclick="GH.switchTab('whitelist',this);GH.loadWhitelist()"><span class="tab-icon">&#9737;</span><span class="tab-label">Whitelist</span></div>
             <div class="tab-section">MAPPER</div>
             <div class="tab-item" data-mp-tab="rules" onclick="GH.switchTab('mapper-rules',this)"><span class="tab-icon">&#9881;</span><span class="tab-label">Regole</span></div>
             <div class="tab-item" data-mp-tab="editor" onclick="GH.switchTab('mapper-editor',this)"><span class="tab-icon">&#9783;</span><span class="tab-label">Editor</span></div>
@@ -63,7 +60,6 @@ function gh_render_page(): void {
             <div class="tab-item" onclick="GH.switchTab('email-history',this);GH.emHistoryLoad()"><span class="tab-icon">&#9202;</span><span class="tab-label">Storico</span></div>
             <div class="tab-section">TOOLS</div>
             <div class="tab-item" onclick="GH.switchTab('httpclient',this)"><span class="tab-icon">&#8680;</span><span class="tab-label">HTTP Client</span></div>
-            <div class="tab-item" onclick="GH.switchTab('whitelist',this)"><span class="tab-icon">&#9737;</span><span class="tab-label">Whitelist</span></div>
         </div>
 
         <div class="content">

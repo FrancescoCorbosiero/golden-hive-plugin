@@ -121,8 +121,12 @@
 #gh .maptable tbody tr:hover{background:rgba(255,255,255,.02)}
 #gh .maptable td{padding:8px 12px;vertical-align:middle}
 #gh .map-thumb{width:40px;height:40px;object-fit:cover;border-radius:4px;background:var(--s3)}
-#gh .map-gallery{display:flex;gap:4px}
-#gh .map-gallery img{width:32px;height:32px;object-fit:cover;border-radius:3px;background:var(--s3)}
+#gh .map-gallery{display:flex;gap:4px;flex-wrap:wrap}
+#gh .map-gthumb{position:relative;display:inline-block;line-height:0}
+#gh .map-gthumb img{width:32px;height:32px;object-fit:cover;border-radius:3px;background:var(--s3)}
+#gh .map-gbtn{position:absolute;top:-4px;right:-4px;width:16px;height:16px;border-radius:50%;border:1px solid var(--b2);background:var(--s1);color:var(--txt);font-family:var(--mono);font-size:10px;line-height:1;padding:0;cursor:pointer;display:none;align-items:center;justify-content:center}
+#gh .map-gthumb:hover .map-gbtn{display:flex}
+#gh .map-gbtn.map-grm:hover{background:var(--red);border-color:var(--red);color:#fff}
 #gh .map-name{font-size:12px;font-weight:500}
 #gh .map-sku{font-family:var(--mono);font-size:10px;color:var(--dim)}
 #gh .map-none{font-family:var(--mono);font-size:10px;color:var(--dim);font-style:italic}

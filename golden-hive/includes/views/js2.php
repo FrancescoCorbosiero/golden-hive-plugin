@@ -1,14 +1,81 @@
-    // ── MEDIA MAPPING
-    async function loadMapping(){const btn=document.getElementById('btn-map'),sp=document.getElementById('map-spin');btn.disabled=true;sp.style.display='';try{const r=await ajax('rp_mm_ajax_mapping');if(!r.success){toast('Errore','err');return}const d=r.data,a=document.getElementById('map-area');if(!d.length){a.innerHTML='<div class="empty-state"><div class="empty-text">Nessun prodotto</div></div>';return}let h='<table class="maptable"><thead><tr><th>Featured</th><th>Prodotto</th><th>Gallery</th><th>Tot</th></tr></thead><tbody>';for(const p of d){const ft=p.featured_image?'<img class="map-thumb" src="'+esc(p.featured_image.thumbnail_url)+'" />':'<span class="map-none">nessuna</span>';const gl=p.gallery_images.length?'<div class="map-gallery">'+p.gallery_images.slice(0,5).map(g=>'<img src="'+esc(g.thumbnail_url)+'" />').join('')+(p.gallery_images.length>5?'<span class="map-none">+'+(p.gallery_images.length-5)+'</span>':'')+'</div>':'<span class="map-none">\u2013</span>';h+='<tr><td>'+ft+'</td><td><div class="map-name">'+esc(p.name)+'</div><div class="map-sku">'+esc(p.sku||'')+' \u00b7 #'+p.product_id+'</div></td><td>'+gl+'</td><td>'+p.total_images+'</td></tr>'}h+='</tbody></table>';a.innerHTML=h;toast(d.length+' prodotti','ok')}catch(e){toast('Errore','err')}finally{btn.disabled=false;sp.style.display='none'}}
+    // ── MEDIA MAPPING (view + inline ops: remove / promote gallery image)
+    let mapData = [];
+    async function loadMapping(){
+        const btn=document.getElementById('btn-map'),sp=document.getElementById('map-spin');
+        btn.disabled=true; sp.style.display='';
+        try {
+            const status=document.getElementById('map-filter-status')?.value||'any';
+            const r=await ajax('rp_mm_ajax_mapping',{status});
+            if(!r.success){toast('Errore','err');return}
+            mapData=r.data;
+            renderMapping();
+            toast(mapData.length+' prodotti','ok');
+        } catch(e){toast('Errore','err')}
+        finally{btn.disabled=false; sp.style.display='none'}
+    }
+    function renderMapping(){
+        const a=document.getElementById('map-area');
+        if(!mapData.length){a.innerHTML='<div class="empty-state"><div class="empty-text">Nessun prodotto</div></div>';return}
+        let h='<table class="maptable"><thead><tr><th>Featured</th><th>Prodotto</th><th>Gallery</th><th>Tot</th></tr></thead><tbody>';
+        for(const p of mapData){
+            const ft=p.featured_image?'<img class="map-thumb" src="'+esc(p.featured_image.thumbnail_url)+'" />':'<span class="map-none">nessuna</span>';
+            let gl='<span class="map-none">\u2013</span>';
+            if(p.gallery_images.length){
+                gl='<div class="map-gallery">'+p.gallery_images.map((g,idx)=>
+                    '<span class="map-gthumb" title="'+esc(g.filename||('#'+g.id))+(idx===0?' (primo in gallery)':'')+'">'+
+                        '<img src="'+esc(g.thumbnail_url)+'" />'+
+                        '<button class="map-gbtn map-grm" onclick="GH.mapRemoveGalleryImg('+p.product_id+','+g.id+')" title="Rimuovi dalla gallery">&times;</button>'+
+                    '</span>'
+                ).join('')+'</div>';
+            }
+            h+='<tr><td>'+ft+'</td><td><div class="map-name">'+esc(p.name)+'</div><div class="map-sku">'+esc(p.sku||'')+' \u00b7 #'+p.product_id+'</div></td><td>'+gl+'</td><td>'+p.total_images+'</td></tr>';
+        }
+        h+='</tbody></table>';
+        a.innerHTML=h;
+    }
+    async function mapRemoveGalleryImg(pid,aid){
+        const p=mapData.find(x=>x.product_id===pid); if(!p)return;
+        if(!confirm('Rimuovere l\'immagine #'+aid+' dalla gallery di #'+pid+'?'))return;
+        const remaining=p.gallery_images.filter(g=>g.id!==aid).map(g=>g.id);
+        const r=await ajax('rp_mm_ajax_set_gallery',{product_id:pid,attachment_ids:JSON.stringify(remaining)});
+        if(!r.success){toast('Errore: '+r.data,'err');return}
+        p.gallery_images=p.gallery_images.filter(g=>g.id!==aid);
+        p.total_images=(p.featured_image?1:0)+p.gallery_images.length;
+        renderMapping();
+        toast('Rimosso #'+aid+' dalla gallery','ok');
+    }
 
-    // ── MEDIA BROWSE
-    let browseTimer;
-    function debounceBrowse(){clearTimeout(browseTimer);browseTimer=setTimeout(browseMedia,300)}
-    async function browseMedia(){const q=document.getElementById('browse-search').value.trim();const r=await ajax('rp_mm_ajax_browse',{query:q,limit:60});if(!r.success)return;const g=document.getElementById('browse-grid');if(!r.data.length){g.innerHTML='<div class="empty-state" style="grid-column:1/-1"><div class="empty-text">Nessun risultato</div></div>';return}g.innerHTML=r.data.map(a=>'<div class="media-card" onclick="GH.showUsage('+a.id+')"><img class="media-thumb" src="'+esc(a.thumbnail_url)+'" loading="lazy" /><div class="media-info"><div class="media-filename">'+esc(a.filename)+'</div><div class="media-size">'+a.filesize_human+' \u00b7 #'+a.id+'</div></div></div>').join('')}
+    // ── ATTACHMENT USAGE (rimane: click su una card orfana per capire se e
+    //     davvero non usata da qualche parte)
     async function showUsage(id){const r=await ajax('rp_mm_ajax_usage',{attachment_id:id});if(!r.success)return;if(!r.data.length){toast('#'+id+': non usata','inf');return}toast('#'+id+': '+r.data.map(u=>u.name+' ('+u.usage+')').join(', '),'inf',5000)}
 
-    // ── ORPHANS
-    async function scanOrphans(){const ov=document.getElementById('scan-overlay'),btn=document.getElementById('btn-scan'),sp=document.getElementById('scan-spin');ov.classList.add('visible');btn.disabled=true;sp.style.display='';try{const r=await ajax('rp_mm_ajax_scan');if(!r.success){toast('Errore','err');return}state.orphans=r.data.orphans;state.selected=new Set();document.getElementById('orphan-stats').style.display='flex';document.getElementById('st-orphans').textContent=r.data.orphan_count;document.getElementById('st-used').textContent=r.data.used_count;document.getElementById('st-size').textContent=r.data.estimated_size.total_human;renderOrphanGrid();toast(r.data.orphan_count+' orfani',r.data.orphan_count?'err':'ok')}catch(e){toast('Errore','err')}finally{ov.classList.remove('visible');btn.disabled=false;sp.style.display='none'}}
+    // ── ORPHANS: Safe Cleanup (mapping phase + diff phase in un unica call)
+    async function scanOrphans(){
+        const ov=document.getElementById('scan-overlay'),btn=document.getElementById('btn-scan'),sp=document.getElementById('scan-spin');
+        ov.classList.add('visible'); btn.disabled=true; sp.style.display='';
+        try {
+            const r=await ajax('rp_mm_ajax_scan');
+            if(!r.success){toast('Errore','err');return}
+            state.orphans=r.data.orphans; state.selected=new Set();
+            // Phase 1: breakdown delle sorgenti mappate
+            const bd=r.data.breakdown||{};
+            document.getElementById('orphan-breakdown').style.display='flex';
+            document.getElementById('bd-featured-prod').textContent=bd.featured_products||0;
+            document.getElementById('bd-featured-var').textContent=bd.featured_variations||0;
+            document.getElementById('bd-gallery').textContent=bd.gallery_products||0;
+            document.getElementById('bd-featured-posts').textContent=bd.featured_posts||0;
+            document.getElementById('bd-inline').textContent=bd.inline_content||0;
+            // Phase 2: diff totale ↔ mapped = orfani
+            document.getElementById('orphan-stats').style.display='flex';
+            document.getElementById('st-total-media').textContent=r.data.total_media||0;
+            document.getElementById('st-used').textContent=r.data.used_count||0;
+            document.getElementById('st-orphans').textContent=r.data.orphan_count||0;
+            document.getElementById('st-size').textContent=r.data.estimated_size.total_human;
+            renderOrphanGrid();
+            toast(r.data.orphan_count+' orfani (su '+r.data.total_media+' media)',r.data.orphan_count?'err':'ok');
+        } catch(e){toast('Errore','err')}
+        finally{ov.classList.remove('visible'); btn.disabled=false; sp.style.display='none'}
+    }
     function renderOrphanGrid(){const g=document.getElementById('orphan-grid'),o=state.orphans;if(!o.length){g.innerHTML='<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">\u2713</div><div class="empty-text">Nessun orfano</div></div>';return}g.innerHTML=o.map(a=>{const wl=a.is_whitelisted;return'<div class="media-card'+(wl?' whitelisted':'')+(state.selected.has(a.id)?' selected':'')+'">'+(wl?'<span class="media-badge badge-wl">WL</span>':'<input type="checkbox" class="media-check" '+(state.selected.has(a.id)?'checked':'')+' onclick="event.stopPropagation();GH.toggleOrphan('+a.id+')" />')+'<img class="media-thumb" src="'+esc(a.thumbnail_url)+'" loading="lazy" onclick="GH.orphanAction('+a.id+','+wl+')" /><div class="media-info"><div class="media-filename">'+esc(a.filename)+'</div><div class="media-size">'+a.filesize_human+'</div></div></div>'}).join('');updSel()}
     function toggleOrphan(id){state.selected.has(id)?state.selected.delete(id):state.selected.add(id);renderOrphanGrid()}
     function updSel(){const n=state.selected.size;document.getElementById('btn-bulk-del').style.display=n?'':'none';document.getElementById('sel-stat').style.display=n?'':'none';document.getElementById('sel-n').textContent=n}
@@ -50,9 +117,9 @@
     async function importApply(){if(!state.importJSON)return;const ov=document.getElementById('rt-overlay'),ot=document.getElementById('rt-overlay-text'),btn=document.getElementById('btn-rt-apply'),sp=document.getElementById('apply-spin');ot.textContent='Applicazione...';ov.classList.add('visible');btn.disabled=true;sp.style.display='';try{const m=document.querySelector('input[name="import-mode"]:checked').value;const r=await ajax('rp_cm_ajax_import_apply',{json_payload:JSON.stringify(state.importJSON),mode:m});if(!r.success){toast('Errore','err');return}const s=r.data.summary,a=document.getElementById('rt-preview-area');let h='<table class="ptable"><thead><tr><th>Risultato</th><th>ID</th><th>SKU</th><th>Nome</th></tr></thead><tbody>';for(const d of r.data.details){const c=d.status==='updated'?'st-updated':d.status==='created'?'st-created':d.status==='error'?'st-error':'st-skipped';h+='<tr><td class="'+c+'">'+esc(d.status)+'</td><td>'+(d.id||'\u2013')+'</td><td>'+esc(d.sku||'')+'</td><td>'+esc(d.name||'')+'</td></tr>'}h+='</tbody></table>';a.innerHTML=h;document.getElementById('rt-confirm-bar').style.display='none';toast(s.updated+' aggiornati','ok',5000)}catch(e){toast('Errore','err')}finally{ov.classList.remove('visible');btn.disabled=false;sp.style.display='none'}}
     function importCancel(){document.getElementById('rt-confirm-bar').style.display='none';document.getElementById('rt-preview-area').innerHTML=''}
 
-    // ── COPY / DOWNLOAD JSON
-    function copyJSON(mode){const d=mode==='catalog'?state.catalogData:state.roundtripData;if(!d){toast('Nessun dato','err');return}navigator.clipboard.writeText(JSON.stringify(d,null,2)).then(()=>toast('Copiato','ok'),()=>toast('Errore','err'))}
-    function downloadJSON(mode){const d=mode==='catalog'?state.catalogData:state.roundtripData;if(!d)return;const j=JSON.stringify(d,null,2),b=new Blob([j],{type:'application/json'}),u=URL.createObjectURL(b),a=document.createElement('a'),dt=new Date().toISOString().slice(0,10);a.href=u;a.download=(mode==='catalog'?'rp-catalog-':'rp-roundtrip-')+dt+'.json';a.click();URL.revokeObjectURL(u);toast('Download avviato','inf')}
+    // ── COPY / DOWNLOAD JSON (solo roundtrip — il catalog export e stato rimosso)
+    function copyJSON(mode){const d=state.roundtripData;if(!d){toast('Nessun dato','err');return}navigator.clipboard.writeText(JSON.stringify(d,null,2)).then(()=>toast('Copiato','ok'),()=>toast('Errore','err'))}
+    function downloadJSON(mode){const d=state.roundtripData;if(!d)return;const j=JSON.stringify(d,null,2),b=new Blob([j],{type:'application/json'}),u=URL.createObjectURL(b),a=document.createElement('a'),dt=new Date().toISOString().slice(0,10);a.href=u;a.download='rp-roundtrip-'+dt+'.json';a.click();URL.revokeObjectURL(u);toast('Download avviato','inf')}
 
     // ── HTTP CLIENT
     async function hcExecute(){const btn=document.querySelector('#panel-httpclient .btn-primary'),sp=document.getElementById('hc-spin');btn.disabled=true;sp.style.display='';try{const hdrs=document.getElementById('hc-headers').value;const cfg={url:document.getElementById('hc-url').value,method:document.getElementById('hc-method').value,headers:hdrs?JSON.parse(hdrs):{},body:document.getElementById('hc-body').value};const r=await ajax('rp_rc_ajax_execute',{config:JSON.stringify(cfg)});const out=document.getElementById('hc-response');if(!r.success){out.textContent='Errore: '+r.data;return}let h='<div style="margin-bottom:12px;color:var(--dim)">HTTP '+r.data.status+' \u00b7 '+r.data.duration_ms+'ms</div>';h+=r.data.parsed?hl(JSON.stringify(r.data.parsed,null,2)):esc(r.data.body_raw||'');out.innerHTML=h}catch(e){toast('Errore','err')}finally{btn.disabled=false;sp.style.display='none'}}
@@ -840,11 +907,14 @@
     }
 
     // ── INIT
-    (async function(){const r=await ajax('rp_cm_ajax_get_tree_paths');if(r.success){(r.data.brands||[]).forEach(b=>{['cat-filter-brand','rt-filter-brand'].forEach(id=>{const s=document.getElementById(id);if(s){const o=document.createElement('option');o.value=b;o.textContent=b;s.appendChild(o)}})})}})();
+    // Popola il dropdown "Brand" della Roundtrip export con i brand estratti
+    // da product_cat (legacy: brand = categoria di profondita 1). TODO: migrare
+    // Roundtrip a product_brand quando verra rifatto il modulo Import.
+    (async function(){const r=await ajax('rp_cm_ajax_get_tree_paths');if(!r.success)return;const sel=document.getElementById('rt-filter-brand');if(!sel)return;(r.data.brands||[]).forEach(b=>{const o=document.createElement('option');o.value=b;o.textContent=b;sel.appendChild(o)})})();
     initBulkImport();
     initRtImport();
     initSfFeed();
     initCsvUpload();
 
-    return{ajax,toast,esc,switchTab,loadSummary,generateCatalog,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadMapping,browseMedia,debounceBrowse,showUsage,scanOrphans,toggleOrphan,orphanAction,bulkDeleteOrphans,loadWhitelist,removeWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfApply,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog};
+    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadMapping,mapRemoveGalleryImg,showUsage,scanOrphans,toggleOrphan,orphanAction,bulkDeleteOrphans,loadWhitelist,removeWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfApply,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog};
 })();

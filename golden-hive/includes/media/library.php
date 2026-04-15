@@ -7,42 +7,6 @@
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Cerca attachment nella media library.
- *
- * @param string $query Testo di ricerca (filename, title).
- * @param string $mime  Filtro mime: 'all' | 'image' | 'video' | 'application'
- * @param int    $limit Max risultati.
- * @return array Array di attachment data.
- */
-function rp_mm_search_attachments( string $query = '', string $mime = 'all', int $limit = 50 ): array {
-
-    $args = [
-        'post_type'      => 'attachment',
-        'post_status'    => 'inherit',
-        'posts_per_page' => $limit,
-        'fields'         => 'ids',
-        'orderby'        => 'date',
-        'order'          => 'DESC',
-    ];
-
-    if ( $query ) {
-        $args['s'] = $query;
-    }
-    if ( $mime !== 'all' ) {
-        $args['post_mime_type'] = $mime;
-    }
-
-    $ids    = get_posts( $args );
-    $result = [];
-
-    foreach ( $ids as $id ) {
-        $result[] = rp_mm_build_attachment_data( $id );
-    }
-
-    return $result;
-}
-
-/**
  * Ritorna il mapping completo prodotto → immagini.
  *
  * @param array $filters Filtri opzionali: status, per_page.

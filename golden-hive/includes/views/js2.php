@@ -305,7 +305,7 @@
         if (!allUrls.length) { toast('Nessuna immagine trovata nei prodotti selezionati', 'inf'); return; }
 
         const total = allUrls.length;
-        const batchSize = 20;
+        const batchSize = 50;
         const ov = document.getElementById('sf-overlay'), ot = document.getElementById('sf-overlay-text');
         const btn = document.getElementById('btn-sf-preimport'), sp = document.getElementById('sf-preimport-spin');
         const statusEl = document.getElementById('sf-preimport-status');

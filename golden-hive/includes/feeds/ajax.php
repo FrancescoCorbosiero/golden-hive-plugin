@@ -99,6 +99,9 @@ add_action( 'wp_ajax_rp_rc_ajax_gs_apply', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
+    @set_time_limit( 300 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'admin' );
+
     $raw      = stripslashes( $_POST['products'] ?? '[]' );
     $products = json_decode( $raw, true ) ?: [];
 
@@ -106,8 +109,22 @@ add_action( 'wp_ajax_rp_rc_ajax_gs_apply', function () {
     $options  = json_decode( $raw_opts, true ) ?: [];
 
     $woo_products = rp_rc_gs_transform_all( $products );
-    $diff         = rp_rc_gs_diff( $woo_products );
-    $result       = rp_rc_gs_apply( $diff, $options );
+
+    // Propaga import status (draft/publish)
+    $import_status = sanitize_key( $options['status'] ?? 'publish' );
+    if ( $import_status && $import_status !== 'publish' ) {
+        foreach ( $woo_products as &$wp ) {
+            $wp['status'] = $import_status;
+            if ( ! empty( $wp['variations'] ) ) {
+                foreach ( $wp['variations'] as &$v ) { $v['status'] = $import_status; }
+                unset( $v );
+            }
+        }
+        unset( $wp );
+    }
+
+    $diff   = rp_rc_gs_diff( $woo_products );
+    $result = rp_rc_gs_apply( $diff, $options );
 
     wp_send_json_success( $result );
 } );
@@ -229,9 +246,15 @@ add_action( 'wp_ajax_gh_ajax_fc_preview', function () {
 } );
 
 // ── CONFIG ENGINE: Apply import ────────────────────────────
+// Supporta chunking lato client: il JS invia N prodotti per request,
+// il handler processa quelli e ritorna i risultati parziali.
+// Il JS accumula i risultati e mostra il progresso.
 add_action( 'wp_ajax_gh_ajax_fc_apply', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    @set_time_limit( 300 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'admin' );
 
     $config_id = sanitize_text_field( $_POST['config_id'] ?? '' );
     $raw       = stripslashes( $_POST['products'] ?? '[]' );
@@ -248,22 +271,52 @@ add_action( 'wp_ajax_gh_ajax_fc_apply', function () {
     }
 
     $woo_products = gh_fc_transform_all( $products, $config );
-    $diff         = gh_csv_diff( $woo_products );
+
+    // Propaga lo status dalla UI (default: publish, opzione: draft)
+    $import_status = sanitize_key( $options['status'] ?? 'publish' );
+    if ( $import_status && $import_status !== 'publish' ) {
+        foreach ( $woo_products as &$wp ) {
+            $wp['status'] = $import_status;
+            // Anche le varianti se presenti
+            if ( ! empty( $wp['variations'] ) ) {
+                foreach ( $wp['variations'] as &$v ) {
+                    $v['status'] = $import_status;
+                }
+                unset( $v );
+            }
+        }
+        unset( $wp );
+    }
+
+    $diff = gh_csv_diff( $woo_products );
 
     $create   = $options['create_new'] ?? true;
     $update   = $options['update_existing'] ?? true;
     $sideload = $options['sideload_images'] ?? false;
     $results  = [];
 
-    if ( $create ) {
-        foreach ( $diff['new'] as $p ) {
-            $results[] = gh_fc_create_product( $p, $sideload );
+    try {
+        if ( $create ) {
+            foreach ( $diff['new'] as $p ) {
+                $results[] = gh_fc_create_product( $p, $sideload );
+            }
         }
-    }
-    if ( $update ) {
-        foreach ( $diff['update'] as $p ) {
-            $results[] = gh_csv_update_product( $p );
+        if ( $update ) {
+            foreach ( $diff['update'] as $p ) {
+                $results[] = gh_csv_update_product( $p );
+            }
         }
+    } catch ( \Throwable $e ) {
+        // Ritorna i risultati parziali + l'errore
+        wp_send_json_success( [
+            'summary' => [
+                'created' => count( array_filter( $results, fn( $r ) => $r['action'] === 'created' ) ),
+                'updated' => count( array_filter( $results, fn( $r ) => $r['action'] === 'updated' ) ),
+                'errors'  => count( array_filter( $results, fn( $r ) => $r['action'] === 'error' ) ) + 1,
+            ],
+            'details' => array_merge( $results, [ [ 'action' => 'error', 'sku' => '', 'name' => 'FATAL', 'reason' => $e->getMessage() ] ] ),
+            'partial' => true,
+        ] );
     }
 
     $created = count( array_filter( $results, fn( $r ) => $r['action'] === 'created' ) );

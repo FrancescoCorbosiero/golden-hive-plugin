@@ -45,7 +45,7 @@
     function gsSelectByType(type){document.querySelectorAll('#gs-preview .gs-check[data-sku]').forEach(c=>{const on=c.dataset.type===type;c.checked=on;if(on)gsSelected.add(c.dataset.sku);else gsSelected.delete(c.dataset.sku)});document.getElementById('gs-check-all').checked=false;gsUpdateSelCount();gsUpdateConfirm()}
     function gsUpdateSelCount(){const n=gsSelected.size;document.getElementById('gs-sel-count').textContent=n+' selezionat'+(n===1?'o':'i')}
     function gsUpdateConfirm(){const bar=document.getElementById('gs-confirm');if(!gsSelected.size){bar.style.display='none';return}let nn=0,nu=0;gsSelected.forEach(sku=>{if(gsDiffData.new.some(p=>p.sku===sku))nn++;else if(gsDiffData.update.some(p=>p.sku===sku))nu++});let msg='';if(nn)msg+='<span>'+nn+'</span> nuov'+(nn===1?'o':'i');if(nn&&nu)msg+=', ';if(nu)msg+='<span>'+nu+'</span> da aggiornare';if(!nn&&!nu){bar.style.display='none';return}document.getElementById('gs-confirm-text').innerHTML=msg;bar.style.display='flex'}
-    async function gsApply(){if(!gsProducts||!gsSelected.size)return;const sel=gsProducts.filter(p=>gsSelected.has(p.sku));const ov=document.getElementById('gs-overlay'),ot=document.getElementById('gs-overlay-text'),btn=document.getElementById('btn-gs-apply'),sp=document.getElementById('gs-apply-spin');ot.textContent='Importazione '+sel.length+' prodott'+(sel.length===1?'o':'i')+'...';ov.classList.add('visible');btn.disabled=true;sp.style.display='';try{const r=await ajax('rp_rc_ajax_gs_apply',{products:JSON.stringify(sel),options:JSON.stringify({create_new:true,update_existing:true,sideload_images:document.getElementById('gs-opt-images').checked})});if(!r.success){toast('Errore','err');return}const s=r.data.summary;let h='<table class="ptable"><thead><tr><th>Risultato</th><th>ID</th><th>SKU</th><th>Nome</th></tr></thead><tbody>';for(const d of r.data.details){const c=d.action==='created'?'st-created':d.action==='updated'?'st-updated':'st-error';const l=d.action==='created'?'+ Creato':d.action==='updated'?'\u2713 Agg.':'\u2717 Err';h+='<tr><td class="'+c+'">'+l+'</td><td>'+(d.id||'\u2013')+'</td><td>'+esc(d.sku||'')+'</td><td>'+esc(d.name||'')+'</td></tr>'}h+='</tbody></table>';document.getElementById('gs-preview').innerHTML=h;document.getElementById('gs-confirm').style.display='none';document.getElementById('gs-sel-bar').style.display='none';toast(s.created+' creati, '+s.updated+' aggiornati','ok',5000)}catch(e){toast('Errore','err')}finally{ov.classList.remove('visible');btn.disabled=false;sp.style.display='none'}}
+    async function gsApply(){if(!gsProducts||!gsSelected.size)return;const sel=gsProducts.filter(p=>gsSelected.has(p.sku));const ov=document.getElementById('gs-overlay'),ot=document.getElementById('gs-overlay-text'),btn=document.getElementById('btn-gs-apply'),sp=document.getElementById('gs-apply-spin');ot.textContent='Importazione '+sel.length+' prodott'+(sel.length===1?'o':'i')+'...';ov.classList.add('visible');btn.disabled=true;sp.style.display='';try{const asDraft=document.getElementById('gs-opt-draft')?.checked||false;const r=await ajax('rp_rc_ajax_gs_apply',{products:JSON.stringify(sel),options:JSON.stringify({create_new:true,update_existing:true,sideload_images:document.getElementById('gs-opt-images').checked,status:asDraft?'draft':'publish'})});if(!r.success){toast('Errore','err');return}const s=r.data.summary;let h='<table class="ptable"><thead><tr><th>Risultato</th><th>ID</th><th>SKU</th><th>Nome</th></tr></thead><tbody>';for(const d of r.data.details){const c=d.action==='created'?'st-created':d.action==='updated'?'st-updated':'st-error';const l=d.action==='created'?'+ Creato':d.action==='updated'?'\u2713 Agg.':'\u2717 Err';h+='<tr><td class="'+c+'">'+l+'</td><td>'+(d.id||'\u2013')+'</td><td>'+esc(d.sku||'')+'</td><td>'+esc(d.name||'')+'</td></tr>'}h+='</tbody></table>';document.getElementById('gs-preview').innerHTML=h;document.getElementById('gs-confirm').style.display='none';document.getElementById('gs-sel-bar').style.display='none';toast(s.created+' creati, '+s.updated+' aggiornati','ok',5000)}catch(e){toast('Errore','err')}finally{ov.classList.remove('visible');btn.disabled=false;sp.style.display='none'}}
     function gsCancel(){document.getElementById('gs-confirm').style.display='none';document.getElementById('gs-sel-bar').style.display='none'}
 
     // ── BULK IMPORT
@@ -220,22 +220,57 @@
         bar.style.display = 'flex';
     }
 
+    // SF Apply: chunked per evitare timeout su import grandi (2000+ prodotti).
+    // Invia batch da 25 prodotti per request. Il PHP processa ogni batch e
+    // ritorna i risultati parziali. Il JS accumula e mostra il progresso.
     async function sfApply() {
         if (!sfProducts || !sfSelected.size) return;
         const sel = sfProducts.filter(p => sfSelected.has(p.sku));
+        const total = sel.length;
+        const chunkSize = 25;
         const ov = document.getElementById('sf-overlay'), ot = document.getElementById('sf-overlay-text');
         const btn = document.getElementById('btn-sf-apply'), sp = document.getElementById('sf-apply-spin');
-        ot.textContent = 'Importazione ' + sel.length + ' prodott' + (sel.length === 1 ? 'o' : 'i') + (document.getElementById('sf-opt-images').checked ? ' (con immagini — potrebbe richiedere tempo)' : '') + '...';
         ov.classList.add('visible'); btn.disabled = true; sp.style.display = '';
+
+        const sideload = document.getElementById('sf-opt-images')?.checked || false;
+        const asDraft = document.getElementById('sf-opt-draft')?.checked || false;
+        const opts = {
+            create_new: true,
+            update_existing: true,
+            sideload_images: sideload,
+            status: asDraft ? 'draft' : 'publish',
+        };
+
+        let allDetails = [];
+        let totCreated = 0, totUpdated = 0, totErrors = 0;
+
         try {
-            const r = await ajax('gh_ajax_fc_apply', { config_id: 'stockfirmati', markup: sfGetMarkup(),
-                products: JSON.stringify(sel),
-                options: JSON.stringify({ create_new: true, update_existing: true, sideload_images: document.getElementById('sf-opt-images').checked })
-            });
-            if (!r.success) { toast('Errore: ' + (r.data || 'timeout — riprova senza immagini'), 'err'); return; }
-            const s = r.data.summary;
+            for (let offset = 0; offset < total; offset += chunkSize) {
+                const chunk = sel.slice(offset, offset + chunkSize);
+                const done = Math.min(offset + chunkSize, total);
+                ot.textContent = 'Importazione ' + done + '/' + total + (sideload ? ' (con immagini)' : '') + '...';
+
+                const r = await ajax('gh_ajax_fc_apply', {
+                    config_id: 'stockfirmati',
+                    markup: sfGetMarkup(),
+                    products: JSON.stringify(chunk),
+                    options: JSON.stringify(opts),
+                });
+
+                if (!r.success) {
+                    toast('Errore al batch ' + done + ': ' + (r.data || 'timeout'), 'err');
+                    break;
+                }
+
+                allDetails = allDetails.concat(r.data.details || []);
+                totCreated += r.data.summary?.created || 0;
+                totUpdated += r.data.summary?.updated || 0;
+                totErrors  += r.data.summary?.errors || 0;
+            }
+
+            // Render combined results
             let h = '<table class="ptable"><thead><tr><th>Risultato</th><th>ID</th><th>SKU</th><th>Nome</th></tr></thead><tbody>';
-            for (const d of r.data.details) {
+            for (const d of allDetails) {
                 const c = d.action === 'created' ? 'st-created' : d.action === 'updated' ? 'st-updated' : 'st-error';
                 const l = d.action === 'created' ? '+ Creato' : d.action === 'updated' ? '\u2713 Agg.' : '\u2717 Err';
                 h += '<tr><td class="' + c + '">' + l + '</td><td>' + (d.id || '\u2013') + '</td><td>' + esc(d.sku || '') + '</td><td>' + esc(d.name || '') + '</td></tr>';
@@ -244,8 +279,8 @@
             document.getElementById('sf-preview').innerHTML = h;
             document.getElementById('sf-confirm').style.display = 'none';
             document.getElementById('sf-sel-bar').style.display = 'none';
-            toast(s.created + ' creati, ' + s.updated + ' aggiornati', s.errors ? 'err' : 'ok', 5000);
-        } catch (e) { toast('Errore / timeout', 'err'); }
+            toast(totCreated + ' creati, ' + totUpdated + ' aggiornati' + (totErrors ? ', ' + totErrors + ' errori' : '') + (asDraft ? ' (come bozze)' : ''), totErrors ? 'err' : 'ok', 5000);
+        } catch (e) { toast('Errore / timeout: ' + (e.message || e), 'err'); }
         finally { ov.classList.remove('visible'); btn.disabled = false; sp.style.display = 'none'; }
     }
 

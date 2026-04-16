@@ -455,7 +455,7 @@
 </div>
 
 <!-- ═══ WHITELIST ═══ -->
-<div class="panel" id="panel-whitelist" style="display:none;flex-direction:column;overflow:hidden">
+<div class="panel" id="panel-whitelist">
     <!-- Quick add: single URL or ID -->
     <div class="toolbar" style="flex-wrap:wrap;gap:8px;">
         <input class="cfg-input" id="wl-add-id" type="number" placeholder="Attachment ID" style="max-width:120px;font-size:11px" />

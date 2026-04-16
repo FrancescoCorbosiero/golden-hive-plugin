@@ -281,16 +281,27 @@
         if (!sfProducts || !sfSelected.size) { toast('Nessun prodotto selezionato', 'err'); return; }
         const sel = sfProducts.filter(p => sfSelected.has(p.sku));
 
-        // Raccogli tutti gli URL immagine unici con il SKU per il filename
+        // Raccogli tutti gli URL immagine unici.
+        // sfProducts ha shape { sku, row: {PICTURE_1, PICTURE_2, ...}, sizes }
+        // Le colonne immagine sono PICTURE_1, PICTURE_2, PICTURE_3 (da config SF).
+        // Fallback: scansiona tutte le colonne di row che contengono URL http.
         const urlMap = new Map(); // url → sku
         sel.forEach(p => {
-            const imgs = p.images || p._sf_images || [];
             const sku = p.sku || '';
-            imgs.forEach(url => { if (url && !urlMap.has(url)) urlMap.set(url, sku); });
+            const row = p.row || {};
+            // Try known image columns first
+            ['PICTURE_1','PICTURE_2','PICTURE_3','PICTURE_4','PICTURE_5','image_url','image'].forEach(col => {
+                const url = (row[col] || '').trim();
+                if (url && url.startsWith('http') && !urlMap.has(url)) urlMap.set(url, sku);
+            });
+            // Also check p.images / p._sf_images (legacy direct SF path)
+            (p.images || p._sf_images || []).forEach(url => {
+                if (url && !urlMap.has(url)) urlMap.set(url, sku);
+            });
         });
 
         const allUrls = Array.from(urlMap.entries()).map(([url, sku]) => ({ url, sku }));
-        if (!allUrls.length) { toast('Nessuna immagine da scaricare', 'inf'); return; }
+        if (!allUrls.length) { toast('Nessuna immagine trovata nei prodotti selezionati', 'inf'); return; }
 
         const total = allUrls.length;
         const batchSize = 10;

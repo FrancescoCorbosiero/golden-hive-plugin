@@ -691,9 +691,8 @@ function gh_fc_apply_transforms( mixed $value, array $transforms ): mixed {
             'suffix'     => (string) $value . $param,
             'lowercase'  => mb_strtolower( (string) $value ),
             'uppercase'  => mb_strtoupper( (string) $value ),
-            'trim'            => trim( (string) $value ),
-            'price_calculator' => gh_calculate_price( (float) $value, (string) $param ),
-            default            => $value,
+            'trim'       => trim( (string) $value ),
+            default      => $value,
         };
     }
     return $value;

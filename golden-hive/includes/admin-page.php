@@ -36,6 +36,7 @@ function gh_render_page(): void {
         <div class="tabs-col">
             <div class="tab-section">OPERAZIONI</div>
             <div class="tab-item active" onclick="GH.switchTab('filter',this)"><span class="tab-icon">&#9881;</span><span class="tab-label">Filtra & Agisci</span></div>
+            <div class="tab-item" onclick="GH.switchTab('inline-editor',this)"><span class="tab-icon">&#9783;</span><span class="tab-label">Inline Editor</span></div>
             <div class="tab-item" onclick="GH.switchTab('sorting',this)"><span class="tab-icon">&#8693;</span><span class="tab-label">Ordinamento</span></div>
             <div class="tab-item" onclick="GH.switchTab('taxonomy',this);GH.loadTaxonomy()"><span class="tab-icon">&#9698;</span><span class="tab-label">Tassonomie</span></div>
             <div class="tab-section">MEDIA</div>
@@ -76,6 +77,7 @@ function gh_render_page(): void {
 <?php include GH_DIR . 'includes/views/js.php'; ?>
 <?php include GH_DIR . 'includes/views/js2.php'; ?>
 <?php include GH_DIR . 'includes/views/js-operations.php'; ?>
+<?php include GH_DIR . 'includes/views/js-inline.php'; ?>
 <?php include GH_DIR . 'includes/views/js-media.php'; ?>
 <?php include GH_DIR . 'includes/views/js-mapper.php'; ?>
 <?php include GH_DIR . 'includes/views/js-jobs.php'; ?>

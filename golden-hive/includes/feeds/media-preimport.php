@@ -354,3 +354,33 @@ function gh_preimport_map_stats(): array {
     }
     return [ 'total' => count( $map ), 'valid' => $valid ];
 }
+
+/**
+ * Validates the pre-import map: checks each attachment_id still exists
+ * in the media library, removes stale entries.
+ *
+ * @return array { valid: int, pruned: int, total_before: int, total_after: int }
+ */
+function gh_preimport_validate_map(): array {
+    $map          = gh_preimport_get_map();
+    $total_before = count( $map );
+    $pruned       = 0;
+
+    foreach ( $map as $url => $att_id ) {
+        if ( ! wp_get_attachment_url( $att_id ) ) {
+            unset( $map[ $url ] );
+            $pruned++;
+        }
+    }
+
+    if ( $pruned > 0 ) {
+        update_option( GH_MEDIA_PREIMPORT_MAP_KEY, $map, false );
+    }
+
+    return [
+        'valid'        => count( $map ),
+        'pruned'       => $pruned,
+        'total_before' => $total_before,
+        'total_after'  => count( $map ),
+    ];
+}

@@ -352,6 +352,10 @@ function gh_fc_transform_one( array $product, array $config ): array {
         $woo['_fc_meta'] = $meta;
     }
 
+    // Provenance: config ID as source identifier
+    $woo['_gh_import_source']  = 'config';
+    $woo['_gh_import_feed_id'] = $config['id'] ?? '';
+
     return $woo;
 }
 
@@ -365,14 +369,14 @@ function gh_fc_transform_one( array $product, array $config ): array {
  * @param bool  $sideload Whether to sideload images.
  * @return array Result.
  */
-function gh_fc_create_product( array $data, bool $sideload = true ): array {
+function gh_fc_create_product( array $data, bool $sideload = true, array $tax_map = [] ): array {
     try {
         $type = $data['type'] ?? 'simple';
         $product_id = $type === 'variable'
             ? gh_create_variable_product( $data )
             : gh_create_simple_product( $data );
 
-        gh_fc_post_process( $product_id, $data, $sideload );
+        gh_fc_post_process( $product_id, $data, $sideload, $tax_map );
 
         return [
             'action' => 'created',
@@ -381,6 +385,20 @@ function gh_fc_create_product( array $data, bool $sideload = true ): array {
             'name'   => $data['name'] ?? '',
         ];
     } catch ( \Throwable $e ) {
+        // Duplicate SKU recovery: if creation failed because SKU exists, update instead
+        if ( gh_is_duplicate_sku_error( $e ) && ! empty( $data['sku'] ) ) {
+            $existing_id = wc_get_product_id_by_sku( $data['sku'] );
+            if ( $existing_id ) {
+                $data['_existing_id'] = $existing_id;
+                $update_result = gh_csv_update_product( $data );
+                if ( $update_result['action'] === 'updated' ) {
+                    gh_fc_post_process( $existing_id, $data, $sideload, $tax_map );
+                    $update_result['action'] = 'updated';
+                    $update_result['_recovered'] = true;
+                }
+                return $update_result;
+            }
+        }
         return [
             'action' => 'error',
             'sku'    => $data['sku'] ?? '',
@@ -391,46 +409,81 @@ function gh_fc_create_product( array $data, bool $sideload = true ): array {
 }
 
 /**
- * Post-process: taxonomy, tags, images, meta.
+ * Checks if an exception is a duplicate SKU error.
+ *
+ * @param \Throwable $e
+ * @return bool
  */
-function gh_fc_post_process( int $product_id, array $data, bool $sideload = true ): void {
+function gh_is_duplicate_sku_error( \Throwable $e ): bool {
+    $msg = strtolower( $e->getMessage() );
+    return str_contains( $msg, 'sku' ) && ( str_contains( $msg, 'duplicat' ) || str_contains( $msg, 'unique' ) || str_contains( $msg, 'already' ) );
+}
+
+/**
+ * Post-process: taxonomy, tags, images, meta.
+ *
+ * @param int   $product_id
+ * @param array $data
+ * @param bool  $sideload
+ * @param array $tax_map Pre-resolved taxonomy map from gh_fc_prepare_taxonomies().
+ */
+function gh_fc_post_process( int $product_id, array $data, bool $sideload = true, array $tax_map = [] ): void {
 
     // Brand taxonomy
     if ( ! empty( $data['_fc_brand'] ) ) {
         $tax = $data['_fc_brand_taxonomy'] ?? 'product_brand';
         if ( taxonomy_exists( $tax ) ) {
-            $term = term_exists( $data['_fc_brand'], $tax );
-            if ( ! $term ) $term = wp_insert_term( $data['_fc_brand'], $tax );
-            if ( ! is_wp_error( $term ) ) {
-                wp_set_object_terms( $product_id, [ (int) ( is_array( $term ) ? $term['term_id'] : $term ) ], $tax );
+            $cached_id = $tax_map['brands'][ $data['_fc_brand'] ] ?? null;
+            if ( $cached_id ) {
+                wp_set_object_terms( $product_id, [ $cached_id ], $tax );
+            } else {
+                $term = term_exists( $data['_fc_brand'], $tax );
+                if ( ! $term ) $term = wp_insert_term( $data['_fc_brand'], $tax );
+                if ( ! is_wp_error( $term ) ) {
+                    wp_set_object_terms( $product_id, [ (int) ( is_array( $term ) ? $term['term_id'] : $term ) ], $tax );
+                }
             }
         }
     }
 
     // Category taxonomy
     if ( ! empty( $data['_fc_category'] ) ) {
-        $tax = $data['_fc_category_target'] ?? 'product_cat';
-        $cat_term = term_exists( $data['_fc_category'], $tax );
-        if ( ! $cat_term ) $cat_term = wp_insert_term( $data['_fc_category'], $tax );
-        if ( ! is_wp_error( $cat_term ) ) {
-            $cat_id = (int) ( is_array( $cat_term ) ? $cat_term['term_id'] : $cat_term );
+        $tax     = $data['_fc_category_target'] ?? 'product_cat';
+        $cat_id  = $tax_map['categories'][ $data['_fc_category'] ] ?? null;
+        $sub_key = $data['_fc_category'] . '>' . ( $data['_fc_subcategory'] ?? '' );
+        $sub_id  = $tax_map['subcategories'][ $sub_key ] ?? null;
+
+        if ( $cat_id ) {
             $term_ids = [ $cat_id ];
-
-            if ( ! empty( $data['_fc_subcategory'] ) ) {
-                $sub = term_exists( $data['_fc_subcategory'], $tax, $cat_id );
-                if ( ! $sub ) $sub = wp_insert_term( $data['_fc_subcategory'], $tax, [ 'parent' => $cat_id ] );
-                if ( ! is_wp_error( $sub ) ) {
-                    $term_ids[] = (int) ( is_array( $sub ) ? $sub['term_id'] : $sub );
-                }
-            }
-
+            if ( $sub_id ) $term_ids[] = $sub_id;
             wp_set_object_terms( $product_id, $term_ids, $tax );
+        } else {
+            $cat_term = term_exists( $data['_fc_category'], $tax );
+            if ( ! $cat_term ) $cat_term = wp_insert_term( $data['_fc_category'], $tax );
+            if ( ! is_wp_error( $cat_term ) ) {
+                $cid = (int) ( is_array( $cat_term ) ? $cat_term['term_id'] : $cat_term );
+                $term_ids = [ $cid ];
+                if ( ! empty( $data['_fc_subcategory'] ) ) {
+                    $sub = term_exists( $data['_fc_subcategory'], $tax, $cid );
+                    if ( ! $sub ) $sub = wp_insert_term( $data['_fc_subcategory'], $tax, [ 'parent' => $cid ] );
+                    if ( ! is_wp_error( $sub ) ) $term_ids[] = (int) ( is_array( $sub ) ? $sub['term_id'] : $sub );
+                }
+                wp_set_object_terms( $product_id, $term_ids, $tax );
+            }
         }
     }
 
     // Tags
     if ( ! empty( $data['_fc_tags'] ) ) {
-        wp_set_object_terms( $product_id, $data['_fc_tags'], 'product_tag', true );
+        $tag_ids = [];
+        foreach ( $data['_fc_tags'] as $tag ) {
+            if ( isset( $tax_map['tags'][ $tag ] ) ) {
+                $tag_ids[] = $tax_map['tags'][ $tag ];
+            } else {
+                $tag_ids[] = $tag;
+            }
+        }
+        wp_set_object_terms( $product_id, $tag_ids, 'product_tag', true );
     }
 
     // Meta
@@ -438,6 +491,13 @@ function gh_fc_post_process( int $product_id, array $data, bool $sideload = true
         foreach ( $data['_fc_meta'] as $key => $val ) {
             update_post_meta( $product_id, $key, sanitize_text_field( $val ) );
         }
+    }
+
+    // Provenance meta
+    update_post_meta( $product_id, '_gh_import_source', $data['_gh_import_source'] ?? 'config' );
+    update_post_meta( $product_id, '_gh_import_date', current_time( 'mysql' ) );
+    if ( ! empty( $data['_gh_import_feed_id'] ) ) {
+        update_post_meta( $product_id, '_gh_import_feed_id', $data['_gh_import_feed_id'] );
     }
 
     // Images: prefer pre-imported media map, fallback to sideload if explicitly requested
@@ -507,15 +567,19 @@ function gh_fc_run( string $config_id, array $rows, array $options = [] ): array
     $sideload = $options['sideload_images'] ?? true;
     $results  = [];
 
+    $tax_map = gh_fc_prepare_taxonomies( $woo_products );
+
     if ( $create ) {
-        foreach ( $diff['new'] as $p ) {
-            $results[] = gh_fc_create_product( $p, $sideload );
-        }
+        $results = array_merge( $results, gh_fc_batch_with_retry(
+            $diff['new'],
+            fn( $p ) => gh_fc_create_product( $p, $sideload, $tax_map )
+        ) );
     }
     if ( $update ) {
-        foreach ( $diff['update'] as $p ) {
-            $results[] = gh_csv_update_product( $p );
-        }
+        $results = array_merge( $results, gh_fc_batch_with_retry(
+            $diff['update'],
+            fn( $p ) => gh_csv_update_product( $p )
+        ) );
     }
 
     $created = count( array_filter( $results, fn( $r ) => $r['action'] === 'created' ) );
@@ -652,6 +716,238 @@ function gh_fc_override_markup( array $config, float $markup ): array {
         }
     }
     return $config;
+}
+
+// ── Quick patch (variation-only price/stock) ─────────────
+
+/**
+ * Fast-path: patches only price and stock on existing product variations.
+ * Skips product-level processing (no taxonomy, images, SEO).
+ *
+ * For each product in the list, finds the WC product by SKU. If it's
+ * a variable product, compares each variation's price+stock and patches
+ * only changed fields. Simple products get price+stock patched directly.
+ *
+ * @param array $woo_products Transformed WooCommerce product arrays.
+ * @return array { patched: int, skipped: int, errors: int, details: array }
+ */
+function gh_fc_quick_patch( array $woo_products ): array {
+    $patched = 0;
+    $skipped = 0;
+    $errors  = 0;
+    $details = [];
+
+    foreach ( $woo_products as $p ) {
+        $sku = $p['sku'] ?? '';
+        if ( ! $sku ) { $skipped++; continue; }
+
+        $existing_id = wc_get_product_id_by_sku( $sku );
+        if ( ! $existing_id ) { $skipped++; continue; }
+
+        $existing = wc_get_product( $existing_id );
+        if ( ! $existing ) { $skipped++; continue; }
+
+        try {
+            $changed = 0;
+
+            if ( $existing->is_type( 'variable' ) && ! empty( $p['variations'] ) ) {
+                foreach ( $p['variations'] as $var_data ) {
+                    $var_sku = $var_data['sku'] ?? '';
+                    if ( ! $var_sku ) continue;
+
+                    $var_id = wc_get_product_id_by_sku( $var_sku );
+                    if ( ! $var_id ) continue;
+
+                    $v = wc_get_product( $var_id );
+                    if ( ! $v || ! $v->is_type( 'variation' ) ) continue;
+
+                    $dirty = false;
+                    if ( isset( $var_data['regular_price'] ) && $v->get_regular_price() !== (string) $var_data['regular_price'] ) {
+                        $v->set_regular_price( $var_data['regular_price'] );
+                        $dirty = true;
+                    }
+                    if ( isset( $var_data['sale_price'] ) && $v->get_sale_price() !== (string) $var_data['sale_price'] ) {
+                        $v->set_sale_price( $var_data['sale_price'] );
+                        $dirty = true;
+                    }
+                    if ( isset( $var_data['stock_quantity'] ) && (int) $v->get_stock_quantity() !== (int) $var_data['stock_quantity'] ) {
+                        $v->set_manage_stock( true );
+                        $v->set_stock_quantity( (int) $var_data['stock_quantity'] );
+                        $v->set_stock_status( (int) $var_data['stock_quantity'] > 0 ? 'instock' : 'outofstock' );
+                        $dirty = true;
+                    }
+
+                    if ( $dirty ) { $v->save(); $changed++; }
+                }
+
+                if ( $changed ) WC_Product_Variable::sync( $existing_id );
+            } elseif ( $existing->is_type( 'simple' ) ) {
+                $dirty = false;
+                if ( isset( $p['regular_price'] ) && $existing->get_regular_price() !== (string) $p['regular_price'] ) {
+                    $existing->set_regular_price( $p['regular_price'] );
+                    $dirty = true;
+                }
+                if ( isset( $p['sale_price'] ) && $existing->get_sale_price() !== (string) $p['sale_price'] ) {
+                    $existing->set_sale_price( $p['sale_price'] );
+                    $dirty = true;
+                }
+                if ( isset( $p['stock_quantity'] ) && (int) $existing->get_stock_quantity() !== (int) $p['stock_quantity'] ) {
+                    $existing->set_manage_stock( true );
+                    $existing->set_stock_quantity( (int) $p['stock_quantity'] );
+                    $existing->set_stock_status( (int) $p['stock_quantity'] > 0 ? 'instock' : 'outofstock' );
+                    $dirty = true;
+                }
+                if ( $dirty ) { $existing->save(); $changed = 1; }
+            }
+
+            if ( $changed ) {
+                $patched++;
+                $details[] = [ 'action' => 'patched', 'id' => $existing_id, 'sku' => $sku, 'name' => $existing->get_name(), 'changes' => $changed ];
+            } else {
+                $skipped++;
+            }
+        } catch ( \Throwable $e ) {
+            $errors++;
+            $details[] = [ 'action' => 'error', 'sku' => $sku, 'name' => $p['name'] ?? '?', 'reason' => $e->getMessage() ];
+        }
+    }
+
+    return [
+        'summary' => compact( 'patched', 'skipped', 'errors' ),
+        'details' => $details,
+    ];
+}
+
+// ── Taxonomy pre-creation ────────────────────────────────
+
+/**
+ * Scans all products for unique taxonomy terms, creates missing ones,
+ * and returns a slug→term_id map per taxonomy. Called once before the
+ * create/update loop to avoid redundant term_exists() queries.
+ *
+ * @param array $woo_products Transformed WooCommerce product arrays.
+ * @return array { brands: {name => id}, categories: {name => id}, subcategories: {key => id}, tags: {slug => id} }
+ */
+function gh_fc_prepare_taxonomies( array $woo_products ): array {
+
+    $map = [ 'brands' => [], 'categories' => [], 'subcategories' => [], 'tags' => [] ];
+
+    $needed_brands = [];
+    $needed_cats   = [];
+    $needed_subs   = [];
+    $needed_tags   = [];
+
+    foreach ( $woo_products as $p ) {
+        if ( ! empty( $p['_fc_brand'] ) )       $needed_brands[ $p['_fc_brand'] ] = $p['_fc_brand_taxonomy'] ?? 'product_brand';
+        if ( ! empty( $p['_sf_brand'] ) )        $needed_brands[ $p['_sf_brand'] ] = 'product_brand';
+        if ( ! empty( $p['_gs_brand'] ) )        $needed_brands[ $p['_gs_brand'] ] = 'product_brand';
+
+        if ( ! empty( $p['_fc_category'] ) )     $needed_cats[ $p['_fc_category'] ] = $p['_fc_category_target'] ?? 'product_cat';
+        if ( ! empty( $p['_sf_category'] ) )     $needed_cats[ $p['_sf_category'] ] = 'product_cat';
+
+        if ( ! empty( $p['_fc_subcategory'] ) )  $needed_subs[ $p['_fc_category'] . '>' . $p['_fc_subcategory'] ] = [
+            'parent_name' => $p['_fc_category'], 'name' => $p['_fc_subcategory'], 'taxonomy' => $p['_fc_category_target'] ?? 'product_cat',
+        ];
+        if ( ! empty( $p['_sf_subcategory'] ) )  $needed_subs[ $p['_sf_category'] . '>' . $p['_sf_subcategory'] ] = [
+            'parent_name' => $p['_sf_category'], 'name' => $p['_sf_subcategory'], 'taxonomy' => 'product_cat',
+        ];
+
+        foreach ( $p['_fc_tags'] ?? [] as $tag ) $needed_tags[ $tag ] = true;
+    }
+
+    foreach ( $needed_brands as $name => $taxonomy ) {
+        if ( ! taxonomy_exists( $taxonomy ) ) continue;
+        $term = get_term_by( 'name', $name, $taxonomy );
+        if ( $term ) {
+            $map['brands'][ $name ] = (int) $term->term_id;
+        } else {
+            $result = wp_insert_term( $name, $taxonomy );
+            if ( ! is_wp_error( $result ) ) $map['brands'][ $name ] = (int) $result['term_id'];
+        }
+    }
+
+    foreach ( $needed_cats as $name => $taxonomy ) {
+        $term = get_term_by( 'name', $name, $taxonomy );
+        if ( $term ) {
+            $map['categories'][ $name ] = (int) $term->term_id;
+        } else {
+            $result = wp_insert_term( $name, $taxonomy );
+            if ( ! is_wp_error( $result ) ) $map['categories'][ $name ] = (int) $result['term_id'];
+        }
+    }
+
+    foreach ( $needed_subs as $key => $sub ) {
+        $parent_id = $map['categories'][ $sub['parent_name'] ] ?? 0;
+        if ( ! $parent_id ) continue;
+        $term = get_term_by( 'name', $sub['name'], $sub['taxonomy'] );
+        if ( $term && (int) $term->parent === $parent_id ) {
+            $map['subcategories'][ $key ] = (int) $term->term_id;
+        } else {
+            $result = wp_insert_term( $sub['name'], $sub['taxonomy'], [ 'parent' => $parent_id ] );
+            if ( ! is_wp_error( $result ) ) $map['subcategories'][ $key ] = (int) $result['term_id'];
+        }
+    }
+
+    foreach ( array_keys( $needed_tags ) as $tag ) {
+        $term = get_term_by( 'slug', $tag, 'product_tag' );
+        if ( ! $term ) $term = get_term_by( 'name', $tag, 'product_tag' );
+        if ( $term ) {
+            $map['tags'][ $tag ] = (int) $term->term_id;
+        } else {
+            $result = wp_insert_term( $tag, 'product_tag' );
+            if ( ! is_wp_error( $result ) ) $map['tags'][ $tag ] = (int) $result['term_id'];
+        }
+    }
+
+    return $map;
+}
+
+// ── Retry with binary split ──────────────────────────────
+
+/**
+ * Processes a batch of products with retry-on-failure using binary split.
+ *
+ * When a product fails (timeout/fatal), the batch is split in half and
+ * each half is retried with exponential backoff. Max 3 retry levels
+ * (25 → 12+13 → 6+7). Single-product failures are logged and skipped.
+ *
+ * Adapted from woo-importer WooCommerceImporter::executeBatchWithRetry().
+ *
+ * @param array    $items       Products to process.
+ * @param callable $process_fn  fn(array $product): array — returns result row.
+ * @param int      $retry_depth Current recursion depth (0-based).
+ * @return array Result rows.
+ */
+function gh_fc_batch_with_retry( array $items, callable $process_fn, int $retry_depth = 0 ): array {
+    $results = [];
+
+    foreach ( $items as $i => $product ) {
+        try {
+            $results[] = $process_fn( $product );
+        } catch ( \Throwable $e ) {
+            $remaining = array_slice( $items, $i );
+
+            if ( $retry_depth < 3 && count( $remaining ) > 1 ) {
+                $half = (int) ceil( count( $remaining ) / 2 );
+                sleep( min( (int) pow( 2, $retry_depth + 1 ), 8 ) );
+                $results = array_merge(
+                    $results,
+                    gh_fc_batch_with_retry( array_slice( $remaining, 0, $half ), $process_fn, $retry_depth + 1 ),
+                    gh_fc_batch_with_retry( array_slice( $remaining, $half ), $process_fn, $retry_depth + 1 )
+                );
+            } else {
+                $results[] = [
+                    'action' => 'error',
+                    'sku'    => $product['sku'] ?? '',
+                    'name'   => $product['name'] ?? '?',
+                    'reason' => $e->getMessage(),
+                ];
+            }
+            break;
+        }
+    }
+
+    return $results;
 }
 
 /**

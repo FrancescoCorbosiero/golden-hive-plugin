@@ -245,7 +245,7 @@ function gh_sf_diff( array $woo_products ): array {
  * @param array $options { create_new, update_existing, sideload_images }
  * @return array Risultato.
  */
-function gh_sf_apply( array $diff, array $options = [] ): array {
+function gh_sf_apply( array $diff, array $options = [], array $tax_map = [] ): array {
 
     $create_new      = $options['create_new'] ?? true;
     $update_existing = $options['update_existing'] ?? true;
@@ -253,16 +253,18 @@ function gh_sf_apply( array $diff, array $options = [] ): array {
 
     $results = [];
 
-    if ( $create_new ) {
-        foreach ( $diff['new'] as $product ) {
-            $results[] = gh_sf_create_product( $product, $sideload );
-        }
+    if ( $create_new && ! empty( $diff['new'] ) ) {
+        $results = array_merge( $results, gh_fc_batch_with_retry(
+            $diff['new'],
+            fn( $p ) => gh_sf_create_product( $p, $sideload, $tax_map )
+        ) );
     }
 
-    if ( $update_existing ) {
-        foreach ( $diff['update'] as $product ) {
-            $results[] = gh_sf_update_product( $product );
-        }
+    if ( $update_existing && ! empty( $diff['update'] ) ) {
+        $results = array_merge( $results, gh_fc_batch_with_retry(
+            $diff['update'],
+            fn( $p ) => gh_sf_update_product( $p )
+        ) );
     }
 
     $created = count( array_filter( $results, fn( $r ) => $r['action'] === 'created' ) );
@@ -278,7 +280,7 @@ function gh_sf_apply( array $diff, array $options = [] ): array {
 /**
  * Crea un nuovo prodotto WC da dati SF.
  */
-function gh_sf_create_product( array $data, bool $sideload = true ): array {
+function gh_sf_create_product( array $data, bool $sideload = true, array $tax_map = [] ): array {
 
     try {
         $type = $data['type'] ?? 'simple';
@@ -287,14 +289,28 @@ function gh_sf_create_product( array $data, bool $sideload = true ): array {
             ? gh_create_variable_product( $data )
             : gh_create_simple_product( $data );
 
-        // Brand → product_brand taxonomy
+        // Brand → product_brand taxonomy (use cached map if available)
         if ( ! empty( $data['_sf_brand'] ) ) {
-            gh_sf_assign_brand( $product_id, $data['_sf_brand'] );
+            $cached_brand = $tax_map['brands'][ $data['_sf_brand'] ] ?? null;
+            if ( $cached_brand ) {
+                wp_set_object_terms( $product_id, [ $cached_brand ], 'product_brand' );
+            } else {
+                gh_sf_assign_brand( $product_id, $data['_sf_brand'] );
+            }
         }
 
-        // Categoria → product_cat
+        // Categoria → product_cat (use cached map if available)
         if ( ! empty( $data['_sf_category'] ) ) {
-            gh_sf_assign_category( $product_id, $data['_sf_category'], $data['_sf_subcategory'] ?? '' );
+            $cached_cat = $tax_map['categories'][ $data['_sf_category'] ] ?? null;
+            $sub_key    = $data['_sf_category'] . '>' . ( $data['_sf_subcategory'] ?? '' );
+            $cached_sub = $tax_map['subcategories'][ $sub_key ] ?? null;
+            if ( $cached_cat ) {
+                $ids = [ $cached_cat ];
+                if ( $cached_sub ) $ids[] = $cached_sub;
+                wp_set_object_terms( $product_id, $ids, 'product_cat' );
+            } else {
+                gh_sf_assign_category( $product_id, $data['_sf_category'], $data['_sf_subcategory'] ?? '' );
+            }
         }
 
         // Tag stockfirmati + stagione
@@ -311,6 +327,10 @@ function gh_sf_create_product( array $data, bool $sideload = true ): array {
         if ( ! empty( $data['_sf_sex'] ) )         update_post_meta( $product_id, '_sf_sex', $data['_sf_sex'] );
         if ( ! empty( $data['_sf_cost_price'] ) )  update_post_meta( $product_id, '_sf_cost_price', $data['_sf_cost_price'] );
         if ( ! empty( $data['_sf_source_url'] ) )  update_post_meta( $product_id, '_sf_source_url', $data['_sf_source_url'] );
+
+        // Provenance meta
+        update_post_meta( $product_id, '_gh_import_source', 'stockfirmati' );
+        update_post_meta( $product_id, '_gh_import_date', current_time( 'mysql' ) );
 
         // Images: prefer pre-imported media map, fallback to sideload
         if ( ! empty( $data['_sf_images'] ) ) {
@@ -329,6 +349,13 @@ function gh_sf_create_product( array $data, bool $sideload = true ): array {
             'name'   => $data['name'],
         ];
     } catch ( \Throwable $e ) {
+        if ( gh_is_duplicate_sku_error( $e ) && ! empty( $data['sku'] ) ) {
+            $existing_id = wc_get_product_id_by_sku( $data['sku'] );
+            if ( $existing_id ) {
+                $data['_existing_id'] = $existing_id;
+                return gh_sf_update_product( $data );
+            }
+        }
         return [
             'action' => 'error',
             'sku'    => $data['sku'] ?? '',

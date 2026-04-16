@@ -137,6 +137,7 @@
         <label style="font-family:var(--mono);font-size:10px;color:var(--dim);display:flex;align-items:center;gap:4px"><input type="checkbox" id="gs-opt-draft" /> Bozza</label>
         <button class="btn btn-ghost" onclick="GH.gsCancel()">Annulla</button>
         <button class="btn btn-warn" id="btn-gs-apply" onclick="GH.gsApply()"><span class="spin" id="gs-apply-spin" style="display:none"></span> Importa</button>
+        <button class="btn btn-ghost" id="btn-gs-quickpatch" onclick="GH.gsQuickPatch()" title="Aggiorna solo prezzi e stock"><span class="spin" id="gs-quickpatch-spin" style="display:none"></span> Quick Update</button>
     </div>
     <div class="gen-overlay" id="gs-overlay"><div class="gen-spinner"></div><div class="gen-text" id="gs-overlay-text">Fetch...</div></div>
 </div>
@@ -195,10 +196,12 @@
     <div class="confirm-bar" id="sf-confirm" style="display:none">
         <div class="summary-text" id="sf-confirm-text"></div>
         <button class="btn btn-primary" id="btn-sf-preimport" onclick="GH.sfPreimportMedia()"><span class="spin" id="sf-preimport-spin" style="display:none"></span> 1. Scarica Immagini</button>
+        <button class="btn btn-ghost" id="btn-sf-validate-map" onclick="GH.sfValidateMap()" style="font-size:10px" title="Verifica che tutte le immagini nella mappa esistano ancora"><span class="spin" id="sf-validate-spin" style="display:none"></span> Valida mappa</button>
         <span id="sf-preimport-status" style="font-family:var(--mono);font-size:10px;color:var(--dim)"></span>
         <div class="filter-sep"></div>
         <button class="btn btn-ghost" onclick="GH.sfCancel()">Annulla</button>
         <button class="btn btn-warn" id="btn-sf-apply" onclick="GH.sfApply()"><span class="spin" id="sf-apply-spin" style="display:none"></span> 2. Importa Prodotti</button>
+        <button class="btn btn-ghost" id="btn-sf-quickpatch" onclick="GH.sfQuickPatch()" style="margin-left:4px" title="Aggiorna solo prezzi e stock dei prodotti esistenti"><span class="spin" id="sf-quickpatch-spin" style="display:none"></span> Quick Update</button>
     </div>
     <div class="gen-overlay" id="sf-overlay"><div class="gen-spinner"></div><div class="gen-text" id="sf-overlay-text">Fetch...</div><button class="btn btn-ghost" onclick="GH.sfPreimportStop()" style="margin-top:12px;color:var(--red)">&#9632; Stop</button></div>
 </div>

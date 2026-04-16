@@ -295,28 +295,19 @@ add_action( 'wp_ajax_gh_ajax_fc_apply', function () {
     $sideload = $options['sideload_images'] ?? false;
     $results  = [];
 
-    try {
-        if ( $create ) {
-            foreach ( $diff['new'] as $p ) {
-                $results[] = gh_fc_create_product( $p, $sideload );
-            }
-        }
-        if ( $update ) {
-            foreach ( $diff['update'] as $p ) {
-                $results[] = gh_csv_update_product( $p );
-            }
-        }
-    } catch ( \Throwable $e ) {
-        // Ritorna i risultati parziali + l'errore
-        wp_send_json_success( [
-            'summary' => [
-                'created' => count( array_filter( $results, fn( $r ) => $r['action'] === 'created' ) ),
-                'updated' => count( array_filter( $results, fn( $r ) => $r['action'] === 'updated' ) ),
-                'errors'  => count( array_filter( $results, fn( $r ) => $r['action'] === 'error' ) ) + 1,
-            ],
-            'details' => array_merge( $results, [ [ 'action' => 'error', 'sku' => '', 'name' => 'FATAL', 'reason' => $e->getMessage() ] ] ),
-            'partial' => true,
-        ] );
+    $tax_map = gh_fc_prepare_taxonomies( $woo_products );
+
+    if ( $create && ! empty( $diff['new'] ) ) {
+        $results = array_merge( $results, gh_fc_batch_with_retry(
+            $diff['new'],
+            fn( $p ) => gh_fc_create_product( $p, $sideload, $tax_map )
+        ) );
+    }
+    if ( $update && ! empty( $diff['update'] ) ) {
+        $results = array_merge( $results, gh_fc_batch_with_retry(
+            $diff['update'],
+            fn( $p ) => gh_csv_update_product( $p )
+        ) );
     }
 
     $created = count( array_filter( $results, fn( $r ) => $r['action'] === 'created' ) );
@@ -327,6 +318,57 @@ add_action( 'wp_ajax_gh_ajax_fc_apply', function () {
         'summary' => compact( 'created', 'updated', 'errors' ),
         'details' => $results,
     ] );
+} );
+
+// ── CONFIG ENGINE: Quick patch (price/stock only) ─────────
+add_action( 'wp_ajax_gh_ajax_fc_quick_patch', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    @set_time_limit( 300 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'admin' );
+
+    $config_id = sanitize_text_field( $_POST['config_id'] ?? '' );
+    $raw       = stripslashes( $_POST['products'] ?? '[]' );
+    $products  = json_decode( $raw, true ) ?: [];
+    $markup    = (float) ( $_POST['markup'] ?? 0 );
+
+    $config = gh_fc_load_config( $config_id );
+    if ( ! $config ) { wp_send_json_error( 'Config non trovato.' ); }
+
+    if ( $markup > 0 ) {
+        $config = gh_fc_override_markup( $config, $markup );
+    }
+
+    $woo_products = gh_fc_transform_all( $products, $config );
+
+    try {
+        $result = gh_fc_quick_patch( $woo_products );
+        wp_send_json_success( $result );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Quick patch fallito: ' . $e->getMessage() );
+    }
+} );
+
+// ── GS FEED: Quick patch (price/stock only) ───────────────
+add_action( 'wp_ajax_rp_rc_ajax_gs_quick_patch', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    @set_time_limit( 300 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'admin' );
+
+    $raw      = stripslashes( $_POST['products'] ?? '[]' );
+    $products = json_decode( $raw, true ) ?: [];
+
+    $woo_products = rp_rc_gs_transform_all( $products );
+
+    try {
+        $result = gh_fc_quick_patch( $woo_products );
+        wp_send_json_success( $result );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Quick patch fallito: ' . $e->getMessage() );
+    }
 } );
 
 // ── CSV FEEDS: List all ────────────────────────────────────
@@ -779,4 +821,19 @@ add_action( 'wp_ajax_gh_ajax_preimport_clear', function () {
 
     gh_preimport_clear_map();
     wp_send_json_success( 'Mappa resettata.' );
+} );
+
+// ── Validate map (prune stale entries) ───────────────────────
+add_action( 'wp_ajax_gh_ajax_preimport_validate', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    @set_time_limit( 120 );
+
+    try {
+        $result = gh_preimport_validate_map();
+        wp_send_json_success( $result );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Validazione fallita: ' . $e->getMessage() );
+    }
 } );

@@ -369,20 +369,18 @@ function rp_rc_gs_apply( array $diff, array $options = [] ): array {
 
     $results = [];
 
-    // Crea nuovi
-    if ( $create_new ) {
-        foreach ( $diff['new'] as $product ) {
-            $result = rp_rc_gs_create_product( $product, $sideload );
-            $results[] = $result;
-        }
+    if ( $create_new && ! empty( $diff['new'] ) ) {
+        $results = array_merge( $results, gh_fc_batch_with_retry(
+            $diff['new'],
+            fn( $p ) => rp_rc_gs_create_product( $p, $sideload )
+        ) );
     }
 
-    // Aggiorna esistenti
-    if ( $update_existing ) {
-        foreach ( $diff['update'] as $product ) {
-            $result = rp_rc_gs_update_product( $product );
-            $results[] = $result;
-        }
+    if ( $update_existing && ! empty( $diff['update'] ) ) {
+        $results = array_merge( $results, gh_fc_batch_with_retry(
+            $diff['update'],
+            fn( $p ) => rp_rc_gs_update_product( $p )
+        ) );
     }
 
     $created = count( array_filter( $results, fn( $r ) => $r['action'] === 'created' ) );
@@ -431,6 +429,10 @@ function rp_rc_gs_create_product( array $data, bool $sideload = true ): array {
             rp_rc_gs_sideload_image( $product_id, $data['_gs_image_url'], $data['sku'] ?? '' );
         }
 
+        // Provenance meta
+        update_post_meta( $product_id, '_gh_import_source', 'goldensneakers' );
+        update_post_meta( $product_id, '_gh_import_date', current_time( 'mysql' ) );
+
         return [
             'action' => 'created',
             'id'     => $product_id,
@@ -438,6 +440,13 @@ function rp_rc_gs_create_product( array $data, bool $sideload = true ): array {
             'name'   => $data['name'],
         ];
     } catch ( \Exception $e ) {
+        if ( gh_is_duplicate_sku_error( $e ) && ! empty( $data['sku'] ) ) {
+            $existing_id = wc_get_product_id_by_sku( $data['sku'] );
+            if ( $existing_id ) {
+                $data['_existing_id'] = $existing_id;
+                return rp_rc_gs_update_product( $data );
+            }
+        }
         return [
             'action' => 'error',
             'sku'    => $data['sku'] ?? '',

@@ -822,3 +822,18 @@ add_action( 'wp_ajax_gh_ajax_preimport_clear', function () {
     gh_preimport_clear_map();
     wp_send_json_success( 'Mappa resettata.' );
 } );
+
+// ── Validate map (prune stale entries) ───────────────────────
+add_action( 'wp_ajax_gh_ajax_preimport_validate', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    @set_time_limit( 120 );
+
+    try {
+        $result = gh_preimport_validate_map();
+        wp_send_json_success( $result );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Validazione fallita: ' . $e->getMessage() );
+    }
+} );

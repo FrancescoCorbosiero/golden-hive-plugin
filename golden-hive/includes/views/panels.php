@@ -196,6 +196,7 @@
     <div class="confirm-bar" id="sf-confirm" style="display:none">
         <div class="summary-text" id="sf-confirm-text"></div>
         <button class="btn btn-primary" id="btn-sf-preimport" onclick="GH.sfPreimportMedia()"><span class="spin" id="sf-preimport-spin" style="display:none"></span> 1. Scarica Immagini</button>
+        <button class="btn btn-ghost" id="btn-sf-validate-map" onclick="GH.sfValidateMap()" style="font-size:10px" title="Verifica che tutte le immagini nella mappa esistano ancora"><span class="spin" id="sf-validate-spin" style="display:none"></span> Valida mappa</button>
         <span id="sf-preimport-status" style="font-family:var(--mono);font-size:10px;color:var(--dim)"></span>
         <div class="filter-sep"></div>
         <button class="btn btn-ghost" onclick="GH.sfCancel()">Annulla</button>

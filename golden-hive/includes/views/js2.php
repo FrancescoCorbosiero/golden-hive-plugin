@@ -348,6 +348,21 @@
 
     function sfPreimportStop() { sfPreimportAbort = true; }
 
+    async function sfValidateMap() {
+        const btn = document.getElementById('btn-sf-validate-map'), sp = document.getElementById('sf-validate-spin');
+        const statusEl = document.getElementById('sf-preimport-status');
+        btn.disabled = true; sp.style.display = '';
+        try {
+            const r = await ajax('gh_ajax_preimport_validate');
+            if (!r.success) { toast('Errore: ' + (r.data || ''), 'err'); return; }
+            const d = r.data;
+            const msg = d.valid + ' valide, ' + d.pruned + ' rimosse';
+            if (statusEl) statusEl.textContent = msg;
+            toast(msg, d.pruned ? 'inf' : 'ok', 5000);
+        } catch (e) { toast('Errore validazione', 'err'); }
+        finally { btn.disabled = false; sp.style.display = 'none'; }
+    }
+
     // SF Apply: chunked per evitare timeout su import grandi (2000+ prodotti).
     // Invia batch da 25 prodotti per request. Il PHP processa ogni batch e
     // ritorna i risultati parziali. Il JS accumula e mostra il progresso.
@@ -1068,5 +1083,5 @@
     initSfFeed();
     initCsvUpload();
 
-    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfPreimportMedia,sfPreimportStop,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog};
+    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog};
 })();

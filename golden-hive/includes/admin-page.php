@@ -60,6 +60,7 @@ function gh_render_page(): void {
             <div class="tab-item" onclick="GH.switchTab('email-history',this);GH.emHistoryLoad()"><span class="tab-icon">&#9202;</span><span class="tab-label">Storico</span></div>
             <div class="tab-section">TOOLS</div>
             <div class="tab-item" onclick="GH.switchTab('httpclient',this)"><span class="tab-icon">&#8680;</span><span class="tab-label">HTTP Client</span></div>
+            <div class="tab-item" onclick="GH.switchTab('nuclear',this)"><span class="tab-icon">&#9762;</span><span class="tab-label">Nuclear Cleanup</span></div>
         </div>
 
         <div class="content">

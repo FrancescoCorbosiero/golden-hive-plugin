@@ -89,5 +89,9 @@ require_once GH_DIR . 'includes/email/mailer.php';
 require_once GH_DIR . 'includes/email/campaigns.php';
 require_once GH_DIR . 'includes/email/ajax.php';
 
+// Tools
+require_once GH_DIR . 'includes/tools/nuclear-cleanup.php';
+require_once GH_DIR . 'includes/tools/ajax.php';
+
 // Admin UI
 require_once GH_DIR . 'includes/admin-page.php';

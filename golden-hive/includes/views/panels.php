@@ -167,9 +167,9 @@
             </div>
         </div>
         <div class="cfg-row">
-            <span class="cfg-label">Ricarico</span>
+            <span class="cfg-label">Ricarico (import)</span>
             <input class="cfg-input" id="sf-markup" type="number" step="0.1" min="1" value="3.5" style="max-width:80px" />
-            <span style="font-family:var(--mono);font-size:10px;color:var(--dim)">&times; costo ingrosso = prezzo vendita</span>
+            <span style="font-family:var(--mono);font-size:10px;color:var(--dim)">&times; costo = sale &middot; applicato solo all'importazione</span>
             <div class="filter-sep"></div>
             <label style="font-family:var(--mono);font-size:10px;color:var(--dim);display:flex;align-items:center;gap:4px"><input type="checkbox" id="sf-opt-images" /> Sideload immagini</label>
             <label style="font-family:var(--mono);font-size:10px;color:var(--dim);display:flex;align-items:center;gap:4px"><input type="checkbox" id="sf-opt-draft" /> Importa come bozza</label>
@@ -483,4 +483,57 @@
     </div>
     <!-- List -->
     <div class="wl-wrap" id="wl-area"><div class="empty-state"><div class="empty-icon">&#9737;</div><div class="empty-text">La whitelist protegge le immagini dall'eliminazione</div></div></div>
+</div>
+
+<!-- ═══ NUCLEAR CLEANUP ═══ -->
+<div class="panel" id="panel-nuclear">
+    <div class="config-form" style="padding:16px">
+        <div style="font-family:var(--sans);font-size:13px;color:var(--red);margin-bottom:12px;font-weight:500">&#9762; Nuclear Cleanup — eliminazione selettiva in massa</div>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--dim);margin-bottom:16px">Seleziona cosa eliminare. Le immagini in whitelist sono sempre protette. Questa operazione e irreversibile.</div>
+
+        <div class="cfg-row" style="flex-direction:column;gap:10px;align-items:stretch">
+            <label class="nuc-opt" style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--txt)">
+                <input type="checkbox" id="nuc-products" checked />
+                <span>Prodotti</span>
+                <span style="font-size:10px;color:var(--dim);margin-left:auto">Tutti i prodotti WooCommerce + varianti</span>
+            </label>
+            <label class="nuc-opt" style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--txt)">
+                <input type="checkbox" id="nuc-media" checked />
+                <span>Media</span>
+                <span style="font-size:10px;color:var(--dim);margin-left:auto">Tutte le immagini (tranne whitelist)</span>
+            </label>
+            <label class="nuc-opt" style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--txt)">
+                <input type="checkbox" id="nuc-transients" checked />
+                <span>Transients & cache</span>
+                <span style="font-size:10px;color:var(--dim);margin-left:auto">WP transients, WC transients, object cache</span>
+            </label>
+            <label class="nuc-opt" style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--txt)">
+                <input type="checkbox" id="nuc-taxonomy" />
+                <span>Tassonomie</span>
+                <span style="font-size:10px;color:var(--dim);margin-left:auto">Categorie, brand, tag prodotto</span>
+            </label>
+            <label class="nuc-opt" style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--txt)">
+                <input type="checkbox" id="nuc-orphans" />
+                <span>Dati orfani</span>
+                <span style="font-size:10px;color:var(--dim);margin-left:auto">Post meta orfani, sessioni WC scadute</span>
+            </label>
+        </div>
+
+        <div class="cfg-row" style="margin-top:16px;gap:8px">
+            <button class="btn btn-primary" id="btn-nuc-preview" onclick="GH.nucPreview()"><span class="spin" id="nuc-preview-spin" style="display:none"></span> Anteprima</button>
+        </div>
+    </div>
+
+    <div id="nuc-preview-area" style="padding:0 16px"></div>
+
+    <div class="confirm-bar" id="nuc-confirm" style="display:none;flex-direction:column;gap:8px;padding:16px">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--red)">Digita <strong>NUCLEAR</strong> per confermare l'eliminazione:</div>
+        <div style="display:flex;gap:8px;align-items:center">
+            <input class="cfg-input" id="nuc-confirm-input" placeholder="NUCLEAR" style="max-width:160px;font-family:var(--mono);text-transform:uppercase" />
+            <button class="btn btn-warn" id="btn-nuc-execute" onclick="GH.nucExecute()" style="background:var(--red)"><span class="spin" id="nuc-exec-spin" style="display:none"></span> &#9762; Elimina tutto</button>
+            <button class="btn btn-ghost" onclick="document.getElementById('nuc-confirm').style.display='none'">Annulla</button>
+        </div>
+    </div>
+
+    <div class="gen-overlay" id="nuc-overlay"><div class="gen-spinner"></div><div class="gen-text" id="nuc-overlay-text">Pulizia...</div></div>
 </div>

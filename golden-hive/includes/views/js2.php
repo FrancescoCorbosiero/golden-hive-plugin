@@ -173,7 +173,7 @@
             document.getElementById('sf-csv-rows').textContent = r.data.csv_rows || '?';
             const age = r.data.fetched_at || '';
             toast(r.data.products.length + ' prodotti (cache' + (age ? ' ' + age : '') + ')', 'inf', 3000);
-            const dr = await ajax('gh_ajax_fc_preview', { products: JSON.stringify(sfProducts), config_id: 'stockfirmati', markup: sfGetMarkup() });
+            const dr = await ajax('gh_ajax_fc_preview', { products: JSON.stringify(sfProducts), config_id: 'stockfirmati', markup: 1 });
             if (dr.success) sfRenderPreview(dr.data);
         } catch (e) { /* silent — no cached data is fine */ }
     }
@@ -191,7 +191,7 @@
             document.getElementById('sf-csv-rows').textContent = r.data.csv_rows;
             toast(r.data.product_count + ' prodotti', 'ok');
             ot.textContent = 'Confronto WooCommerce...';
-            const dr = await ajax('gh_ajax_fc_preview', { products: JSON.stringify(sfProducts), config_id: 'stockfirmati', markup: sfGetMarkup() });
+            const dr = await ajax('gh_ajax_fc_preview', { products: JSON.stringify(sfProducts), config_id: 'stockfirmati', markup: 1 });
             if (!dr.success) { toast('Errore diff', 'err'); return; }
             sfRenderPreview(dr.data);
         } catch (e) { toast('Errore', 'err'); }
@@ -213,7 +213,7 @@
             document.getElementById('sf-csv-rows').textContent = r.data.csv_rows;
             toast(r.data.product_count + ' prodotti', 'ok');
             ot.textContent = 'Confronto WooCommerce...';
-            const dr = await ajax('gh_ajax_fc_preview', { products: JSON.stringify(sfProducts), config_id: 'stockfirmati', markup: sfGetMarkup() });
+            const dr = await ajax('gh_ajax_fc_preview', { products: JSON.stringify(sfProducts), config_id: 'stockfirmati', markup: 1 });
             if (!dr.success) { toast('Errore diff', 'err'); return; }
             sfRenderPreview(dr.data);
         } catch (e) { toast('Errore', 'err'); }
@@ -236,7 +236,7 @@
     }
 
     function sfRenderTable(items) {
-        let h = '<table class="ptable"><thead><tr><th style="width:28px"><input type="checkbox" id="sf-check-all" onchange="GH.sfToggleAll(this.checked)" /></th><th>Azione</th><th>SKU</th><th>Nome</th><th>Brand</th><th>Cat</th><th>Taglie</th><th>Qty</th><th>Sale</th><th>Reg</th></tr></thead><tbody>';
+        let h = '<table class="ptable"><thead><tr><th style="width:28px"><input type="checkbox" id="sf-check-all" onchange="GH.sfToggleAll(this.checked)" /></th><th>Azione</th><th>SKU</th><th>Nome</th><th>Brand</th><th>Cat</th><th>Taglie</th><th>Qty</th><th>Costo</th><th>Listino</th></tr></thead><tbody>';
         for (const p of items) {
             const cls = p._a === 'new' ? 'st-new' : p._a === 'update' ? 'st-update' : 'st-unchanged';
             const lb = p._a === 'new' ? '+ Nuovo' : p._a === 'update' ? '\u21bb Agg.' : '\u2713';
@@ -1087,6 +1087,81 @@
         schedLoadLog();
     }
 
+    // ── NUCLEAR CLEANUP ─────────────────────────────
+    function nucGetTargets() {
+        return {
+            products:    document.getElementById('nuc-products')?.checked || false,
+            media:       document.getElementById('nuc-media')?.checked || false,
+            transients:  document.getElementById('nuc-transients')?.checked || false,
+            taxonomy:    document.getElementById('nuc-taxonomy')?.checked || false,
+            orphan_meta: document.getElementById('nuc-orphans')?.checked || false,
+        };
+    }
+
+    async function nucPreview() {
+        const targets = nucGetTargets();
+        if (!Object.values(targets).some(Boolean)) { toast('Seleziona almeno una categoria', 'err'); return; }
+        const btn = document.getElementById('btn-nuc-preview'), sp = document.getElementById('nuc-preview-spin');
+        btn.disabled = true; sp.style.display = '';
+        try {
+            const r = await ajax('gh_ajax_nuclear_preview', { targets: JSON.stringify(targets) });
+            if (!r.success) { toast('Errore: ' + (r.data || ''), 'err'); return; }
+            const d = r.data;
+            const area = document.getElementById('nuc-preview-area');
+            let h = '<table class="ptable" style="margin:8px 0"><thead><tr><th>Categoria</th><th>Elementi</th><th>Dettaglio</th></tr></thead><tbody>';
+            let totalItems = 0;
+            for (const [key, info] of Object.entries(d)) {
+                const count = typeof info.count === 'number' ? info.count : (info.deleted ?? 0);
+                totalItems += count;
+                h += '<tr><td style="font-weight:500">' + esc(key) + '</td>';
+                h += '<td class="' + (count > 0 ? 'red' : 'green') + '" style="font-family:var(--mono)">' + count + '</td>';
+                h += '<td style="font-size:10px;color:var(--dim)">' + esc(info.label || '') + '</td></tr>';
+            }
+            h += '</tbody></table>';
+            if (totalItems > 0) {
+                h += '<div style="font-family:var(--mono);font-size:11px;color:var(--red);margin:8px 0">Totale: ' + totalItems + ' elementi da eliminare</div>';
+            } else {
+                h += '<div style="font-family:var(--mono);font-size:11px;color:var(--grn);margin:8px 0">Niente da eliminare</div>';
+            }
+            area.innerHTML = h;
+            if (totalItems > 0) {
+                document.getElementById('nuc-confirm').style.display = 'flex';
+                document.getElementById('nuc-confirm-input').value = '';
+            }
+        } catch (e) { toast('Errore', 'err'); }
+        finally { btn.disabled = false; sp.style.display = 'none'; }
+    }
+
+    async function nucExecute() {
+        const confirm = (document.getElementById('nuc-confirm-input').value || '').trim().toUpperCase();
+        if (confirm !== 'NUCLEAR') { toast('Digita NUCLEAR per confermare', 'err'); return; }
+        const targets = nucGetTargets();
+        const ov = document.getElementById('nuc-overlay'), ot = document.getElementById('nuc-overlay-text');
+        const btn = document.getElementById('btn-nuc-execute'), sp = document.getElementById('nuc-exec-spin');
+        ov.classList.add('visible'); btn.disabled = true; sp.style.display = '';
+        ot.textContent = 'Eliminazione in corso... non chiudere la pagina';
+        try {
+            const r = await ajax('gh_ajax_nuclear_execute', {
+                targets: JSON.stringify(targets),
+                confirm: 'NUCLEAR',
+            });
+            if (!r.success) { toast('Errore: ' + (r.data || ''), 'err'); return; }
+            const d = r.data;
+            const area = document.getElementById('nuc-preview-area');
+            let h = '<div style="font-family:var(--mono);font-size:12px;color:var(--grn);margin:12px 0">&#10003; Cleanup completato</div>';
+            h += '<table class="ptable"><thead><tr><th>Categoria</th><th>Eliminati</th></tr></thead><tbody>';
+            for (const [key, val] of Object.entries(d)) {
+                const n = typeof val === 'number' ? val : (val.deleted ?? val.postmeta ?? JSON.stringify(val));
+                h += '<tr><td>' + esc(key) + '</td><td class="red" style="font-family:var(--mono)">' + n + '</td></tr>';
+            }
+            h += '</tbody></table>';
+            area.innerHTML = h;
+            document.getElementById('nuc-confirm').style.display = 'none';
+            toast('Cleanup completato', 'ok', 5000);
+        } catch (e) { toast('Errore: ' + (e.message || e), 'err'); }
+        finally { ov.classList.remove('visible'); btn.disabled = false; sp.style.display = 'none'; }
+    }
+
     // ── INIT
     // Popola il dropdown "Brand" della Roundtrip export con i brand estratti
     // da product_cat (legacy: brand = categoria di profondita 1). TODO: migrare
@@ -1097,5 +1172,5 @@
     initSfFeed();
     initCsvUpload();
 
-    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog};
+    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog,nucPreview,nucExecute};
 })();

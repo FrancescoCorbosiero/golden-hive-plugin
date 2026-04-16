@@ -114,7 +114,7 @@
 #gh .media-check{position:absolute;top:6px;left:6px;accent-color:var(--acc);width:14px;height:14px;cursor:pointer}
 
 /* Media Library (unified browser) */
-#gh #panel-media-library{display:flex;flex-direction:column;overflow:hidden}
+#gh #panel-media-library{flex-direction:column;overflow:hidden}
 #gh #ml-results{padding:0 16px}
 #gh table.ml-table{width:100%;border-collapse:collapse;font-size:12px}
 #gh .ml-table thead th{background:var(--s1);border-bottom:2px solid var(--b1);padding:8px 10px;font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);text-align:left;font-weight:600;position:sticky;top:0;z-index:10}
@@ -173,7 +173,7 @@
 #gh .sr-cond-row .filter-select{font-size:11px}
 
 /* Inline Editor */
-#gh #panel-inline-editor{display:flex;flex-direction:column;overflow:hidden}
+#gh #panel-inline-editor{flex-direction:column;overflow:hidden}
 #gh .ie-search-drop{position:absolute;left:0;right:0;top:100%;z-index:30;background:var(--s2);border:1px solid var(--b2);border-radius:4px;max-height:280px;overflow-y:auto;display:none}
 #gh .ie-search-drop.open{display:block}
 #gh .ie-sr{display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--b1);font-size:12px}

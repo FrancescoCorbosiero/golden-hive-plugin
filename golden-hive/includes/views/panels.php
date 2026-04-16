@@ -134,6 +134,7 @@
     <div class="confirm-bar" id="gs-confirm" style="display:none">
         <div class="summary-text" id="gs-confirm-text"></div>
         <label style="font-family:var(--mono);font-size:10px;color:var(--dim);display:flex;align-items:center;gap:4px"><input type="checkbox" id="gs-opt-images" checked /> Sideload img</label>
+        <label style="font-family:var(--mono);font-size:10px;color:var(--dim);display:flex;align-items:center;gap:4px"><input type="checkbox" id="gs-opt-draft" /> Bozza</label>
         <button class="btn btn-ghost" onclick="GH.gsCancel()">Annulla</button>
         <button class="btn btn-warn" id="btn-gs-apply" onclick="GH.gsApply()"><span class="spin" id="gs-apply-spin" style="display:none"></span> Importa</button>
     </div>
@@ -170,6 +171,7 @@
             <span style="font-family:var(--mono);font-size:10px;color:var(--dim)">&times; costo ingrosso = prezzo vendita</span>
             <div class="filter-sep"></div>
             <label style="font-family:var(--mono);font-size:10px;color:var(--dim);display:flex;align-items:center;gap:4px"><input type="checkbox" id="sf-opt-images" /> Sideload immagini</label>
+            <label style="font-family:var(--mono);font-size:10px;color:var(--dim);display:flex;align-items:center;gap:4px"><input type="checkbox" id="sf-opt-draft" /> Importa come bozza</label>
         </div>
     </div>
     <div class="stats-bar" id="sf-stats" style="display:none">

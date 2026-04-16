@@ -455,45 +455,10 @@ function gh_fc_post_process( int $product_id, array $data, bool $sideload = true
 }
 
 /**
- * Sideload images: first = featured, rest = gallery.
+ * Sideload images: delegates to the shared parallel downloader.
  */
 function gh_fc_sideload_images( int $product_id, array $urls, string $sku, array $cfg = [] ): void {
-    if ( ! function_exists( 'media_sideload_image' ) ) {
-        require_once ABSPATH . 'wp-admin/includes/media.php';
-        require_once ABSPATH . 'wp-admin/includes/file.php';
-        require_once ABSPATH . 'wp-admin/includes/image.php';
-    }
-
-    $first_featured = $cfg['first_is_featured'] ?? true;
-    $rest_gallery   = $cfg['rest_is_gallery'] ?? true;
-    $gallery_ids    = [];
-
-    foreach ( $urls as $i => $url ) {
-        if ( ! $url ) continue;
-
-        $tmp = download_url( $url, 30 );
-        if ( is_wp_error( $tmp ) ) continue;
-
-        $ext = pathinfo( parse_url( $url, PHP_URL_PATH ), PATHINFO_EXTENSION ) ?: 'jpg';
-        $filename = sanitize_file_name( $sku . '-' . ( $i + 1 ) . '.' . $ext );
-
-        $att_id = media_handle_sideload( [ 'name' => $filename, 'tmp_name' => $tmp ], $product_id );
-        if ( is_wp_error( $att_id ) ) { @unlink( $tmp ); continue; }
-
-        if ( $i === 0 && $first_featured ) {
-            set_post_thumbnail( $product_id, $att_id );
-        } elseif ( $rest_gallery ) {
-            $gallery_ids[] = $att_id;
-        }
-    }
-
-    if ( $gallery_ids ) {
-        $product = wc_get_product( $product_id );
-        if ( $product ) {
-            $product->set_gallery_image_ids( $gallery_ids );
-            $product->save();
-        }
-    }
+    gh_parallel_sideload_to_product( $product_id, $urls, $sku, $cfg );
 }
 
 // ── Full pipeline ─────────────────────────────────────────

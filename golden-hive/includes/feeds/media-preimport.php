@@ -195,6 +195,128 @@ function gh_preimport_assign_images( int $product_id, array $urls, array $cfg = 
 }
 
 /**
+ * Parallel sideload: downloads N image URLs simultaneously via curl_multi
+ * and imports them into WP media library. Used by all feed importers as a
+ * drop-in replacement for the old sequential download_url() loops.
+ *
+ * Flow:
+ * 1. Check pre-import map for each URL (skip already-downloaded)
+ * 2. curl_multi parallel download for the rest
+ * 3. media_handle_sideload each successful file into WP
+ * 4. Assign: first = featured, rest = gallery (configurable)
+ *
+ * @param int   $product_id  WC product to attach images to.
+ * @param array $urls        Image URLs to download.
+ * @param string $sku        SKU for filename generation.
+ * @param array  $cfg        { first_is_featured?: bool, rest_is_gallery?: bool }
+ */
+function gh_parallel_sideload_to_product( int $product_id, array $urls, string $sku = '', array $cfg = [] ): void {
+
+    $urls = array_filter( $urls );
+    if ( empty( $urls ) ) return;
+
+    if ( ! function_exists( 'media_handle_sideload' ) ) {
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+    }
+
+    $first_featured = $cfg['first_is_featured'] ?? true;
+    $rest_gallery   = $cfg['rest_is_gallery'] ?? true;
+
+    // 1. Check pre-import map first (instant, no network)
+    $map         = gh_preimport_get_map();
+    $to_download = [];
+    $resolved    = []; // index => attachment_id
+
+    foreach ( array_values( $urls ) as $i => $url ) {
+        if ( isset( $map[ $url ] ) && wp_get_attachment_url( $map[ $url ] ) ) {
+            $resolved[ $i ] = (int) $map[ $url ];
+        } else {
+            $to_download[ $i ] = $url;
+        }
+    }
+
+    // 2. Parallel download missing ones via curl_multi
+    if ( ! empty( $to_download ) ) {
+        $mh      = curl_multi_init();
+        $handles = [];
+
+        foreach ( $to_download as $i => $url ) {
+            $tmp = wp_tempnam( $url );
+            $ch  = curl_init( $url );
+            $fp  = fopen( $tmp, 'wb' );
+
+            curl_setopt_array( $ch, [
+                CURLOPT_FILE           => $fp,
+                CURLOPT_TIMEOUT        => 30,
+                CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_MAXREDIRS      => 5,
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_USERAGENT      => 'GoldenHive/1.0',
+            ] );
+
+            curl_multi_add_handle( $mh, $ch );
+            $handles[ $i ] = [ 'ch' => $ch, 'fp' => $fp, 'tmp' => $tmp, 'url' => $url ];
+        }
+
+        do {
+            $status = curl_multi_exec( $mh, $active );
+            if ( $active ) curl_multi_select( $mh, 1.0 );
+        } while ( $active && $status === CURLM_OK );
+
+        foreach ( $handles as $i => $h ) {
+            fclose( $h['fp'] );
+            $http = (int) curl_getinfo( $h['ch'], CURLINFO_HTTP_CODE );
+            $cerr = curl_error( $h['ch'] );
+            curl_multi_remove_handle( $mh, $h['ch'] );
+            curl_close( $h['ch'] );
+
+            if ( $http < 200 || $http >= 400 || $cerr || ! file_exists( $h['tmp'] ) || filesize( $h['tmp'] ) < 100 ) {
+                @unlink( $h['tmp'] );
+                continue;
+            }
+
+            $ext      = pathinfo( parse_url( $h['url'], PHP_URL_PATH ), PATHINFO_EXTENSION ) ?: 'jpg';
+            $basename = $sku ? sanitize_file_name( $sku ) : md5( $h['url'] );
+            $filename = $basename . '-' . ( $i + 1 ) . '.' . $ext;
+
+            $att_id = media_handle_sideload( [ 'name' => $filename, 'tmp_name' => $h['tmp'] ], $product_id );
+            if ( is_wp_error( $att_id ) ) { @unlink( $h['tmp'] ); continue; }
+
+            $resolved[ $i ] = (int) $att_id;
+            $map[ $h['url'] ] = (int) $att_id;
+        }
+
+        curl_multi_close( $mh );
+        update_option( GH_MEDIA_PREIMPORT_MAP_KEY, $map, false );
+    }
+
+    // 3. Assign: first = featured, rest = gallery (in original URL order)
+    ksort( $resolved );
+    $gallery = [];
+    $assigned_first = false;
+
+    foreach ( $resolved as $i => $att_id ) {
+        if ( ! $assigned_first && $first_featured ) {
+            set_post_thumbnail( $product_id, $att_id );
+            $assigned_first = true;
+        } elseif ( $rest_gallery ) {
+            $gallery[] = $att_id;
+        }
+    }
+
+    if ( $gallery ) {
+        $product = wc_get_product( $product_id );
+        if ( $product ) {
+            $product->set_gallery_image_ids( $gallery );
+            $product->save();
+        }
+    }
+}
+
+/**
  * Clear the map for a new import cycle.
  */
 function gh_preimport_clear_map(): void {

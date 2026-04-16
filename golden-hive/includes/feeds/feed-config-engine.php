@@ -365,14 +365,14 @@ function gh_fc_transform_one( array $product, array $config ): array {
  * @param bool  $sideload Whether to sideload images.
  * @return array Result.
  */
-function gh_fc_create_product( array $data, bool $sideload = true ): array {
+function gh_fc_create_product( array $data, bool $sideload = true, array $tax_map = [] ): array {
     try {
         $type = $data['type'] ?? 'simple';
         $product_id = $type === 'variable'
             ? gh_create_variable_product( $data )
             : gh_create_simple_product( $data );
 
-        gh_fc_post_process( $product_id, $data, $sideload );
+        gh_fc_post_process( $product_id, $data, $sideload, $tax_map );
 
         return [
             'action' => 'created',
@@ -392,45 +392,69 @@ function gh_fc_create_product( array $data, bool $sideload = true ): array {
 
 /**
  * Post-process: taxonomy, tags, images, meta.
+ *
+ * @param int   $product_id
+ * @param array $data
+ * @param bool  $sideload
+ * @param array $tax_map Pre-resolved taxonomy map from gh_fc_prepare_taxonomies().
  */
-function gh_fc_post_process( int $product_id, array $data, bool $sideload = true ): void {
+function gh_fc_post_process( int $product_id, array $data, bool $sideload = true, array $tax_map = [] ): void {
 
     // Brand taxonomy
     if ( ! empty( $data['_fc_brand'] ) ) {
         $tax = $data['_fc_brand_taxonomy'] ?? 'product_brand';
         if ( taxonomy_exists( $tax ) ) {
-            $term = term_exists( $data['_fc_brand'], $tax );
-            if ( ! $term ) $term = wp_insert_term( $data['_fc_brand'], $tax );
-            if ( ! is_wp_error( $term ) ) {
-                wp_set_object_terms( $product_id, [ (int) ( is_array( $term ) ? $term['term_id'] : $term ) ], $tax );
+            $cached_id = $tax_map['brands'][ $data['_fc_brand'] ] ?? null;
+            if ( $cached_id ) {
+                wp_set_object_terms( $product_id, [ $cached_id ], $tax );
+            } else {
+                $term = term_exists( $data['_fc_brand'], $tax );
+                if ( ! $term ) $term = wp_insert_term( $data['_fc_brand'], $tax );
+                if ( ! is_wp_error( $term ) ) {
+                    wp_set_object_terms( $product_id, [ (int) ( is_array( $term ) ? $term['term_id'] : $term ) ], $tax );
+                }
             }
         }
     }
 
     // Category taxonomy
     if ( ! empty( $data['_fc_category'] ) ) {
-        $tax = $data['_fc_category_target'] ?? 'product_cat';
-        $cat_term = term_exists( $data['_fc_category'], $tax );
-        if ( ! $cat_term ) $cat_term = wp_insert_term( $data['_fc_category'], $tax );
-        if ( ! is_wp_error( $cat_term ) ) {
-            $cat_id = (int) ( is_array( $cat_term ) ? $cat_term['term_id'] : $cat_term );
+        $tax     = $data['_fc_category_target'] ?? 'product_cat';
+        $cat_id  = $tax_map['categories'][ $data['_fc_category'] ] ?? null;
+        $sub_key = $data['_fc_category'] . '>' . ( $data['_fc_subcategory'] ?? '' );
+        $sub_id  = $tax_map['subcategories'][ $sub_key ] ?? null;
+
+        if ( $cat_id ) {
             $term_ids = [ $cat_id ];
-
-            if ( ! empty( $data['_fc_subcategory'] ) ) {
-                $sub = term_exists( $data['_fc_subcategory'], $tax, $cat_id );
-                if ( ! $sub ) $sub = wp_insert_term( $data['_fc_subcategory'], $tax, [ 'parent' => $cat_id ] );
-                if ( ! is_wp_error( $sub ) ) {
-                    $term_ids[] = (int) ( is_array( $sub ) ? $sub['term_id'] : $sub );
-                }
-            }
-
+            if ( $sub_id ) $term_ids[] = $sub_id;
             wp_set_object_terms( $product_id, $term_ids, $tax );
+        } else {
+            $cat_term = term_exists( $data['_fc_category'], $tax );
+            if ( ! $cat_term ) $cat_term = wp_insert_term( $data['_fc_category'], $tax );
+            if ( ! is_wp_error( $cat_term ) ) {
+                $cid = (int) ( is_array( $cat_term ) ? $cat_term['term_id'] : $cat_term );
+                $term_ids = [ $cid ];
+                if ( ! empty( $data['_fc_subcategory'] ) ) {
+                    $sub = term_exists( $data['_fc_subcategory'], $tax, $cid );
+                    if ( ! $sub ) $sub = wp_insert_term( $data['_fc_subcategory'], $tax, [ 'parent' => $cid ] );
+                    if ( ! is_wp_error( $sub ) ) $term_ids[] = (int) ( is_array( $sub ) ? $sub['term_id'] : $sub );
+                }
+                wp_set_object_terms( $product_id, $term_ids, $tax );
+            }
         }
     }
 
     // Tags
     if ( ! empty( $data['_fc_tags'] ) ) {
-        wp_set_object_terms( $product_id, $data['_fc_tags'], 'product_tag', true );
+        $tag_ids = [];
+        foreach ( $data['_fc_tags'] as $tag ) {
+            if ( isset( $tax_map['tags'][ $tag ] ) ) {
+                $tag_ids[] = $tax_map['tags'][ $tag ];
+            } else {
+                $tag_ids[] = $tag;
+            }
+        }
+        wp_set_object_terms( $product_id, $tag_ids, 'product_tag', true );
     }
 
     // Meta
@@ -507,15 +531,19 @@ function gh_fc_run( string $config_id, array $rows, array $options = [] ): array
     $sideload = $options['sideload_images'] ?? true;
     $results  = [];
 
+    $tax_map = gh_fc_prepare_taxonomies( $woo_products );
+
     if ( $create ) {
-        foreach ( $diff['new'] as $p ) {
-            $results[] = gh_fc_create_product( $p, $sideload );
-        }
+        $results = array_merge( $results, gh_fc_batch_with_retry(
+            $diff['new'],
+            fn( $p ) => gh_fc_create_product( $p, $sideload, $tax_map )
+        ) );
     }
     if ( $update ) {
-        foreach ( $diff['update'] as $p ) {
-            $results[] = gh_csv_update_product( $p );
-        }
+        $results = array_merge( $results, gh_fc_batch_with_retry(
+            $diff['update'],
+            fn( $p ) => gh_csv_update_product( $p )
+        ) );
     }
 
     $created = count( array_filter( $results, fn( $r ) => $r['action'] === 'created' ) );
@@ -652,6 +680,90 @@ function gh_fc_override_markup( array $config, float $markup ): array {
         }
     }
     return $config;
+}
+
+// ── Taxonomy pre-creation ────────────────────────────────
+
+/**
+ * Scans all products for unique taxonomy terms, creates missing ones,
+ * and returns a slug→term_id map per taxonomy. Called once before the
+ * create/update loop to avoid redundant term_exists() queries.
+ *
+ * @param array $woo_products Transformed WooCommerce product arrays.
+ * @return array { brands: {name => id}, categories: {name => id}, subcategories: {key => id}, tags: {slug => id} }
+ */
+function gh_fc_prepare_taxonomies( array $woo_products ): array {
+
+    $map = [ 'brands' => [], 'categories' => [], 'subcategories' => [], 'tags' => [] ];
+
+    $needed_brands = [];
+    $needed_cats   = [];
+    $needed_subs   = [];
+    $needed_tags   = [];
+
+    foreach ( $woo_products as $p ) {
+        if ( ! empty( $p['_fc_brand'] ) )       $needed_brands[ $p['_fc_brand'] ] = $p['_fc_brand_taxonomy'] ?? 'product_brand';
+        if ( ! empty( $p['_sf_brand'] ) )        $needed_brands[ $p['_sf_brand'] ] = 'product_brand';
+        if ( ! empty( $p['_gs_brand'] ) )        $needed_brands[ $p['_gs_brand'] ] = 'product_brand';
+
+        if ( ! empty( $p['_fc_category'] ) )     $needed_cats[ $p['_fc_category'] ] = $p['_fc_category_target'] ?? 'product_cat';
+        if ( ! empty( $p['_sf_category'] ) )     $needed_cats[ $p['_sf_category'] ] = 'product_cat';
+
+        if ( ! empty( $p['_fc_subcategory'] ) )  $needed_subs[ $p['_fc_category'] . '>' . $p['_fc_subcategory'] ] = [
+            'parent_name' => $p['_fc_category'], 'name' => $p['_fc_subcategory'], 'taxonomy' => $p['_fc_category_target'] ?? 'product_cat',
+        ];
+        if ( ! empty( $p['_sf_subcategory'] ) )  $needed_subs[ $p['_sf_category'] . '>' . $p['_sf_subcategory'] ] = [
+            'parent_name' => $p['_sf_category'], 'name' => $p['_sf_subcategory'], 'taxonomy' => 'product_cat',
+        ];
+
+        foreach ( $p['_fc_tags'] ?? [] as $tag ) $needed_tags[ $tag ] = true;
+    }
+
+    foreach ( $needed_brands as $name => $taxonomy ) {
+        if ( ! taxonomy_exists( $taxonomy ) ) continue;
+        $term = get_term_by( 'name', $name, $taxonomy );
+        if ( $term ) {
+            $map['brands'][ $name ] = (int) $term->term_id;
+        } else {
+            $result = wp_insert_term( $name, $taxonomy );
+            if ( ! is_wp_error( $result ) ) $map['brands'][ $name ] = (int) $result['term_id'];
+        }
+    }
+
+    foreach ( $needed_cats as $name => $taxonomy ) {
+        $term = get_term_by( 'name', $name, $taxonomy );
+        if ( $term ) {
+            $map['categories'][ $name ] = (int) $term->term_id;
+        } else {
+            $result = wp_insert_term( $name, $taxonomy );
+            if ( ! is_wp_error( $result ) ) $map['categories'][ $name ] = (int) $result['term_id'];
+        }
+    }
+
+    foreach ( $needed_subs as $key => $sub ) {
+        $parent_id = $map['categories'][ $sub['parent_name'] ] ?? 0;
+        if ( ! $parent_id ) continue;
+        $term = get_term_by( 'name', $sub['name'], $sub['taxonomy'] );
+        if ( $term && (int) $term->parent === $parent_id ) {
+            $map['subcategories'][ $key ] = (int) $term->term_id;
+        } else {
+            $result = wp_insert_term( $sub['name'], $sub['taxonomy'], [ 'parent' => $parent_id ] );
+            if ( ! is_wp_error( $result ) ) $map['subcategories'][ $key ] = (int) $result['term_id'];
+        }
+    }
+
+    foreach ( array_keys( $needed_tags ) as $tag ) {
+        $term = get_term_by( 'slug', $tag, 'product_tag' );
+        if ( ! $term ) $term = get_term_by( 'name', $tag, 'product_tag' );
+        if ( $term ) {
+            $map['tags'][ $tag ] = (int) $term->term_id;
+        } else {
+            $result = wp_insert_term( $tag, 'product_tag' );
+            if ( ! is_wp_error( $result ) ) $map['tags'][ $tag ] = (int) $result['term_id'];
+        }
+    }
+
+    return $map;
 }
 
 // ── Retry with binary split ──────────────────────────────

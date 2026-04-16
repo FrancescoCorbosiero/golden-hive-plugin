@@ -295,10 +295,12 @@ add_action( 'wp_ajax_gh_ajax_fc_apply', function () {
     $sideload = $options['sideload_images'] ?? false;
     $results  = [];
 
+    $tax_map = gh_fc_prepare_taxonomies( $woo_products );
+
     if ( $create && ! empty( $diff['new'] ) ) {
         $results = array_merge( $results, gh_fc_batch_with_retry(
             $diff['new'],
-            fn( $p ) => gh_fc_create_product( $p, $sideload )
+            fn( $p ) => gh_fc_create_product( $p, $sideload, $tax_map )
         ) );
     }
     if ( $update && ! empty( $diff['update'] ) ) {

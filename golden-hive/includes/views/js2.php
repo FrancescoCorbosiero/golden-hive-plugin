@@ -173,7 +173,7 @@
             document.getElementById('sf-csv-rows').textContent = r.data.csv_rows || '?';
             const age = r.data.fetched_at || '';
             toast(r.data.products.length + ' prodotti (cache' + (age ? ' ' + age : '') + ')', 'inf', 3000);
-            const dr = await ajax('gh_ajax_fc_preview', { products: JSON.stringify(sfProducts), config_id: 'stockfirmati', markup: sfGetMarkup() });
+            const dr = await ajax('gh_ajax_fc_preview', { products: JSON.stringify(sfProducts), config_id: 'stockfirmati', markup: 1 });
             if (dr.success) sfRenderPreview(dr.data);
         } catch (e) { /* silent — no cached data is fine */ }
     }
@@ -191,7 +191,7 @@
             document.getElementById('sf-csv-rows').textContent = r.data.csv_rows;
             toast(r.data.product_count + ' prodotti', 'ok');
             ot.textContent = 'Confronto WooCommerce...';
-            const dr = await ajax('gh_ajax_fc_preview', { products: JSON.stringify(sfProducts), config_id: 'stockfirmati', markup: sfGetMarkup() });
+            const dr = await ajax('gh_ajax_fc_preview', { products: JSON.stringify(sfProducts), config_id: 'stockfirmati', markup: 1 });
             if (!dr.success) { toast('Errore diff', 'err'); return; }
             sfRenderPreview(dr.data);
         } catch (e) { toast('Errore', 'err'); }
@@ -213,7 +213,7 @@
             document.getElementById('sf-csv-rows').textContent = r.data.csv_rows;
             toast(r.data.product_count + ' prodotti', 'ok');
             ot.textContent = 'Confronto WooCommerce...';
-            const dr = await ajax('gh_ajax_fc_preview', { products: JSON.stringify(sfProducts), config_id: 'stockfirmati', markup: sfGetMarkup() });
+            const dr = await ajax('gh_ajax_fc_preview', { products: JSON.stringify(sfProducts), config_id: 'stockfirmati', markup: 1 });
             if (!dr.success) { toast('Errore diff', 'err'); return; }
             sfRenderPreview(dr.data);
         } catch (e) { toast('Errore', 'err'); }
@@ -236,7 +236,7 @@
     }
 
     function sfRenderTable(items) {
-        let h = '<table class="ptable"><thead><tr><th style="width:28px"><input type="checkbox" id="sf-check-all" onchange="GH.sfToggleAll(this.checked)" /></th><th>Azione</th><th>SKU</th><th>Nome</th><th>Brand</th><th>Cat</th><th>Taglie</th><th>Qty</th><th>Sale</th><th>Reg</th></tr></thead><tbody>';
+        let h = '<table class="ptable"><thead><tr><th style="width:28px"><input type="checkbox" id="sf-check-all" onchange="GH.sfToggleAll(this.checked)" /></th><th>Azione</th><th>SKU</th><th>Nome</th><th>Brand</th><th>Cat</th><th>Taglie</th><th>Qty</th><th>Costo</th><th>Listino</th></tr></thead><tbody>';
         for (const p of items) {
             const cls = p._a === 'new' ? 'st-new' : p._a === 'update' ? 'st-update' : 'st-unchanged';
             const lb = p._a === 'new' ? '+ Nuovo' : p._a === 'update' ? '\u21bb Agg.' : '\u2713';

@@ -167,9 +167,9 @@
             </div>
         </div>
         <div class="cfg-row">
-            <span class="cfg-label">Ricarico</span>
+            <span class="cfg-label">Ricarico (import)</span>
             <input class="cfg-input" id="sf-markup" type="number" step="0.1" min="1" value="3.5" style="max-width:80px" />
-            <span style="font-family:var(--mono);font-size:10px;color:var(--dim)">&times; costo ingrosso = prezzo vendita</span>
+            <span style="font-family:var(--mono);font-size:10px;color:var(--dim)">&times; costo = sale &middot; applicato solo all'importazione</span>
             <div class="filter-sep"></div>
             <label style="font-family:var(--mono);font-size:10px;color:var(--dim);display:flex;align-items:center;gap:4px"><input type="checkbox" id="sf-opt-images" /> Sideload immagini</label>
             <label style="font-family:var(--mono);font-size:10px;color:var(--dim);display:flex;align-items:center;gap:4px"><input type="checkbox" id="sf-opt-draft" /> Importa come bozza</label>

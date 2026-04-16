@@ -682,6 +682,106 @@ function gh_fc_override_markup( array $config, float $markup ): array {
     return $config;
 }
 
+// ── Quick patch (variation-only price/stock) ─────────────
+
+/**
+ * Fast-path: patches only price and stock on existing product variations.
+ * Skips product-level processing (no taxonomy, images, SEO).
+ *
+ * For each product in the list, finds the WC product by SKU. If it's
+ * a variable product, compares each variation's price+stock and patches
+ * only changed fields. Simple products get price+stock patched directly.
+ *
+ * @param array $woo_products Transformed WooCommerce product arrays.
+ * @return array { patched: int, skipped: int, errors: int, details: array }
+ */
+function gh_fc_quick_patch( array $woo_products ): array {
+    $patched = 0;
+    $skipped = 0;
+    $errors  = 0;
+    $details = [];
+
+    foreach ( $woo_products as $p ) {
+        $sku = $p['sku'] ?? '';
+        if ( ! $sku ) { $skipped++; continue; }
+
+        $existing_id = wc_get_product_id_by_sku( $sku );
+        if ( ! $existing_id ) { $skipped++; continue; }
+
+        $existing = wc_get_product( $existing_id );
+        if ( ! $existing ) { $skipped++; continue; }
+
+        try {
+            $changed = 0;
+
+            if ( $existing->is_type( 'variable' ) && ! empty( $p['variations'] ) ) {
+                foreach ( $p['variations'] as $var_data ) {
+                    $var_sku = $var_data['sku'] ?? '';
+                    if ( ! $var_sku ) continue;
+
+                    $var_id = wc_get_product_id_by_sku( $var_sku );
+                    if ( ! $var_id ) continue;
+
+                    $v = wc_get_product( $var_id );
+                    if ( ! $v || ! $v->is_type( 'variation' ) ) continue;
+
+                    $dirty = false;
+                    if ( isset( $var_data['regular_price'] ) && $v->get_regular_price() !== (string) $var_data['regular_price'] ) {
+                        $v->set_regular_price( $var_data['regular_price'] );
+                        $dirty = true;
+                    }
+                    if ( isset( $var_data['sale_price'] ) && $v->get_sale_price() !== (string) $var_data['sale_price'] ) {
+                        $v->set_sale_price( $var_data['sale_price'] );
+                        $dirty = true;
+                    }
+                    if ( isset( $var_data['stock_quantity'] ) && (int) $v->get_stock_quantity() !== (int) $var_data['stock_quantity'] ) {
+                        $v->set_manage_stock( true );
+                        $v->set_stock_quantity( (int) $var_data['stock_quantity'] );
+                        $v->set_stock_status( (int) $var_data['stock_quantity'] > 0 ? 'instock' : 'outofstock' );
+                        $dirty = true;
+                    }
+
+                    if ( $dirty ) { $v->save(); $changed++; }
+                }
+
+                if ( $changed ) WC_Product_Variable::sync( $existing_id );
+            } elseif ( $existing->is_type( 'simple' ) ) {
+                $dirty = false;
+                if ( isset( $p['regular_price'] ) && $existing->get_regular_price() !== (string) $p['regular_price'] ) {
+                    $existing->set_regular_price( $p['regular_price'] );
+                    $dirty = true;
+                }
+                if ( isset( $p['sale_price'] ) && $existing->get_sale_price() !== (string) $p['sale_price'] ) {
+                    $existing->set_sale_price( $p['sale_price'] );
+                    $dirty = true;
+                }
+                if ( isset( $p['stock_quantity'] ) && (int) $existing->get_stock_quantity() !== (int) $p['stock_quantity'] ) {
+                    $existing->set_manage_stock( true );
+                    $existing->set_stock_quantity( (int) $p['stock_quantity'] );
+                    $existing->set_stock_status( (int) $p['stock_quantity'] > 0 ? 'instock' : 'outofstock' );
+                    $dirty = true;
+                }
+                if ( $dirty ) { $existing->save(); $changed = 1; }
+            }
+
+            if ( $changed ) {
+                $patched++;
+                $details[] = [ 'action' => 'patched', 'id' => $existing_id, 'sku' => $sku, 'name' => $existing->get_name(), 'changes' => $changed ];
+            } else {
+                $skipped++;
+            }
+        } catch ( \Throwable $e ) {
+            $errors++;
+            $details[] = [ 'action' => 'error', 'sku' => $sku, 'name' => $p['name'] ?? '?', 'reason' => $e->getMessage() ];
+        }
+    }
+
+    return [
+        'summary' => compact( 'patched', 'skipped', 'errors' ),
+        'details' => $details,
+    ];
+}
+
 // ── Taxonomy pre-creation ────────────────────────────────
 
 /**

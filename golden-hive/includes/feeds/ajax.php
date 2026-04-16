@@ -320,6 +320,57 @@ add_action( 'wp_ajax_gh_ajax_fc_apply', function () {
     ] );
 } );
 
+// ── CONFIG ENGINE: Quick patch (price/stock only) ─────────
+add_action( 'wp_ajax_gh_ajax_fc_quick_patch', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    @set_time_limit( 300 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'admin' );
+
+    $config_id = sanitize_text_field( $_POST['config_id'] ?? '' );
+    $raw       = stripslashes( $_POST['products'] ?? '[]' );
+    $products  = json_decode( $raw, true ) ?: [];
+    $markup    = (float) ( $_POST['markup'] ?? 0 );
+
+    $config = gh_fc_load_config( $config_id );
+    if ( ! $config ) { wp_send_json_error( 'Config non trovato.' ); }
+
+    if ( $markup > 0 ) {
+        $config = gh_fc_override_markup( $config, $markup );
+    }
+
+    $woo_products = gh_fc_transform_all( $products, $config );
+
+    try {
+        $result = gh_fc_quick_patch( $woo_products );
+        wp_send_json_success( $result );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Quick patch fallito: ' . $e->getMessage() );
+    }
+} );
+
+// ── GS FEED: Quick patch (price/stock only) ───────────────
+add_action( 'wp_ajax_rp_rc_ajax_gs_quick_patch', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    @set_time_limit( 300 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'admin' );
+
+    $raw      = stripslashes( $_POST['products'] ?? '[]' );
+    $products = json_decode( $raw, true ) ?: [];
+
+    $woo_products = rp_rc_gs_transform_all( $products );
+
+    try {
+        $result = gh_fc_quick_patch( $woo_products );
+        wp_send_json_success( $result );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Quick patch fallito: ' . $e->getMessage() );
+    }
+} );
+
 // ── CSV FEEDS: List all ────────────────────────────────────
 add_action( 'wp_ajax_gh_ajax_csv_list_feeds', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );

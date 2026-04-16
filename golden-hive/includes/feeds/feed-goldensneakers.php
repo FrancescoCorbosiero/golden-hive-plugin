@@ -440,6 +440,13 @@ function rp_rc_gs_create_product( array $data, bool $sideload = true ): array {
             'name'   => $data['name'],
         ];
     } catch ( \Exception $e ) {
+        if ( gh_is_duplicate_sku_error( $e ) && ! empty( $data['sku'] ) ) {
+            $existing_id = wc_get_product_id_by_sku( $data['sku'] );
+            if ( $existing_id ) {
+                $data['_existing_id'] = $existing_id;
+                return rp_rc_gs_update_product( $data );
+            }
+        }
         return [
             'action' => 'error',
             'sku'    => $data['sku'] ?? '',

@@ -349,6 +349,13 @@ function gh_sf_create_product( array $data, bool $sideload = true, array $tax_ma
             'name'   => $data['name'],
         ];
     } catch ( \Throwable $e ) {
+        if ( gh_is_duplicate_sku_error( $e ) && ! empty( $data['sku'] ) ) {
+            $existing_id = wc_get_product_id_by_sku( $data['sku'] );
+            if ( $existing_id ) {
+                $data['_existing_id'] = $existing_id;
+                return gh_sf_update_product( $data );
+            }
+        }
         return [
             'action' => 'error',
             'sku'    => $data['sku'] ?? '',

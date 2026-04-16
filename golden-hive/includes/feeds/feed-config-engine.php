@@ -385,6 +385,20 @@ function gh_fc_create_product( array $data, bool $sideload = true, array $tax_ma
             'name'   => $data['name'] ?? '',
         ];
     } catch ( \Throwable $e ) {
+        // Duplicate SKU recovery: if creation failed because SKU exists, update instead
+        if ( gh_is_duplicate_sku_error( $e ) && ! empty( $data['sku'] ) ) {
+            $existing_id = wc_get_product_id_by_sku( $data['sku'] );
+            if ( $existing_id ) {
+                $data['_existing_id'] = $existing_id;
+                $update_result = gh_csv_update_product( $data );
+                if ( $update_result['action'] === 'updated' ) {
+                    gh_fc_post_process( $existing_id, $data, $sideload, $tax_map );
+                    $update_result['action'] = 'updated';
+                    $update_result['_recovered'] = true;
+                }
+                return $update_result;
+            }
+        }
         return [
             'action' => 'error',
             'sku'    => $data['sku'] ?? '',
@@ -392,6 +406,17 @@ function gh_fc_create_product( array $data, bool $sideload = true, array $tax_ma
             'reason' => $e->getMessage(),
         ];
     }
+}
+
+/**
+ * Checks if an exception is a duplicate SKU error.
+ *
+ * @param \Throwable $e
+ * @return bool
+ */
+function gh_is_duplicate_sku_error( \Throwable $e ): bool {
+    $msg = strtolower( $e->getMessage() );
+    return str_contains( $msg, 'sku' ) && ( str_contains( $msg, 'duplicat' ) || str_contains( $msg, 'unique' ) || str_contains( $msg, 'already' ) );
 }
 
 /**

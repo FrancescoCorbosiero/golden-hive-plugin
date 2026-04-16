@@ -738,3 +738,45 @@ function gh_csv_sanitize_headers( array $headers ): array {
     }
     return $clean;
 }
+
+// ═══ MEDIA PRE-IMPORT ═══════════════════════════════════════════════════════
+
+// ── Download batch of image URLs ─────────────────────────────
+add_action( 'wp_ajax_gh_ajax_preimport_download', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    @set_time_limit( 300 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'admin' );
+
+    $raw  = stripslashes( $_POST['urls'] ?? '[]' );
+    $urls = json_decode( $raw, true );
+
+    if ( ! is_array( $urls ) || empty( $urls ) ) {
+        wp_send_json_error( 'Nessun URL fornito.' );
+    }
+
+    try {
+        $result = gh_preimport_download_batch( $urls );
+        wp_send_json_success( $result );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Download fallito: ' . $e->getMessage() );
+    }
+} );
+
+// ── Get current map stats ────────────────────────────────────
+add_action( 'wp_ajax_gh_ajax_preimport_stats', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    wp_send_json_success( gh_preimport_map_stats() );
+} );
+
+// ── Clear map (reset) ────────────────────────────────────────
+add_action( 'wp_ajax_gh_ajax_preimport_clear', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    gh_preimport_clear_map();
+    wp_send_json_success( 'Mappa resettata.' );
+} );

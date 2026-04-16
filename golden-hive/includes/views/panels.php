@@ -194,8 +194,11 @@
     <div class="preview-wrap" id="sf-preview"><div class="empty-state"><div class="empty-icon">&#9783;</div><div class="empty-text">Configura l'endpoint StockFirmati (URL o file CSV)</div></div></div>
     <div class="confirm-bar" id="sf-confirm" style="display:none">
         <div class="summary-text" id="sf-confirm-text"></div>
+        <button class="btn btn-primary" id="btn-sf-preimport" onclick="GH.sfPreimportMedia()"><span class="spin" id="sf-preimport-spin" style="display:none"></span> 1. Scarica Immagini</button>
+        <span id="sf-preimport-status" style="font-family:var(--mono);font-size:10px;color:var(--dim)"></span>
+        <div class="filter-sep"></div>
         <button class="btn btn-ghost" onclick="GH.sfCancel()">Annulla</button>
-        <button class="btn btn-warn" id="btn-sf-apply" onclick="GH.sfApply()"><span class="spin" id="sf-apply-spin" style="display:none"></span> Importa</button>
+        <button class="btn btn-warn" id="btn-sf-apply" onclick="GH.sfApply()"><span class="spin" id="sf-apply-spin" style="display:none"></span> 2. Importa Prodotti</button>
     </div>
     <div class="gen-overlay" id="sf-overlay"><div class="gen-spinner"></div><div class="gen-text" id="sf-overlay-text">Fetch...</div></div>
 </div>

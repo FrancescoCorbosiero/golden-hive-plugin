@@ -440,10 +440,17 @@ function gh_fc_post_process( int $product_id, array $data, bool $sideload = true
         }
     }
 
-    // Images
-    if ( $sideload && ! empty( $data['_fc_images'] ) ) {
+    // Images: prefer pre-imported media map, fallback to sideload if explicitly requested
+    if ( ! empty( $data['_fc_images'] ) ) {
         $cfg = $data['_fc_images_cfg'] ?? [];
-        gh_fc_sideload_images( $product_id, $data['_fc_images'], $data['sku'] ?? '', $cfg );
+        $resolved = gh_preimport_resolve_urls( $data['_fc_images'] );
+        if ( ! empty( $resolved ) ) {
+            // Pre-imported: assign directly, no download
+            gh_preimport_assign_images( $product_id, $data['_fc_images'], $cfg );
+        } elseif ( $sideload ) {
+            // Fallback: sideload on-the-fly (legacy behavior)
+            gh_fc_sideload_images( $product_id, $data['_fc_images'], $data['sku'] ?? '', $cfg );
+        }
     }
 }
 

@@ -220,6 +220,64 @@
         bar.style.display = 'flex';
     }
 
+    // SF Pre-Import Media: scarica tutte le immagini dei prodotti selezionati
+    // nella WP media library PRIMA dell'import. Costruisce una mappa
+    // source_url → attachment_id che il product create usa per assegnare
+    // featured/gallery senza download.
+    async function sfPreimportMedia() {
+        if (!sfProducts || !sfSelected.size) { toast('Nessun prodotto selezionato', 'err'); return; }
+        const sel = sfProducts.filter(p => sfSelected.has(p.sku));
+
+        // Raccogli tutti gli URL immagine unici con il SKU per il filename
+        const urlMap = new Map(); // url → sku
+        sel.forEach(p => {
+            const imgs = p.images || p._sf_images || [];
+            const sku = p.sku || '';
+            imgs.forEach(url => { if (url && !urlMap.has(url)) urlMap.set(url, sku); });
+        });
+
+        const allUrls = Array.from(urlMap.entries()).map(([url, sku]) => ({ url, sku }));
+        if (!allUrls.length) { toast('Nessuna immagine da scaricare', 'inf'); return; }
+
+        const total = allUrls.length;
+        const batchSize = 10;
+        const ov = document.getElementById('sf-overlay'), ot = document.getElementById('sf-overlay-text');
+        const btn = document.getElementById('btn-sf-preimport'), sp = document.getElementById('sf-preimport-spin');
+        const statusEl = document.getElementById('sf-preimport-status');
+        ov.classList.add('visible'); btn.disabled = true; if (sp) sp.style.display = '';
+
+        let downloaded = 0, skipped = 0, errors = 0;
+
+        try {
+            for (let offset = 0; offset < total; offset += batchSize) {
+                const batch = allUrls.slice(offset, offset + batchSize);
+                const done = Math.min(offset + batchSize, total);
+                ot.textContent = 'Scaricamento immagini ' + done + '/' + total + '...';
+
+                const r = await ajax('gh_ajax_preimport_download', {
+                    urls: JSON.stringify(batch),
+                });
+
+                if (!r.success) {
+                    toast('Errore batch immagini: ' + (r.data || ''), 'err');
+                    break;
+                }
+
+                downloaded += r.data.downloaded || 0;
+                skipped    += r.data.skipped || 0;
+                errors     += r.data.errors || 0;
+            }
+
+            const msg = downloaded + ' scaricate, ' + skipped + ' gia presenti' + (errors ? ', ' + errors + ' errori' : '');
+            toast(msg, errors ? 'err' : 'ok', 5000);
+            if (statusEl) statusEl.textContent = msg;
+        } catch (e) {
+            toast('Errore pre-import: ' + (e.message || e), 'err');
+        } finally {
+            ov.classList.remove('visible'); btn.disabled = false; if (sp) sp.style.display = 'none';
+        }
+    }
+
     // SF Apply: chunked per evitare timeout su import grandi (2000+ prodotti).
     // Invia batch da 25 prodotti per request. Il PHP processa ogni batch e
     // ritorna i risultati parziali. Il JS accumula e mostra il progresso.
@@ -899,5 +957,5 @@
     initSfFeed();
     initCsvUpload();
 
-    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,removeWL,addWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfApply,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog};
+    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,removeWL,addWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfPreimportMedia,sfApply,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog};
 })();

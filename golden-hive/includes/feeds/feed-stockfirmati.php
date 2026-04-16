@@ -312,9 +312,14 @@ function gh_sf_create_product( array $data, bool $sideload = true ): array {
         if ( ! empty( $data['_sf_cost_price'] ) )  update_post_meta( $product_id, '_sf_cost_price', $data['_sf_cost_price'] );
         if ( ! empty( $data['_sf_source_url'] ) )  update_post_meta( $product_id, '_sf_source_url', $data['_sf_source_url'] );
 
-        // Sideload immagini
-        if ( $sideload && ! empty( $data['_sf_images'] ) ) {
-            gh_sf_sideload_images( $product_id, $data['_sf_images'], $data['sku'] ?? '' );
+        // Images: prefer pre-imported media map, fallback to sideload
+        if ( ! empty( $data['_sf_images'] ) ) {
+            $resolved = gh_preimport_resolve_urls( $data['_sf_images'] );
+            if ( ! empty( $resolved ) ) {
+                gh_preimport_assign_images( $product_id, $data['_sf_images'] );
+            } elseif ( $sideload ) {
+                gh_sf_sideload_images( $product_id, $data['_sf_images'], $data['sku'] ?? '' );
+            }
         }
 
         return [

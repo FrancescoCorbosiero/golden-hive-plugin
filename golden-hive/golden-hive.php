@@ -42,7 +42,8 @@ require_once GH_DIR . 'includes/media/cleaner.php';
 require_once GH_DIR . 'includes/media/browser.php';
 require_once GH_DIR . 'includes/media/ajax.php';
 
-// Feeds — HTTP client, GS feed, SF feed, config engine, CSV feed
+// Feeds — HTTP client, GS feed, SF feed, config engine, CSV feed, media pre-import
+require_once GH_DIR . 'includes/feeds/media-preimport.php';
 require_once GH_DIR . 'includes/feeds/http-client.php';
 require_once GH_DIR . 'includes/feeds/response-parser.php';
 require_once GH_DIR . 'includes/feeds/saved-endpoints.php';

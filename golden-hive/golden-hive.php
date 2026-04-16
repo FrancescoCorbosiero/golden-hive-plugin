@@ -30,6 +30,7 @@ require_once GH_DIR . 'includes/catalog/tree-builder.php';
 require_once GH_DIR . 'includes/catalog/exporter.php';
 require_once GH_DIR . 'includes/catalog/importer.php';
 require_once GH_DIR . 'includes/catalog/taxonomy-manager.php';
+require_once GH_DIR . 'includes/catalog/smart-taxonomy.php';
 require_once GH_DIR . 'includes/catalog/bulk-creator.php';
 require_once GH_DIR . 'includes/catalog/ajax.php';
 

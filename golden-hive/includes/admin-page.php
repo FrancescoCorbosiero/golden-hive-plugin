@@ -78,6 +78,7 @@ function gh_render_page(): void {
 <?php include GH_DIR . 'includes/views/js2.php'; ?>
 <?php include GH_DIR . 'includes/views/js-operations.php'; ?>
 <?php include GH_DIR . 'includes/views/js-inline.php'; ?>
+<?php include GH_DIR . 'includes/views/js-smart.php'; ?>
 <?php include GH_DIR . 'includes/views/js-media.php'; ?>
 <?php include GH_DIR . 'includes/views/js-mapper.php'; ?>
 <?php include GH_DIR . 'includes/views/js-jobs.php'; ?>

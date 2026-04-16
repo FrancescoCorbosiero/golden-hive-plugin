@@ -161,6 +161,17 @@
 #gh .map-sku{font-family:var(--mono);font-size:10px;color:var(--dim)}
 #gh .map-none{font-family:var(--mono);font-size:10px;color:var(--dim);font-style:italic}
 
+/* Smart Rules (taxonomy) */
+#gh .smart-rule-section{padding:12px;border-top:1px solid var(--b1);margin-top:8px}
+#gh .smart-rule-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+#gh .smart-rule-label{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--amb);text-transform:uppercase;letter-spacing:.05em}
+#gh .smart-rule-status{font-family:var(--mono);font-size:10px}
+#gh .sr-info{font-size:12px}
+#gh .sr-conditions-summary{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px}
+#gh .sr-cond-badge{display:inline-block;padding:2px 8px;background:var(--s3);border:1px solid var(--b1);border-radius:3px;font-family:var(--mono);font-size:10px;color:var(--txt)}
+#gh .sr-editor{padding:4px 0}
+#gh .sr-cond-row .filter-select{font-size:11px}
+
 /* Inline Editor */
 #gh #panel-inline-editor{display:flex;flex-direction:column;overflow:hidden}
 #gh .ie-search-drop{position:absolute;left:0;right:0;top:100%;z-index:30;background:var(--s2);border:1px solid var(--b2);border-radius:4px;max-height:280px;overflow-y:auto;display:none}

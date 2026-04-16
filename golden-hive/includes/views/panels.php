@@ -10,12 +10,23 @@
         <button class="btn btn-primary" id="btn-tax-load" onclick="GH.loadTaxonomy()"><span class="spin" id="tax-spin" style="display:none"></span> Ricarica albero</button>
         <div class="filter-sep"></div>
         <button class="btn btn-ghost" onclick="GH.taxCreateRoot()">+ Root</button>
+        <button class="btn btn-ghost" onclick="GH.smartSyncAll()" title="Esegui tutte le smart rules abilitate">&#9889; Sync All</button>
     </div>
     <div style="flex:1;display:flex;overflow:hidden">
         <div class="tax-wrap" id="tax-tree-area"><div class="empty-state"><div class="empty-icon">&#9698;</div><div class="empty-text">Carica l'albero tassonomia</div></div></div>
         <div class="tax-detail" id="tax-detail" style="display:none">
             <div class="tax-detail-head"><span class="tax-detail-title" id="tax-detail-title"></span><span class="tax-detail-id" id="tax-detail-id"></span></div>
             <div class="tax-products" id="tax-products-list"></div>
+            <!-- Smart Rule section: appears below product list for the selected term -->
+            <div class="smart-rule-section" id="smart-rule-section">
+                <div class="smart-rule-head">
+                    <span class="smart-rule-label">&#9889; Smart Rule</span>
+                    <span class="smart-rule-status" id="sr-status"></span>
+                </div>
+                <div id="sr-content">
+                    <!-- Populated by js-smart.php -->
+                </div>
+            </div>
         </div>
     </div>
 </div>

@@ -247,3 +247,109 @@ add_action( 'wp_ajax_rp_cm_ajax_taxonomy_assign', function () {
 
     wp_send_json_success( [ 'product_id' => $product_id ] );
 } );
+
+// ═══ SMART TAXONOMY ═════════════════════════════════════════════════════════
+
+// ── GET RULE FOR TERM ───────────────────────────────────────────
+add_action( 'wp_ajax_gh_ajax_smart_rule_for_term', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $term_id  = intval( $_POST['term_id'] ?? 0 );
+    $taxonomy = sanitize_key( $_POST['taxonomy'] ?? 'product_cat' );
+
+    if ( ! $term_id ) { wp_send_json_error( 'term_id mancante.' ); }
+
+    $rule = gh_smart_get_rule_for_term( $term_id, $taxonomy );
+    wp_send_json_success( $rule ); // null se non esiste
+} );
+
+// ── SAVE RULE ───────────────────────────────────────────────────
+add_action( 'wp_ajax_gh_ajax_smart_rule_save', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $raw = stripslashes( $_POST['rule'] ?? '{}' );
+    $rule = json_decode( $raw, true );
+
+    if ( json_last_error() !== JSON_ERROR_NONE ) {
+        wp_send_json_error( 'JSON non valido: ' . json_last_error_msg() );
+    }
+
+    if ( empty( $rule['term_id'] ) || empty( $rule['conditions'] ) ) {
+        wp_send_json_error( 'term_id e conditions sono obbligatori.' );
+    }
+
+    $rule_id = gh_smart_save_rule( $rule );
+    wp_send_json_success( [ 'rule_id' => $rule_id ] );
+} );
+
+// ── DELETE RULE ─────────────────────────────────────────────────
+add_action( 'wp_ajax_gh_ajax_smart_rule_delete', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $rule_id = sanitize_text_field( $_POST['rule_id'] ?? '' );
+    if ( ! $rule_id ) { wp_send_json_error( 'rule_id mancante.' ); }
+
+    $ok = gh_smart_delete_rule( $rule_id );
+    wp_send_json_success( [ 'deleted' => $ok ] );
+} );
+
+// ── SYNC (run) RULE ─────────────────────────────────────────────
+add_action( 'wp_ajax_gh_ajax_smart_rule_sync', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    @set_time_limit( 180 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'admin' );
+
+    $rule_id = sanitize_text_field( $_POST['rule_id'] ?? '' );
+    if ( ! $rule_id ) { wp_send_json_error( 'rule_id mancante.' ); }
+
+    try {
+        $result = gh_smart_sync_rule( $rule_id );
+        if ( isset( $result['error'] ) ) { wp_send_json_error( $result['error'] ); }
+        wp_send_json_success( $result );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Sync fallita: ' . $e->getMessage() );
+    }
+} );
+
+// ── PREVIEW (dry-run count) ─────────────────────────────────────
+add_action( 'wp_ajax_gh_ajax_smart_rule_preview', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    @set_time_limit( 120 );
+
+    $raw = stripslashes( $_POST['conditions'] ?? '[]' );
+    $conditions = json_decode( $raw, true );
+
+    if ( json_last_error() !== JSON_ERROR_NONE ) {
+        wp_send_json_error( 'JSON non valido.' );
+    }
+
+    try {
+        $count = gh_smart_preview_count( $conditions );
+        wp_send_json_success( [ 'count' => $count ] );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Preview fallita: ' . $e->getMessage() );
+    }
+} );
+
+// ── SYNC ALL ────────────────────────────────────────────────────
+add_action( 'wp_ajax_gh_ajax_smart_sync_all', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    @set_time_limit( 300 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'admin' );
+
+    try {
+        $results = gh_smart_sync_all();
+        wp_send_json_success( $results );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Sync All fallita: ' . $e->getMessage() );
+    }
+} );

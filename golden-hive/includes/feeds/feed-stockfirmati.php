@@ -132,16 +132,11 @@ function gh_sf_transform_to_woo( array $product ): array {
     $cost_price   = $product['cost_price'];
 
     // Calcolo prezzi:
-    // regular_price = STREET_PRICE (prezzo barrato originale)
     // sale_price = PRICE × moltiplicatore (prezzo di vendita)
+    // regular_price = max(STREET_PRICE, sale_price × 1.3) — sempre sconto visibile
     $sale_price = round( $cost_price * GH_SF_PRICE_MULTIPLIER );
-    $reg_price  = round( $street_price );
-
-    // Se sale_price >= regular_price, usa solo regular_price (no sconto finto)
-    if ( $sale_price >= $reg_price ) {
-        $reg_price  = $sale_price;
-        $sale_price = 0;
-    }
+    $min_reg    = round( $sale_price * 1.3 );
+    $reg_price  = max( round( $street_price ), $min_reg );
 
     // Nome: usa titolo ITA se disponibile, altrimenti componi da brand + model
     $name = $product['name'] ?: ( $product['brand'] . ' ' . $product['model_name'] );
@@ -188,12 +183,8 @@ function gh_sf_transform_to_woo( array $product ): array {
         foreach ( $sizes as $size ) {
             $var_cost       = $size['price'] ?: $cost_price;
             $var_sale_price = round( $var_cost * GH_SF_PRICE_MULTIPLIER );
-            $var_reg_price  = round( $street_price );
-
-            if ( $var_sale_price >= $var_reg_price ) {
-                $var_reg_price  = $var_sale_price;
-                $var_sale_price = 0;
-            }
+            $var_min_reg    = round( $var_sale_price * 1.3 );
+            $var_reg_price  = max( round( $street_price ), $var_min_reg );
 
             $var_sku = $product['sku'] . '-' . sanitize_title( $size['size'] );
             $qty     = $size['quantity'];

@@ -100,3 +100,61 @@
         <div class="empty-state"><div class="empty-icon">&#8693;</div><div class="empty-text">Seleziona una regola e premi "Anteprima"</div></div>
     </div>
 </div>
+
+<!-- ═══ INLINE EDITOR ═══ -->
+<!--
+    Editor focalizzato per un singolo prodotto. Complementa Filtra & Agisci:
+    quello e per bulk, questo per "lavora di precisione su un prodotto alla volta".
+
+    Tre modi di editing, switchabili tramite sub-tabs:
+    - Form        → campi validati per name/sku/prezzi/stock/SEO/stato
+    - JSON        → payload editabile, dev-first, apply as-is via rp_update_product
+    - Variations  → tabella inline editabile (per prodotti variable)
+
+    Apertura:
+    - Manuale: digita ID/SKU/nome nella search bar
+    - Da Filtra & Agisci: bottone "Edit" per riga → GH.openInlineEditor(id)
+-->
+<div class="panel" id="panel-inline-editor" style="position:relative">
+    <!-- Search / load bar -->
+    <div class="toolbar" style="flex-wrap:wrap;gap:8px;">
+        <div class="search-wrap" style="flex:1;min-width:260px;position:relative">
+            <input class="filter-select" id="ie-search" placeholder="Cerca prodotto: ID, SKU, o titolo..." autocomplete="off" style="width:100%"
+                   oninput="GH.ieSearch()" onkeydown="GH.ieSearchKey(event)" />
+            <div id="ie-search-drop" class="ie-search-drop"></div>
+        </div>
+        <button class="btn btn-ghost" onclick="GH.ieUnload()">&times; Chiudi</button>
+    </div>
+
+    <!-- Product header (hidden until load) -->
+    <div id="ie-header" style="display:none;padding:10px 16px;background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0">
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <span class="mono" id="ie-h-id" style="color:var(--dim);font-size:10px"></span>
+            <span id="ie-h-name" style="font-family:var(--sans);font-size:13px;font-weight:500;color:var(--txt)"></span>
+            <span class="mono" id="ie-h-sku" style="color:var(--acc);font-size:11px"></span>
+            <span id="ie-h-type" style="font-family:var(--mono);font-size:10px"></span>
+            <span id="ie-h-status" style="font-family:var(--mono);font-size:10px"></span>
+            <a id="ie-h-link" href="#" target="_blank" rel="noopener" style="color:var(--acc);text-decoration:none;font-size:13px" title="Apri prodotto">&#128065;</a>
+            <span class="filter-sep"></span>
+            <span id="ie-dirty-badge" class="ie-dirty-badge" style="display:none">&#9679; Non salvato</span>
+            <button class="btn btn-primary" id="btn-ie-save" onclick="GH.ieSave()" disabled><span class="spin" id="ie-save-spin" style="display:none"></span> Salva</button>
+            <button class="btn btn-ghost" onclick="GH.ieReload()">Ricarica</button>
+        </div>
+    </div>
+
+    <!-- Sub-tabs: Form / JSON / Variations -->
+    <div id="ie-tabs" style="display:none;background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0">
+        <div style="display:flex;gap:0">
+            <button class="ie-subtab active" data-ie-tab="form" onclick="GH.ieSwitch('form')">Proprieta</button>
+            <button class="ie-subtab" data-ie-tab="json" onclick="GH.ieSwitch('json')">JSON</button>
+            <button class="ie-subtab" data-ie-tab="variations" id="ie-subtab-variations" onclick="GH.ieSwitch('variations')" style="display:none">Variazioni</button>
+        </div>
+    </div>
+
+    <!-- Content area (scrollable) -->
+    <div id="ie-content" style="flex:1;overflow-y:auto;padding:16px">
+        <div class="empty-state"><div class="empty-icon">&#9783;</div><div class="empty-text">Cerca un prodotto per iniziare. Da Filtra & Agisci puoi usare "Edit" per aprirlo direttamente qui.</div></div>
+    </div>
+
+    <div class="gen-overlay" id="ie-overlay"><div class="gen-spinner"></div><div class="gen-text" id="ie-overlay-text">Caricamento...</div></div>
+</div>

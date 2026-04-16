@@ -1,57 +1,160 @@
 <?php
 /**
- * AJAX handlers — bridge tra UI e layer PHP.
+ * AJAX handlers — Media module (Media Library + Whitelist + Cleanup).
  * Tutti richiedono: utente autenticato + manage_woocommerce + nonce valido.
+ *
+ * Endpoint attivi:
+ *   gh_ajax_media_query                 — query paginaged con filtri
+ *   gh_ajax_media_query_ids             — solo ID (select all in filter)
+ *   gh_ajax_media_safe_cleanup_preview  — preview: N da eliminare, whitelist esclusi
+ *   gh_ajax_media_bulk_whitelist        — whitelist bulk add (IDs + reason)
+ *   gh_ajax_media_gallery_removal_preview — preview: quali prodotti verranno toccati
+ *   gh_ajax_media_remove_from_galleries  — esegue l'unlink dalle gallerie
+ *   rp_mm_ajax_bulk_delete              — delete chunked (safety: whitelist + is_used)
+ *   rp_mm_ajax_usage                    — dettagli usage di un singolo media
+ *   rp_mm_ajax_set_featured / set_gallery — ops singole usate inline
+ *   rp_mm_ajax_{get,add,remove}_whitelist — whitelist CRUD
+ *   rp_mm_ajax_get_log                  — deletion log
+ *
+ * Rimossi: rp_mm_ajax_scan (Safe Cleanup tab), rp_mm_ajax_browse (Browse tab),
+ * rp_mm_ajax_mapping (Mapping tab), rp_mm_ajax_delete_one (non usato lato UI).
+ * Le loro responsabilita sono assorbite dalla nuova Media Library.
  */
 
 defined( 'ABSPATH' ) || exit;
 
-// ── SCAN: Safe cleanup (mapping + diff) ─────────────────────
-// Flusso a due fasi visibile all'utente:
-// 1. Mapping: costruiamo rp_mm_build_usage_map() e ritorniamo il breakdown
-//    per sorgente (featured, variations, gallery, posts, inline).
-// 2. Diff: rp_mm_get_orphan_attachments() su tutta la media library con lo
-//    stesso usage_map. Gli orfani che arrivano al client sono il complemento
-//    esatto dell'insieme "mapped/used", quindi "100% sicuri".
-add_action( 'wp_ajax_rp_mm_ajax_scan', function () {
+// ═══ MEDIA LIBRARY ══════════════════════════════════════════════════════════
+
+add_action( 'wp_ajax_gh_ajax_media_query', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
-    $usage_map   = rp_mm_build_usage_map();
-    $all_media   = rp_mm_get_all_attachments( 'image' );
-    $orphans     = rp_mm_get_orphan_attachments( $usage_map );
-    $size_info   = rp_mm_estimate_orphan_size( $orphans );
+    @set_time_limit( 180 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'admin' );
 
-    $breakdown = [
-        'featured_products'   => count( $usage_map['featured_products'] ),
-        'featured_variations' => count( $usage_map['featured_variations'] ),
-        'gallery_products'    => count( $usage_map['gallery_products'] ),
-        'featured_posts'      => count( $usage_map['featured_posts'] ),
-        'inline_content'      => count( $usage_map['inline_content'] ),
+    $filters = [
+        'filename'  => sanitize_text_field( $_POST['filename'] ?? '' ),
+        'usage'     => sanitize_key( $_POST['usage'] ?? 'all' ),
+        'whitelist' => sanitize_key( $_POST['whitelist'] ?? 'all' ),
+    ];
+    $pagination = [
+        'page'     => intval( $_POST['page'] ?? 1 ),
+        'per_page' => intval( $_POST['per_page'] ?? 100 ),
+        'orderby'  => sanitize_key( $_POST['orderby'] ?? 'date' ),
+        'order'    => strtoupper( sanitize_key( $_POST['order'] ?? 'DESC' ) ),
     ];
 
-    wp_send_json_success( [
-        'breakdown'      => $breakdown,
-        'total_media'    => count( $all_media ),
-        'used_count'     => count( $usage_map['all_used'] ),
-        'orphan_count'   => count( $orphans ),
-        'orphans'        => $orphans,
-        'estimated_size' => $size_info,
-    ] );
+    try {
+        wp_send_json_success( gh_media_query( $filters, $pagination ) );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Query fallita: ' . $e->getMessage() );
+    }
 } );
 
-// ── MAPPING: Product-media map ──────────────────────────────
-add_action( 'wp_ajax_rp_mm_ajax_mapping', function () {
+add_action( 'wp_ajax_gh_ajax_media_query_ids', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
-    $filters = [];
-    if ( ! empty( $_POST['status'] ) ) $filters['status'] = sanitize_text_field( $_POST['status'] );
+    @set_time_limit( 180 );
 
-    wp_send_json_success( rp_mm_get_product_media_map( $filters ) );
+    $filters = [
+        'filename'  => sanitize_text_field( $_POST['filename'] ?? '' ),
+        'usage'     => sanitize_key( $_POST['usage'] ?? 'all' ),
+        'whitelist' => sanitize_key( $_POST['whitelist'] ?? 'all' ),
+    ];
+
+    try {
+        $ids = gh_media_query_all_ids( $filters );
+        wp_send_json_success( [ 'ids' => $ids, 'count' => count( $ids ) ] );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Query IDs fallita: ' . $e->getMessage() );
+    }
 } );
 
-// ── MAPPING: Get attachment usage ───────────────────────────
+add_action( 'wp_ajax_gh_ajax_media_safe_cleanup_preview', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    @set_time_limit( 180 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'admin' );
+
+    try {
+        wp_send_json_success( gh_media_safe_cleanup_preview() );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Preview fallita: ' . $e->getMessage() );
+    }
+} );
+
+add_action( 'wp_ajax_gh_ajax_media_bulk_whitelist', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $raw    = stripslashes( $_POST['ids'] ?? '[]' );
+    $ids    = json_decode( $raw, true );
+    $reason = sanitize_text_field( $_POST['reason'] ?? '' );
+
+    if ( ! is_array( $ids ) || empty( $ids ) ) {
+        wp_send_json_error( 'Nessun ID fornito.' );
+    }
+    if ( $reason === '' ) {
+        wp_send_json_error( 'Il motivo e obbligatorio.' );
+    }
+
+    $added = 0;
+    foreach ( $ids as $id ) {
+        $id = (int) $id;
+        if ( $id > 0 ) {
+            rp_mm_add_to_whitelist( $id, null, $reason );
+            $added++;
+        }
+    }
+
+    gh_media_invalidate_usage_index();
+
+    wp_send_json_success( [ 'added' => $added ] );
+} );
+
+add_action( 'wp_ajax_gh_ajax_media_gallery_removal_preview', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $raw = stripslashes( $_POST['ids'] ?? '[]' );
+    $ids = json_decode( $raw, true );
+
+    if ( ! is_array( $ids ) || empty( $ids ) ) {
+        wp_send_json_error( 'Nessun ID fornito.' );
+    }
+
+    try {
+        wp_send_json_success( gh_media_gallery_removal_preview( $ids ) );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Preview fallita: ' . $e->getMessage() );
+    }
+} );
+
+add_action( 'wp_ajax_gh_ajax_media_remove_from_galleries', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    @set_time_limit( 240 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'admin' );
+
+    $raw = stripslashes( $_POST['ids'] ?? '[]' );
+    $ids = json_decode( $raw, true );
+
+    if ( ! is_array( $ids ) || empty( $ids ) ) {
+        wp_send_json_error( 'Nessun ID fornito.' );
+    }
+
+    try {
+        wp_send_json_success( gh_media_remove_from_galleries( $ids ) );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Operazione fallita: ' . $e->getMessage() );
+    }
+} );
+
+// ═══ SINGLE MEDIA OPS (legacy, ancora usate da inline ops) ══════════════════
+
 add_action( 'wp_ajax_rp_mm_ajax_usage', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
@@ -62,7 +165,6 @@ add_action( 'wp_ajax_rp_mm_ajax_usage', function () {
     wp_send_json_success( rp_mm_get_attachment_usage( $id ) );
 } );
 
-// ── MAPPING: Set featured image ─────────────────────────────
 add_action( 'wp_ajax_rp_mm_ajax_set_featured', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
@@ -75,10 +177,10 @@ add_action( 'wp_ajax_rp_mm_ajax_set_featured', function () {
     $result = rp_mm_set_product_featured_image( $product_id, $attachment_id );
     if ( is_wp_error( $result ) ) { wp_send_json_error( $result->get_error_message() ); }
 
+    gh_media_invalidate_usage_index();
     wp_send_json_success( [ 'product_id' => $product_id ] );
 } );
 
-// ── MAPPING: Set gallery ────────────────────────────────────
 add_action( 'wp_ajax_rp_mm_ajax_set_gallery', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
@@ -93,10 +195,12 @@ add_action( 'wp_ajax_rp_mm_ajax_set_gallery', function () {
     $result = rp_mm_set_product_gallery( $product_id, $ids );
     if ( is_wp_error( $result ) ) { wp_send_json_error( $result->get_error_message() ); }
 
+    gh_media_invalidate_usage_index();
     wp_send_json_success( [ 'product_id' => $product_id ] );
 } );
 
-// ── WHITELIST: Get ──────────────────────────────────────────
+// ═══ WHITELIST ══════════════════════════════════════════════════════════════
+
 add_action( 'wp_ajax_rp_mm_ajax_get_whitelist', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
@@ -104,7 +208,6 @@ add_action( 'wp_ajax_rp_mm_ajax_get_whitelist', function () {
     wp_send_json_success( rp_mm_get_whitelist() );
 } );
 
-// ── WHITELIST: Add ──────────────────────────────────────────
 add_action( 'wp_ajax_rp_mm_ajax_add_whitelist', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
@@ -116,10 +219,10 @@ add_action( 'wp_ajax_rp_mm_ajax_add_whitelist', function () {
     if ( ! $id && ! $url ) { wp_send_json_error( 'Serve almeno attachment_id o url.' ); }
 
     rp_mm_add_to_whitelist( $id, $url, $reason );
+    gh_media_invalidate_usage_index();
     wp_send_json_success( rp_mm_get_whitelist() );
 } );
 
-// ── WHITELIST: Remove ───────────────────────────────────────
 add_action( 'wp_ajax_rp_mm_ajax_remove_whitelist', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
@@ -128,37 +231,50 @@ add_action( 'wp_ajax_rp_mm_ajax_remove_whitelist', function () {
     if ( ! $id ) { wp_send_json_error( 'attachment_id mancante.' ); }
 
     rp_mm_remove_from_whitelist( $id );
+    gh_media_invalidate_usage_index();
     wp_send_json_success( rp_mm_get_whitelist() );
 } );
 
-// ── DELETE: Single ──────────────────────────────────────────
-add_action( 'wp_ajax_rp_mm_ajax_delete_one', function () {
-    check_ajax_referer( 'gh_nonce', 'nonce' );
-    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+// ═══ DELETE (CHUNKED) ══════════════════════════════════════════════════════
 
-    $id = intval( $_POST['attachment_id'] ?? 0 );
-    if ( ! $id ) { wp_send_json_error( 'attachment_id mancante.' ); }
-
-    $result = rp_mm_delete_attachment( $id );
-    if ( is_wp_error( $result ) ) { wp_send_json_error( $result->get_error_message() ); }
-
-    wp_send_json_success( [ 'deleted' => $id ] );
-} );
-
-// ── DELETE: Bulk ────────────────────────────────────────────
+// Supporta delete in chunk: se il client passa `chunk_size`, la action
+// elimina solo i primi N ID e ritorna 'remaining' cosi l'UI puo loopare
+// senza far andare in timeout una singola request.
 add_action( 'wp_ajax_rp_mm_ajax_bulk_delete', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    @set_time_limit( 300 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) {
+        wp_raise_memory_limit( 'admin' );
+    }
 
     $raw = stripslashes( $_POST['ids'] ?? '[]' );
     $ids = json_decode( $raw, true );
 
     if ( ! is_array( $ids ) || empty( $ids ) ) { wp_send_json_error( 'Nessun ID fornito.' ); }
 
-    wp_send_json_success( rp_mm_bulk_delete( $ids ) );
+    $chunk_size = intval( $_POST['chunk_size'] ?? 0 );
+    $remaining  = [];
+
+    if ( $chunk_size > 0 && count( $ids ) > $chunk_size ) {
+        $remaining = array_slice( $ids, $chunk_size );
+        $ids       = array_slice( $ids, 0, $chunk_size );
+    }
+
+    try {
+        $result = rp_mm_bulk_delete( $ids );
+        $result['remaining_ids']   = $remaining;
+        $result['remaining_count'] = count( $remaining );
+        gh_media_invalidate_usage_index();
+        wp_send_json_success( $result );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Bulk delete fallito: ' . $e->getMessage() );
+    }
 } );
 
-// ── LOG: Deletion log ───────────────────────────────────────
+// ═══ LOG ═══════════════════════════════════════════════════════════════════
+
 add_action( 'wp_ajax_rp_mm_ajax_get_log', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );

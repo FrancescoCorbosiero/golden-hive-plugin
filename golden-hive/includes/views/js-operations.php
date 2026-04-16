@@ -172,7 +172,7 @@
         html += '<th class="tbl-th" style="width:28px;"><input type="checkbox" id="chk-select-all" onchange="GH.toggleSelectAll(this.checked)"></th>';
         html += '<th class="tbl-th">ID</th><th class="tbl-th">Nome</th><th class="tbl-th">SKU</th>';
         html += '<th class="tbl-th">Tipo</th><th class="tbl-th">Stato</th><th class="tbl-th">Prezzo</th><th class="tbl-th">Saldo</th>';
-        html += '<th class="tbl-th">Stock</th><th class="tbl-th">Cat.</th><th class="tbl-th">Ord.</th><th class="tbl-th" style="width:28px;"></th>';
+        html += '<th class="tbl-th">Stock</th><th class="tbl-th">Cat.</th><th class="tbl-th">Ord.</th><th class="tbl-th" style="width:80px;"></th>';
         html += '</tr>';
         data.products.forEach(function(p) {
             const sel = selectedIds.has(p.id);
@@ -188,7 +188,10 @@
             html += '<td class="tbl-td ecell" data-field="stock_status" data-id="' + p.id + '" data-type="select" data-options="instock,outofstock" style="cursor:pointer;"><span class="badge badge-' + p.stock_status + '">' + p.stock_status + '</span></td>';
             html += '<td class="tbl-td dim" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;font-size:10px;">' + esc((p.categories||[]).join(', ')) + '</td>';
             html += '<td class="tbl-td ecell mono" data-field="menu_order" data-id="' + p.id + '" style="font-size:10px;cursor:pointer;">' + p.menu_order + '</td>';
-            html += '<td class="tbl-td">' + (p.variant_count > 0 ? '<button class="btn btn-ghost btn-sm" onclick="GH.toggleExpand(' + p.id + ')" style="padding:2px 6px;font-size:9px;">' + p.variant_count + ' var</button>' : '') + '</td>';
+            html += '<td class="tbl-td" style="white-space:nowrap">';
+            if (p.variant_count > 0) html += '<button class="btn btn-ghost btn-sm" onclick="GH.toggleExpand(' + p.id + ')" style="padding:2px 6px;font-size:9px;">' + p.variant_count + ' var</button> ';
+            html += '<button class="btn btn-ghost btn-sm" onclick="GH.openInlineEditor(' + p.id + ')" style="padding:2px 6px;font-size:9px;color:var(--acc)">Edit</button>';
+            html += '</td>';
             html += '</tr>';
             // Expanded variations row (hidden by default)
             html += '<tr class="var-row" data-parent="' + p.id + '" style="display:none;"><td colspan="12" style="padding:0 0 0 40px;background:var(--s1);"></td></tr>';

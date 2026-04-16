@@ -18,6 +18,7 @@ define( 'GH_DIR',     plugin_dir_path( __FILE__ ) );
 // Product — CRUD + variations (merged from rp-product-manager)
 require_once GH_DIR . 'includes/product/crud.php';
 require_once GH_DIR . 'includes/product/variations.php';
+require_once GH_DIR . 'includes/product/ajax.php';
 
 // Core — shared product creation
 require_once GH_DIR . 'includes/core/product-factory.php';
@@ -29,6 +30,7 @@ require_once GH_DIR . 'includes/catalog/tree-builder.php';
 require_once GH_DIR . 'includes/catalog/exporter.php';
 require_once GH_DIR . 'includes/catalog/importer.php';
 require_once GH_DIR . 'includes/catalog/taxonomy-manager.php';
+require_once GH_DIR . 'includes/catalog/smart-taxonomy.php';
 require_once GH_DIR . 'includes/catalog/bulk-creator.php';
 require_once GH_DIR . 'includes/catalog/ajax.php';
 
@@ -37,6 +39,7 @@ require_once GH_DIR . 'includes/media/scanner.php';
 require_once GH_DIR . 'includes/media/library.php';
 require_once GH_DIR . 'includes/media/whitelist.php';
 require_once GH_DIR . 'includes/media/cleaner.php';
+require_once GH_DIR . 'includes/media/browser.php';
 require_once GH_DIR . 'includes/media/ajax.php';
 
 // Feeds — HTTP client, GS feed, SF feed, config engine, CSV feed

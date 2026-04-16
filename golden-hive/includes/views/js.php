@@ -1,7 +1,7 @@
 const GH = (function() {
     const AJAX  = '<?php echo esc_js( $ajax ); ?>';
     const NONCE = '<?php echo esc_js( $nonce ); ?>';
-    let state = { roundtripData:null, importJSON:null, orphans:[], selected:new Set(), bulkJSON:null };
+    let state = { roundtripData:null, importJSON:null, bulkJSON:null };
     let taxTree=[], taxSelected=null, taxCollapsed={}, gsProducts=null, gsSelected=new Set(), gsDiffData=null;
 
     async function ajax(action, body={}) {

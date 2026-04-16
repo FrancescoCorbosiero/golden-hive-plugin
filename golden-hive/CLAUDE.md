@@ -35,9 +35,10 @@ golden-hive/
 ├── golden-hive.php              ← Entry point. Solo require_once.
 ├── CLAUDE.md                    ← Questo file.
 └── includes/
-    ├── product/                 ← Da rp-product-manager (prefix: rp_)
+    ├── product/                 ← Da rp-product-manager (prefix: rp_) + Inline Editor AJAX (prefix: gh_)
     │   ├── crud.php             ← rp_get_product, rp_create_product, rp_update_product, rp_delete_product
-    │   └── variations.php       ← rp_search_products, rp_get_product_variations, rp_update_variation, rp_bulk_update_variations
+    │   ├── variations.php       ← rp_search_products, rp_get_product_variations, rp_update_variation, rp_bulk_update_variations
+    │   └── ajax.php             ← gh_ajax_product_search, _load, _save, _variations_save
     ├── core/
     │   └── product-factory.php  ← gh_create_simple_product, gh_create_variable_product
     ├── catalog/                 ← Da rp-catalog-manager (prefix: rp_cm_)
@@ -50,8 +51,11 @@ golden-hive/
     │   ├── bulk-creator.php     ← rp_cm_bulk_preview, rp_cm_bulk_apply
     │   └── ajax.php             ← AJAX bridge per catalogo/tassonomia
     ├── media/                   ← Da rp-media-cleaner (prefix: rp_mc_)
-    │   ├── scanner.php, library.php, whitelist.php, cleaner.php
-    │   └── ajax.php
+    │   ├── scanner.php           ← rp_mm_build_usage_map, _get_orphan_attachments, _build_attachment_data_batch
+    │   ├── browser.php          ← gh_media_build_usage_index (cached), gh_media_query, _safe_cleanup_preview
+    │   ├── library.php          ← rp_mm_set_product_featured_image, _set_product_gallery, _get_attachment_usage
+    │   ├── whitelist.php, cleaner.php
+    │   └── ajax.php             ← gh_ajax_media_query, _query_ids, _safe_cleanup_preview, _bulk_whitelist, ...
     ├── feeds/                   ← Da rp-rest-caller (prefix: rp_rc_)
     │   ├── http-client.php, response-parser.php, saved-endpoints.php, feed-goldensneakers.php
     │   └── ajax.php
@@ -70,11 +74,13 @@ golden-hive/
     │   └── ajax.php             ← rp_em_ajax_*
     ├── views/
     │   ├── css.php              ← Design system completo (dark theme)
-    │   ├── panels.php           ← Pannelli: overview, catalog, taxonomy, media, feeds, import, tools
-    │   ├── panels-operations.php← Pannelli: filtra & agisci, ordinamento
+    │   ├── panels.php           ← Pannelli: taxonomy, media library, whitelist, feeds, import, tools
+    │   ├── panels-operations.php← Pannelli: filtra & agisci, inline editor, ordinamento
     │   ├── js.php               ← GH module IIFE (core functions, ajax, toast)
-    │   ├── js2.php              ← GH module (tab handlers, return public API)
-    │   └── js-operations.php    ← Filter/bulk JS (conditions builder, inline edit, selection, sorting)
+    │   ├── js2.php              ← GH module (whitelist, feeds, roundtrip, return public API)
+    │   ├── js-operations.php    ← Filter/bulk JS (conditions builder, inline edit, selection, sorting)
+    │   ├── js-inline.php        ← Inline Editor (search, form, JSON, variations, dirty save)
+    │   └── js-media.php         ← Media Library (query, filters, bulk ops, Safe Cleanup)
     └── admin-page.php           ← add_menu_page + render con sidebar tab
 ```
 
@@ -99,27 +105,69 @@ views/*.php, admin-page.php        → "UI" (zero logica business)
 | Sezione | Tab | Pannello |
 |---|---|---|
 | OPERAZIONI | Filtra & Agisci | Query builder + tabella + inline edit + bulk actions (default) |
+| | Inline Editor | Single-product: Form + JSON + Variations editing |
 | | Ordinamento | Sort preview + apply menu_order |
 | | Tassonomie | CRUD albero `product_cat` e `product_brand` |
-| MEDIA | Safe Cleanup | Mapping-based diff → orfani 100% sicuri (ex-"Orphans") |
-| | Mapping | Prodotto-immagini + inline "×" per rimuovere da gallery |
-| | Whitelist | Protezione immagini dall'eliminazione |
+| MEDIA | Media Library | Browser unificato con filtri, bulk ops, Safe Cleanup |
+| | Whitelist | Protezione immagini, inline add form |
 | IMPORT | GS Feed | Golden Sneakers feed |
 | | Bulk JSON | Import prodotti da JSON |
 | | Roundtrip | Export/import snapshot |
 | TOOLS | HTTP Client | Test API generiche |
 
-> **CATALOGO** rimosso: Overview era lenta e non informativa, Catalog
-> costruiva un JSON aggregato senza operazioni collegate. La logica PHP
-> `rp_cm_export_catalog` / summary builder resta disponibile per il modulo
-> Jobs ma non e piu esposta via AJAX/UI.
->
-> **Media Browse** rimosso: una ricerca wordpress-like della media library
-> senza operazioni utili. Rimpiazzato dalle operazioni bulk media in
-> Filtra & Agisci (vedi sotto).
->
-> **Whitelist** spostata da TOOLS a MEDIA: e un supporto del Safe Cleanup,
-> non uno strumento a se.
+> **Rimossi**: Overview (lenta), Catalog (JSON senza azioni), Browse (ricerca
+> WP-like inutile), Mapping (assorbito in Media Library), Safe Cleanup
+> (assorbito come shortcut in Media Library). La logica PHP sottostante
+> (exporter, scanner) resta disponibile per Jobs/altri moduli.
+
+---
+
+## Inline Editor — Architettura
+
+Complementa Filtra & Agisci: quello e per bulk, questo per lavoro
+chirurgico su un singolo prodotto. Cross-linked: "Edit" nella tabella
+dei risultati apre il prodotto nell'Inline Editor.
+
+**Tre sub-tabs:**
+- **Form** — campi validati (name, sku, status, prezzi, stock, SEO).
+  Dirty tracking: solo i campi modificati vengono inviati al server.
+- **JSON** — textarea editabile con il payload completo del prodotto
+  (identico shape a `rp_get_product()`). Dev-first: copia, modifica,
+  applica. I campi read-only (`id`, `type`, `price`, `dates`,
+  `permalink`, `attributes`) vengono strippati silenziosamente lato
+  server cosi incollare un JSON intero e sempre safe.
+- **Variations** — tabella inline (solo per prodotti variable): taglia,
+  sku, prezzi, stock, stato. Dirty tracking indipendente con batch save
+  via `rp_bulk_update_variations()`.
+
+**AJAX endpoints (product/ajax.php):**
+- `gh_ajax_product_search` — typeahead (auto-detect: ID → SKU esatto → fulltext → SKU LIKE)
+- `gh_ajax_product_load` — payload completo + variations + brands + gallery
+- `gh_ajax_product_save` — batch update via JSON (delega a `rp_update_product`)
+- `gh_ajax_product_variations_save` — batch save varianti
+
+---
+
+## Media Library — Architettura
+
+Browser unificato della media library con product awareness.
+Sostituisce le vecchie tab Mapping + Safe Cleanup.
+
+**Usage index inverso** (cached in transient 10 min):
+`gh_media_build_usage_index()` → `attachment_id → [{pid, role}]`
+dove role ∈ {featured, variation, post_featured, gallery, content}.
+Invalidato da hook `add/delete_attachment` e `save_post_product`.
+
+**Query paginaged** `gh_media_query($filters, $pagination)`:
+- Filtri DB-level: filename LIKE (post_title + guid), mime
+- Filtri memory-level: usage (mapped/unmapped), whitelist (yes/no)
+- Hydration batch per pagina: metadata attachment + product name/sku/permalink
+
+**Safe Cleanup** (shortcut button nel toolbar):
+`gh_media_safe_cleanup_preview()` → split: `to_delete_ids` (unmapped
+non-whitelisted) + `whitelist_details` (id + url + reason). L'UI mostra
+un pannello di conferma in-panel con la lista dei whitelisted esclusi
+prima di procedere.
 
 ---
 

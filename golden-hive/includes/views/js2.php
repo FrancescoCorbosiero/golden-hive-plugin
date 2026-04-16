@@ -1,90 +1,38 @@
-    // ── MEDIA MAPPING (view + inline ops: remove / promote gallery image)
-    let mapData = [];
-    async function loadMapping(){
-        const btn=document.getElementById('btn-map'),sp=document.getElementById('map-spin');
+    // ── WHITELIST
+    async function loadWhitelist(){
+        const r=await ajax('rp_mm_ajax_get_whitelist');
+        if(!r.success){toast('Errore caricamento whitelist','err');return}
+        const a=document.getElementById('wl-area');
+        if(!r.data.length){a.innerHTML='<div class="empty-state"><div class="empty-icon">&#9737;</div><div class="empty-text">Whitelist vuota. Aggiungi un attachment con ID o URL dalla toolbar sopra, oppure proteggi un orfano da Safe Cleanup.</div></div>';return}
+        a.innerHTML=r.data.map(e=>'<div class="wl-row"><img class="wl-thumb" src="'+esc(e.url||'')+'" /><div class="wl-info"><div class="wl-name">'+esc(e.reason||'Nessun motivo')+'</div><div class="wl-reason">'+esc(e.url||'')+'</div></div><span class="wl-id">#'+(e.id||'?')+'</span><button class="btn btn-ghost" onclick="GH.removeWL('+(e.id||0)+')">Rimuovi</button></div>').join('');
+    }
+    // Aggiunta manuale da toolbar del panel Whitelist.
+    // Accetta o attachment_id (numero) o url (stringa assoluta). Almeno uno
+    // dei due e richiesto lato server; il motivo e obbligatorio lato UI per
+    // evitare whitelist "ciechi" senza giustificazione.
+    async function whitelistAdd(){
+        const id=parseInt(document.getElementById('wl-add-id').value||'0');
+        const url=(document.getElementById('wl-add-url').value||'').trim();
+        const reason=(document.getElementById('wl-add-reason').value||'').trim();
+        if(!id && !url){toast('Serve un attachment ID o un URL','err');return}
+        if(!reason){toast('Il motivo e obbligatorio','err');return}
+        const btn=document.getElementById('btn-wl-add'),sp=document.getElementById('wl-add-spin');
         btn.disabled=true; sp.style.display='';
-        try {
-            const status=document.getElementById('map-filter-status')?.value||'any';
-            const r=await ajax('rp_mm_ajax_mapping',{status});
-            if(!r.success){toast('Errore','err');return}
-            mapData=r.data;
-            renderMapping();
-            toast(mapData.length+' prodotti','ok');
-        } catch(e){toast('Errore','err')}
+        try{
+            const body={reason};
+            if(id) body.attachment_id=id;
+            if(url) body.url=url;
+            const r=await ajax('rp_mm_ajax_add_whitelist',body);
+            if(!r.success){toast('Errore: '+(r.data||''),'err');return}
+            document.getElementById('wl-add-id').value='';
+            document.getElementById('wl-add-url').value='';
+            document.getElementById('wl-add-reason').value='';
+            toast('Protetto','ok');
+            loadWhitelist();
+        }catch(e){toast('Errore','err')}
         finally{btn.disabled=false; sp.style.display='none'}
     }
-    function renderMapping(){
-        const a=document.getElementById('map-area');
-        if(!mapData.length){a.innerHTML='<div class="empty-state"><div class="empty-text">Nessun prodotto</div></div>';return}
-        let h='<table class="maptable"><thead><tr><th>Featured</th><th>Prodotto</th><th>Gallery</th><th>Tot</th></tr></thead><tbody>';
-        for(const p of mapData){
-            const ft=p.featured_image?'<img class="map-thumb" src="'+esc(p.featured_image.thumbnail_url)+'" />':'<span class="map-none">nessuna</span>';
-            let gl='<span class="map-none">\u2013</span>';
-            if(p.gallery_images.length){
-                gl='<div class="map-gallery">'+p.gallery_images.map((g,idx)=>
-                    '<span class="map-gthumb" title="'+esc(g.filename||('#'+g.id))+(idx===0?' (primo in gallery)':'')+'">'+
-                        '<img src="'+esc(g.thumbnail_url)+'" />'+
-                        '<button class="map-gbtn map-grm" onclick="GH.mapRemoveGalleryImg('+p.product_id+','+g.id+')" title="Rimuovi dalla gallery">&times;</button>'+
-                    '</span>'
-                ).join('')+'</div>';
-            }
-            h+='<tr><td>'+ft+'</td><td><div class="map-name">'+esc(p.name)+'</div><div class="map-sku">'+esc(p.sku||'')+' \u00b7 #'+p.product_id+'</div></td><td>'+gl+'</td><td>'+p.total_images+'</td></tr>';
-        }
-        h+='</tbody></table>';
-        a.innerHTML=h;
-    }
-    async function mapRemoveGalleryImg(pid,aid){
-        const p=mapData.find(x=>x.product_id===pid); if(!p)return;
-        if(!confirm('Rimuovere l\'immagine #'+aid+' dalla gallery di #'+pid+'?'))return;
-        const remaining=p.gallery_images.filter(g=>g.id!==aid).map(g=>g.id);
-        const r=await ajax('rp_mm_ajax_set_gallery',{product_id:pid,attachment_ids:JSON.stringify(remaining)});
-        if(!r.success){toast('Errore: '+r.data,'err');return}
-        p.gallery_images=p.gallery_images.filter(g=>g.id!==aid);
-        p.total_images=(p.featured_image?1:0)+p.gallery_images.length;
-        renderMapping();
-        toast('Rimosso #'+aid+' dalla gallery','ok');
-    }
-
-    // ── ATTACHMENT USAGE (rimane: click su una card orfana per capire se e
-    //     davvero non usata da qualche parte)
-    async function showUsage(id){const r=await ajax('rp_mm_ajax_usage',{attachment_id:id});if(!r.success)return;if(!r.data.length){toast('#'+id+': non usata','inf');return}toast('#'+id+': '+r.data.map(u=>u.name+' ('+u.usage+')').join(', '),'inf',5000)}
-
-    // ── ORPHANS: Safe Cleanup (mapping phase + diff phase in un unica call)
-    async function scanOrphans(){
-        const ov=document.getElementById('scan-overlay'),btn=document.getElementById('btn-scan'),sp=document.getElementById('scan-spin');
-        ov.classList.add('visible'); btn.disabled=true; sp.style.display='';
-        try {
-            const r=await ajax('rp_mm_ajax_scan');
-            if(!r.success){toast('Errore','err');return}
-            state.orphans=r.data.orphans; state.selected=new Set();
-            // Phase 1: breakdown delle sorgenti mappate
-            const bd=r.data.breakdown||{};
-            document.getElementById('orphan-breakdown').style.display='flex';
-            document.getElementById('bd-featured-prod').textContent=bd.featured_products||0;
-            document.getElementById('bd-featured-var').textContent=bd.featured_variations||0;
-            document.getElementById('bd-gallery').textContent=bd.gallery_products||0;
-            document.getElementById('bd-featured-posts').textContent=bd.featured_posts||0;
-            document.getElementById('bd-inline').textContent=bd.inline_content||0;
-            // Phase 2: diff totale ↔ mapped = orfani
-            document.getElementById('orphan-stats').style.display='flex';
-            document.getElementById('st-total-media').textContent=r.data.total_media||0;
-            document.getElementById('st-used').textContent=r.data.used_count||0;
-            document.getElementById('st-orphans').textContent=r.data.orphan_count||0;
-            document.getElementById('st-size').textContent=r.data.estimated_size.total_human;
-            renderOrphanGrid();
-            toast(r.data.orphan_count+' orfani (su '+r.data.total_media+' media)',r.data.orphan_count?'err':'ok');
-        } catch(e){toast('Errore','err')}
-        finally{ov.classList.remove('visible'); btn.disabled=false; sp.style.display='none'}
-    }
-    function renderOrphanGrid(){const g=document.getElementById('orphan-grid'),o=state.orphans;if(!o.length){g.innerHTML='<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">\u2713</div><div class="empty-text">Nessun orfano</div></div>';return}g.innerHTML=o.map(a=>{const wl=a.is_whitelisted;return'<div class="media-card'+(wl?' whitelisted':'')+(state.selected.has(a.id)?' selected':'')+'">'+(wl?'<span class="media-badge badge-wl">WL</span>':'<input type="checkbox" class="media-check" '+(state.selected.has(a.id)?'checked':'')+' onclick="event.stopPropagation();GH.toggleOrphan('+a.id+')" />')+'<img class="media-thumb" src="'+esc(a.thumbnail_url)+'" loading="lazy" onclick="GH.orphanAction('+a.id+','+wl+')" /><div class="media-info"><div class="media-filename">'+esc(a.filename)+'</div><div class="media-size">'+a.filesize_human+'</div></div></div>'}).join('');updSel()}
-    function toggleOrphan(id){state.selected.has(id)?state.selected.delete(id):state.selected.add(id);renderOrphanGrid()}
-    function updSel(){const n=state.selected.size;document.getElementById('btn-bulk-del').style.display=n?'':'none';document.getElementById('sel-stat').style.display=n?'':'none';document.getElementById('sel-n').textContent=n}
-    function orphanAction(id,wl){if(wl){if(confirm('Rimuovere #'+id+' dalla whitelist?'))removeWL(id)}else{const r=prompt('Aggiungere #'+id+' alla whitelist? Motivo:');if(r!==null)addWL(id,r)}}
-    async function bulkDeleteOrphans(){const ids=Array.from(state.selected);if(!ids.length||!confirm('Eliminare '+ids.length+' immagini?'))return;const r=await ajax('rp_mm_ajax_bulk_delete',{ids:JSON.stringify(ids)});if(!r.success){toast('Errore','err');return}toast('Eliminati: '+r.data.deleted.length+', Spazio: '+r.data.freed_human,'ok',5000);state.orphans=state.orphans.filter(a=>!r.data.deleted.includes(a.id));state.selected=new Set();renderOrphanGrid()}
-
-    // ── WHITELIST
-    async function loadWhitelist(){const r=await ajax('rp_mm_ajax_get_whitelist');if(!r.success)return;const a=document.getElementById('wl-area');if(!r.data.length){a.innerHTML='<div class="empty-state"><div class="empty-text">Whitelist vuota</div></div>';return}a.innerHTML=r.data.map(e=>'<div class="wl-row"><img class="wl-thumb" src="'+esc(e.url||'')+'" /><div class="wl-info"><div class="wl-name">'+esc(e.reason||'Nessun motivo')+'</div><div class="wl-reason">'+esc(e.url||'')+'</div></div><span class="wl-id">#'+(e.id||'?')+'</span><button class="btn btn-ghost" onclick="GH.removeWL('+e.id+')">Rimuovi</button></div>').join('')}
-    async function addWL(id,reason){await ajax('rp_mm_ajax_add_whitelist',{attachment_id:id,reason:reason});toast('#'+id+' protetto','ok');scanOrphans()}
+    async function addWL(id,reason){await ajax('rp_mm_ajax_add_whitelist',{attachment_id:id,reason:reason});toast('#'+id+' protetto','ok');loadWhitelist()}
     async function removeWL(id){await ajax('rp_mm_ajax_remove_whitelist',{attachment_id:id});toast('#'+id+' rimosso','ok');loadWhitelist()}
 
     // ── GS FEED
@@ -916,5 +864,5 @@
     initSfFeed();
     initCsvUpload();
 
-    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadMapping,mapRemoveGalleryImg,showUsage,scanOrphans,toggleOrphan,orphanAction,bulkDeleteOrphans,loadWhitelist,removeWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfApply,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog};
+    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,removeWL,addWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfApply,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog};
 })();

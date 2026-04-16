@@ -455,20 +455,29 @@
 </div>
 
 <!-- ═══ WHITELIST ═══ -->
-<!--
-    La whitelist protegge gli attachment dall'eliminazione nel Safe Cleanup.
-    Entries possono essere aggiunte da qui (ID o URL + motivo) oppure via
-    click su una card orfana in Safe Cleanup (pattern originale).
--->
-<div class="panel" id="panel-whitelist">
+<div class="panel" id="panel-whitelist" style="display:none;flex-direction:column;overflow:hidden">
+    <!-- Quick add: single URL or ID -->
     <div class="toolbar" style="flex-wrap:wrap;gap:8px;">
-        <input class="cfg-input" id="wl-add-id" type="number" placeholder="Attachment ID" style="max-width:140px;font-size:11px" />
-        <span class="filter-label" style="color:var(--dim)">oppure</span>
-        <input class="cfg-input" id="wl-add-url" placeholder="URL attachment" style="flex:1;min-width:220px;font-size:11px" />
-        <input class="cfg-input" id="wl-add-reason" placeholder="Motivo (obbligatorio)" style="flex:1;min-width:180px;font-size:11px" />
-        <button class="btn btn-primary" id="btn-wl-add" onclick="GH.whitelistAdd()"><span class="spin" id="wl-add-spin" style="display:none"></span> + Proteggi</button>
+        <input class="cfg-input" id="wl-add-id" type="number" placeholder="Attachment ID" style="max-width:120px;font-size:11px" />
+        <span class="filter-label" style="color:var(--dim)">o</span>
+        <input class="cfg-input" id="wl-add-url" placeholder="URL" style="flex:1;min-width:200px;font-size:11px" onkeydown="if(event.key==='Enter')GH.whitelistAdd()" />
+        <input class="cfg-input" id="wl-add-reason" placeholder="Motivo (opzionale)" style="max-width:200px;font-size:11px" />
+        <button class="btn btn-primary" onclick="GH.whitelistAdd()"><span class="spin" id="wl-add-spin" style="display:none"></span> + Aggiungi</button>
         <div class="filter-sep"></div>
+        <button class="btn btn-ghost" onclick="GH.wlToggleBulk()" title="Incolla o esporta lista URL">Bulk</button>
+        <button class="btn btn-ghost" onclick="GH.wlCopyAll()" title="Copia tutti gli URL whitelisted">&#9112; Copia URL</button>
         <button class="btn btn-ghost" onclick="GH.loadWhitelist()">Aggiorna</button>
     </div>
+    <!-- Bulk paste/export area (hidden by default) -->
+    <div id="wl-bulk-area" style="display:none;padding:8px 16px;background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--dim);margin-bottom:6px">Incolla URL (uno per riga) per aggiungere in bulk, oppure copia la lista corrente:</div>
+        <textarea class="cfg-input" id="wl-bulk-text" rows="6" style="width:100%;font-family:var(--mono);font-size:11px;resize:vertical" placeholder="https://example.com/image1.jpg&#10;https://example.com/image2.jpg&#10;..."></textarea>
+        <div style="display:flex;gap:6px;margin-top:6px">
+            <button class="btn btn-primary" onclick="GH.wlBulkImport()"><span class="spin" id="wl-bulk-spin" style="display:none"></span> Importa URL</button>
+            <button class="btn btn-ghost" onclick="GH.wlBulkExport()">Popola da whitelist</button>
+            <span id="wl-bulk-status" style="font-family:var(--mono);font-size:10px;color:var(--dim);align-self:center"></span>
+        </div>
+    </div>
+    <!-- List -->
     <div class="wl-wrap" id="wl-area"><div class="empty-state"><div class="empty-icon">&#9737;</div><div class="empty-text">La whitelist protegge le immagini dall'eliminazione</div></div></div>
 </div>

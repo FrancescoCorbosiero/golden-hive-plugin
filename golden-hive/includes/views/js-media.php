@@ -216,7 +216,7 @@
         } else {
             const reason = prompt('Motivo whitelist per #' + id + ':');
             if (reason === null) return;
-            if (!reason.trim()) { GH.toast('Il motivo e obbligatorio', 'err'); return; }
+            // reason is optional
             const r = await GH.ajax('rp_mm_ajax_add_whitelist', { attachment_id: id, reason: reason.trim() });
             if (!r.success) { GH.toast(r.data || 'Errore', 'err'); return; }
             GH.toast('#' + id + ' protetto', 'ok');
@@ -230,7 +230,7 @@
         if (!ids.length) { GH.toast('Nessuna selezione', 'err'); return; }
         const reason = prompt('Motivo whitelist per ' + ids.length + ' media:');
         if (reason === null) return;
-        if (!reason.trim()) { GH.toast('Motivo obbligatorio', 'err'); return; }
+        // reason is optional
         const r = await GH.ajax('gh_ajax_media_bulk_whitelist', {
             ids: JSON.stringify(ids),
             reason: reason.trim(),

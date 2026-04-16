@@ -130,11 +130,18 @@ function gh_sf_transform_to_woo( array $product ): array {
 
     $street_price = $product['street_price'];
     $cost_price   = $product['cost_price'];
+    $brand        = $product['brand'] ?? '';
 
     // Calcolo prezzi:
     // regular_price = STREET_PRICE (prezzo barrato originale)
     // sale_price = PRICE × moltiplicatore (prezzo di vendita)
-    $sale_price = round( $cost_price * GH_SF_PRICE_MULTIPLIER );
+    // If price calculator rules are enabled, use tiered margin instead of flat
+    $price_rules = gh_get_price_rules();
+    if ( ! empty( $price_rules['enabled'] ) ) {
+        $sale_price = gh_calculate_price( $cost_price, $brand, $price_rules );
+    } else {
+        $sale_price = round( $cost_price * GH_SF_PRICE_MULTIPLIER );
+    }
     $reg_price  = round( $street_price );
 
     // Se sale_price >= regular_price, usa solo regular_price (no sconto finto)
@@ -187,7 +194,11 @@ function gh_sf_transform_to_woo( array $product ): array {
         $variations = [];
         foreach ( $sizes as $size ) {
             $var_cost       = $size['price'] ?: $cost_price;
-            $var_sale_price = round( $var_cost * GH_SF_PRICE_MULTIPLIER );
+            if ( ! empty( $price_rules['enabled'] ) ) {
+                $var_sale_price = gh_calculate_price( $var_cost, $brand, $price_rules );
+            } else {
+                $var_sale_price = round( $var_cost * GH_SF_PRICE_MULTIPLIER );
+            }
             $var_reg_price  = round( $street_price );
 
             if ( $var_sale_price >= $var_reg_price ) {

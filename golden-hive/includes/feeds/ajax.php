@@ -837,3 +837,41 @@ add_action( 'wp_ajax_gh_ajax_preimport_validate', function () {
         wp_send_json_error( 'Validazione fallita: ' . $e->getMessage() );
     }
 } );
+
+// ═══ PRICE CALCULATOR ══════════════════════════════════════════════════════════
+
+// ── Get price rules ──────────────────────────────────────────
+add_action( 'wp_ajax_gh_ajax_price_rules_get', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    wp_send_json_success( gh_get_price_rules() );
+} );
+
+// ── Save price rules ─────────────────────────────────────────
+add_action( 'wp_ajax_gh_ajax_price_rules_save', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $raw   = stripslashes( $_POST['rules'] ?? '{}' );
+    $rules = json_decode( $raw, true );
+    if ( ! is_array( $rules ) ) { wp_send_json_error( 'JSON non valido.' ); }
+
+    gh_save_price_rules( $rules );
+    wp_send_json_success( 'Salvato.' );
+} );
+
+// ── Preview price calculation ────────────────────────────────
+add_action( 'wp_ajax_gh_ajax_price_preview', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $cost  = (float) ( $_POST['cost'] ?? 0 );
+    $brand = sanitize_text_field( $_POST['brand'] ?? '' );
+
+    $raw   = stripslashes( $_POST['rules'] ?? '' );
+    $rules = $raw ? ( json_decode( $raw, true ) ?: [] ) : [];
+
+    $breakdown = gh_calculate_price_breakdown( $cost, $brand, $rules ?: [] );
+    wp_send_json_success( $breakdown );
+} );

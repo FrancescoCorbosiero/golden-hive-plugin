@@ -200,7 +200,7 @@
         <button class="btn btn-ghost" onclick="GH.sfCancel()">Annulla</button>
         <button class="btn btn-warn" id="btn-sf-apply" onclick="GH.sfApply()"><span class="spin" id="sf-apply-spin" style="display:none"></span> 2. Importa Prodotti</button>
     </div>
-    <div class="gen-overlay" id="sf-overlay"><div class="gen-spinner"></div><div class="gen-text" id="sf-overlay-text">Fetch...</div></div>
+    <div class="gen-overlay" id="sf-overlay"><div class="gen-spinner"></div><div class="gen-text" id="sf-overlay-text">Fetch...</div><button class="btn btn-ghost" onclick="GH.sfPreimportStop()" style="margin-top:12px;color:var(--red)">&#9632; Stop</button></div>
 </div>
 
 <!-- ═══ CSV FEED ═══ -->

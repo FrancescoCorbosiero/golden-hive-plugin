@@ -1,38 +1,91 @@
     // ── WHITELIST
+    let wlCache = []; // cached list for copy/export
+
     async function loadWhitelist(){
         const r=await ajax('rp_mm_ajax_get_whitelist');
-        if(!r.success){toast('Errore caricamento whitelist','err');return}
+        if(!r.success){toast('Errore','err');return}
+        wlCache=r.data||[];
         const a=document.getElementById('wl-area');
-        if(!r.data.length){a.innerHTML='<div class="empty-state"><div class="empty-icon">&#9737;</div><div class="empty-text">Whitelist vuota. Aggiungi un attachment con ID o URL dalla toolbar sopra, oppure proteggi un orfano da Safe Cleanup.</div></div>';return}
-        a.innerHTML=r.data.map(e=>'<div class="wl-row"><img class="wl-thumb" src="'+esc(e.url||'')+'" /><div class="wl-info"><div class="wl-name">'+esc(e.reason||'Nessun motivo')+'</div><div class="wl-reason">'+esc(e.url||'')+'</div></div><span class="wl-id">#'+(e.id||'?')+'</span><button class="btn btn-ghost" onclick="GH.removeWL('+(e.id||0)+')">Rimuovi</button></div>').join('');
+        if(!wlCache.length){a.innerHTML='<div class="empty-state"><div class="empty-icon">&#9737;</div><div class="empty-text">Whitelist vuota. Aggiungi URL dalla toolbar o incolla in bulk.</div></div>';return}
+        a.innerHTML='<div style="padding:0 4px 8px;font-family:var(--mono);font-size:10px;color:var(--dim)">'+wlCache.length+' elementi protetti</div>'+wlCache.map(e=>{
+            const u=e.url||'';const short=u.replace(/^https?:\/\/[^/]+/,'');
+            return'<div class="wl-row"><img class="wl-thumb" src="'+esc(u)+'" onerror="this.style.visibility=\'hidden\'" /><div class="wl-info"><div class="wl-reason mono" style="font-size:10px;color:var(--acc);word-break:break-all" title="'+esc(u)+'">'+esc(short||'#'+(e.id||'?'))+'</div>'+(e.reason?'<div class="wl-name" style="font-size:10px;color:var(--dim)">'+esc(e.reason)+'</div>':'')+'</div><span class="wl-id">#'+(e.id||'?')+'</span><button class="btn btn-ghost" style="font-size:10px" onclick="GH.removeWL('+(e.id||0)+')">Rimuovi</button></div>'
+        }).join('');
     }
-    // Aggiunta manuale da toolbar del panel Whitelist.
-    // Accetta o attachment_id (numero) o url (stringa assoluta). Almeno uno
-    // dei due e richiesto lato server; il motivo e obbligatorio lato UI per
-    // evitare whitelist "ciechi" senza giustificazione.
+
+    // Single add: ID or URL, reason optional
     async function whitelistAdd(){
         const id=parseInt(document.getElementById('wl-add-id').value||'0');
         const url=(document.getElementById('wl-add-url').value||'').trim();
         const reason=(document.getElementById('wl-add-reason').value||'').trim();
-        if(!id && !url){toast('Serve un attachment ID o un URL','err');return}
-        if(!reason){toast('Il motivo e obbligatorio','err');return}
-        const btn=document.getElementById('btn-wl-add'),sp=document.getElementById('wl-add-spin');
-        btn.disabled=true; sp.style.display='';
+        if(!id&&!url){toast('Serve un ID o URL','err');return}
+        const sp=document.getElementById('wl-add-spin');
+        if(sp)sp.style.display='';
         try{
-            const body={reason};
-            if(id) body.attachment_id=id;
-            if(url) body.url=url;
+            const body={};
+            if(id)body.attachment_id=id;
+            if(url)body.url=url;
+            if(reason)body.reason=reason;
             const r=await ajax('rp_mm_ajax_add_whitelist',body);
-            if(!r.success){toast('Errore: '+(r.data||''),'err');return}
+            if(!r.success){toast(r.data||'Errore','err');return}
             document.getElementById('wl-add-id').value='';
             document.getElementById('wl-add-url').value='';
             document.getElementById('wl-add-reason').value='';
-            toast('Protetto','ok');
-            loadWhitelist();
+            toast('Aggiunto','ok');loadWhitelist();
         }catch(e){toast('Errore','err')}
-        finally{btn.disabled=false; sp.style.display='none'}
+        finally{if(sp)sp.style.display='none'}
     }
-    async function addWL(id,reason){await ajax('rp_mm_ajax_add_whitelist',{attachment_id:id,reason:reason});toast('#'+id+' protetto','ok');loadWhitelist()}
+
+    // Copy all whitelisted URLs to clipboard
+    function wlCopyAll(){
+        if(!wlCache.length){toast('Whitelist vuota','inf');return}
+        const text=wlCache.map(e=>e.url||'').filter(Boolean).join('\n');
+        navigator.clipboard.writeText(text).then(()=>toast(wlCache.length+' URL copiati','ok'),()=>toast('Errore clipboard','err'));
+    }
+
+    // Toggle bulk textarea
+    function wlToggleBulk(){
+        const area=document.getElementById('wl-bulk-area');
+        area.style.display=area.style.display==='none'?'':'none';
+    }
+
+    // Export current whitelist into the textarea
+    function wlBulkExport(){
+        const text=wlCache.map(e=>e.url||'').filter(Boolean).join('\n');
+        document.getElementById('wl-bulk-text').value=text;
+        document.getElementById('wl-bulk-status').textContent=wlCache.length+' URL esportati';
+    }
+
+    // Import URLs from textarea (one per line)
+    async function wlBulkImport(){
+        const raw=document.getElementById('wl-bulk-text').value;
+        const urls=raw.split('\n').map(s=>s.trim()).filter(s=>s&&(s.startsWith('http')||s.startsWith('/')));
+        if(!urls.length){toast('Nessun URL valido trovato','err');return}
+        const sp=document.getElementById('wl-bulk-spin');
+        const statusEl=document.getElementById('wl-bulk-status');
+        if(sp)sp.style.display='';
+        let added=0,skipped=0;
+        try{
+            // Send in batches of 20
+            for(let i=0;i<urls.length;i+=20){
+                const batch=urls.slice(i,i+20);
+                for(const url of batch){
+                    // Check if already in cache
+                    if(wlCache.some(e=>e.url===url)){skipped++;continue}
+                    await ajax('rp_mm_ajax_add_whitelist',{url:url,reason:'bulk import'});
+                    added++;
+                }
+                if(statusEl)statusEl.textContent='Importazione '+(i+batch.length)+'/'+urls.length+'...';
+            }
+            toast(added+' aggiunti'+(skipped?' ('+skipped+' duplicati)':''),'ok');
+            document.getElementById('wl-bulk-text').value='';
+            if(statusEl)statusEl.textContent=added+' importati';
+            loadWhitelist();
+        }catch(e){toast('Errore: '+e.message,'err')}
+        finally{if(sp)sp.style.display='none'}
+    }
+
+    async function addWL(id,reason){await ajax('rp_mm_ajax_add_whitelist',{attachment_id:id,reason:reason||''});toast('#'+id+' protetto','ok');loadWhitelist()}
     async function removeWL(id){await ajax('rp_mm_ajax_remove_whitelist',{attachment_id:id});toast('#'+id+' rimosso','ok');loadWhitelist()}
 
     // ── GS FEED
@@ -957,5 +1010,5 @@
     initSfFeed();
     initCsvUpload();
 
-    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,removeWL,addWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfPreimportMedia,sfApply,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog};
+    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfPreimportMedia,sfApply,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog};
 })();

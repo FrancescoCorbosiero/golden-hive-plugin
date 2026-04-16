@@ -96,9 +96,7 @@ add_action( 'wp_ajax_gh_ajax_media_bulk_whitelist', function () {
     if ( ! is_array( $ids ) || empty( $ids ) ) {
         wp_send_json_error( 'Nessun ID fornito.' );
     }
-    if ( $reason === '' ) {
-        wp_send_json_error( 'Il motivo e obbligatorio.' );
-    }
+    // Reason is optional
 
     $added = 0;
     foreach ( $ids as $id ) {

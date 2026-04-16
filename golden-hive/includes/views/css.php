@@ -113,6 +113,36 @@
 #gh .badge-wl{background:rgba(232,168,36,.2);color:var(--amb)}
 #gh .media-check{position:absolute;top:6px;left:6px;accent-color:var(--acc);width:14px;height:14px;cursor:pointer}
 
+/* Media Library (unified browser) */
+#gh #panel-media-library{display:flex;flex-direction:column;overflow:hidden}
+#gh #ml-results{padding:0 16px}
+#gh table.ml-table{width:100%;border-collapse:collapse;font-size:12px}
+#gh .ml-table thead th{background:var(--s1);border-bottom:2px solid var(--b1);padding:8px 10px;font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);text-align:left;font-weight:600;position:sticky;top:0;z-index:10}
+#gh .ml-table tbody tr{border-bottom:1px solid var(--b1);transition:background .1s}
+#gh .ml-table tbody tr:hover{background:rgba(255,255,255,.02)}
+#gh .ml-table td{padding:6px 10px;vertical-align:middle}
+#gh .ml-row-sel{background:rgba(61,127,255,.07) !important}
+#gh .ml-row-wl{border-left:2px solid var(--grn)}
+#gh .ml-thumb{width:44px;height:44px;object-fit:cover;border-radius:3px;background:var(--s3);display:block}
+#gh .ml-name{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--txt)}
+#gh .ml-usages{display:flex;flex-wrap:wrap;gap:4px;max-width:420px}
+#gh .ml-unmapped{font-family:var(--mono);font-size:10px;color:var(--amb);font-style:italic}
+#gh .ml-usage{display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border-radius:3px;background:var(--s3);border:1px solid var(--b1);font-family:var(--mono);font-size:10px;color:var(--txt);white-space:nowrap}
+#gh .ml-usage .ml-role{font-size:8px;text-transform:uppercase;letter-spacing:.05em;color:var(--dim);font-weight:600}
+#gh .ml-usage.role-featured .ml-role{color:var(--acc)}
+#gh .ml-usage.role-gallery .ml-role{color:var(--pur)}
+#gh .ml-usage.role-variation .ml-role{color:var(--amb)}
+#gh .ml-usage.role-post_featured .ml-role{color:var(--grn)}
+#gh .ml-usage.role-content .ml-role{color:var(--dim)}
+#gh .ml-usage .ml-pid{color:var(--txt)}
+#gh .ml-usage .ml-eye{color:var(--acc);text-decoration:none;font-size:11px;cursor:pointer}
+#gh .ml-usage .ml-eye:hover{color:var(--txt)}
+#gh .ml-wl-badge{display:inline-block;padding:2px 6px;background:var(--grn);color:#000;font-family:var(--mono);font-size:9px;font-weight:700;border-radius:3px;letter-spacing:.05em}
+#gh .ml-row-actions{text-align:right}
+#gh .ml-row-actions .btn-sm{padding:3px 6px;font-size:9px}
+#gh #ml-safe-preview{font-family:var(--sans);color:var(--txt)}
+#gh #ml-pagination button{min-width:32px}
+
 /* Mapping table */
 #gh .map-wrap{flex:1;overflow-y:auto}
 #gh table.maptable{width:100%;border-collapse:collapse}

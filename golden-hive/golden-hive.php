@@ -37,6 +37,7 @@ require_once GH_DIR . 'includes/media/scanner.php';
 require_once GH_DIR . 'includes/media/library.php';
 require_once GH_DIR . 'includes/media/whitelist.php';
 require_once GH_DIR . 'includes/media/cleaner.php';
+require_once GH_DIR . 'includes/media/browser.php';
 require_once GH_DIR . 'includes/media/ajax.php';
 
 // Feeds — HTTP client, GS feed, SF feed, config engine, CSV feed

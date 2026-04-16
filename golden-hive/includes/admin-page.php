@@ -39,8 +39,7 @@ function gh_render_page(): void {
             <div class="tab-item" onclick="GH.switchTab('sorting',this)"><span class="tab-icon">&#8693;</span><span class="tab-label">Ordinamento</span></div>
             <div class="tab-item" onclick="GH.switchTab('taxonomy',this);GH.loadTaxonomy()"><span class="tab-icon">&#9698;</span><span class="tab-label">Tassonomie</span></div>
             <div class="tab-section">MEDIA</div>
-            <div class="tab-item" onclick="GH.switchTab('orphans',this)"><span class="tab-icon">&#9888;</span><span class="tab-label">Safe Cleanup</span></div>
-            <div class="tab-item" onclick="GH.switchTab('mapping',this)"><span class="tab-icon">&#9636;</span><span class="tab-label">Mapping</span></div>
+            <div class="tab-item" onclick="GH.switchTab('media-library',this)"><span class="tab-icon">&#9636;</span><span class="tab-label">Media Library</span></div>
             <div class="tab-item" onclick="GH.switchTab('whitelist',this);GH.loadWhitelist()"><span class="tab-icon">&#9737;</span><span class="tab-label">Whitelist</span></div>
             <div class="tab-section">MAPPER</div>
             <div class="tab-item" data-mp-tab="rules" onclick="GH.switchTab('mapper-rules',this)"><span class="tab-icon">&#9881;</span><span class="tab-label">Regole</span></div>
@@ -77,6 +76,7 @@ function gh_render_page(): void {
 <?php include GH_DIR . 'includes/views/js.php'; ?>
 <?php include GH_DIR . 'includes/views/js2.php'; ?>
 <?php include GH_DIR . 'includes/views/js-operations.php'; ?>
+<?php include GH_DIR . 'includes/views/js-media.php'; ?>
 <?php include GH_DIR . 'includes/views/js-mapper.php'; ?>
 <?php include GH_DIR . 'includes/views/js-jobs.php'; ?>
 <?php include GH_DIR . 'includes/views/js-email.php'; ?>

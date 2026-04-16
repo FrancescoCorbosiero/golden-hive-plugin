@@ -1,61 +1,17 @@
 <?php
 /**
- * Library — browse, search e product-media mapping.
- * Solo lettura tranne per l'assegnazione immagini ai prodotti.
+ * Library — operazioni su prodotti lato media (assegna featured/gallery,
+ * reverse lookup "quali prodotti usano questo attachment").
+ *
+ * Solo lettura tranne rp_mm_set_product_featured_image() / _set_product_gallery(),
+ * usate da UI inline (Media Library → row actions) e feed importers.
+ *
+ * La ricerca paginaged della media library e il product-media mapping
+ * vivono ora in media/browser.php (indice inverso cached per il Media
+ * Library panel). Le funzioni legacy di browse/mapping sono state rimosse.
  */
 
 defined( 'ABSPATH' ) || exit;
-
-/**
- * Ritorna il mapping completo prodotto → immagini.
- *
- * @param array $filters Filtri opzionali: status, per_page.
- * @return array [ [ product_id, name, sku, featured_image, gallery_images ] ]
- */
-function rp_mm_get_product_media_map( array $filters = [] ): array {
-
-    $args = [
-        'limit'   => $filters['per_page'] ?? -1,
-        'status'  => $filters['status'] ?? 'any',
-        'type'    => [ 'simple', 'variable' ],
-        'return'  => 'objects',
-        'orderby' => 'title',
-        'order'   => 'ASC',
-    ];
-
-    $query    = new WC_Product_Query( $args );
-    $products = $query->get_products();
-    $result   = [];
-
-    foreach ( $products as $product ) {
-        $id          = $product->get_id();
-        $featured_id = $product->get_image_id();
-        $gallery_ids = $product->get_gallery_image_ids();
-
-        $featured = null;
-        if ( $featured_id ) {
-            $featured = rp_mm_build_attachment_data( (int) $featured_id );
-        }
-
-        $gallery = [];
-        foreach ( $gallery_ids as $gid ) {
-            $gallery[] = rp_mm_build_attachment_data( (int) $gid );
-        }
-
-        $result[] = [
-            'product_id'     => $id,
-            'name'           => $product->get_name(),
-            'sku'            => $product->get_sku(),
-            'type'           => $product->get_type(),
-            'status'         => $product->get_status(),
-            'featured_image' => $featured,
-            'gallery_images' => $gallery,
-            'total_images'   => ( $featured ? 1 : 0 ) + count( $gallery ),
-        ];
-    }
-
-    return $result;
-}
 
 /**
  * Imposta l'immagine featured di un prodotto.

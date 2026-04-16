@@ -20,65 +20,78 @@
     </div>
 </div>
 
-<!-- ═══ MEDIA MAPPING ═══ -->
+<!-- ═══ MEDIA LIBRARY ═══ -->
 <!--
-    Vista di riferimento prodotto → immagini. Mostra cosa e dove.
-    Operazioni inline disponibili:
-    - click su "×" su una gallery thumb → rimuove quell'immagine dalla gallery
-    - click su "★" su una gallery thumb → la promuove a featured
-    Per operazioni bulk su molti prodotti usare Operazioni > Filtra & Agisci.
--->
-<div class="panel" id="panel-mapping" style="position:relative">
-    <div class="toolbar">
-        <span class="filter-label">Stato</span>
-        <select class="filter-select" id="map-filter-status"><option value="any">Tutti</option><option value="publish" selected>Pubblicati</option><option value="draft">Bozze</option></select>
-        <div class="filter-sep"></div>
-        <button class="btn btn-primary" id="btn-map" onclick="GH.loadMapping()"><span class="spin" id="map-spin" style="display:none"></span> Carica mapping</button>
-        <span class="filter-label" style="margin-left:auto;color:var(--dim)">Click su una thumb per azioni inline</span>
-    </div>
-    <div class="map-wrap" id="map-area"><div class="empty-state"><div class="empty-icon">&#9636;</div><div class="empty-text">Carica il mapping prodotto-immagini</div></div></div>
-</div>
+    Browser unificato della media library con product awareness.
+    Sostituisce le vecchie tab Mapping + Safe Cleanup (rimosse).
 
-<!-- ═══ ORPHANS (Safe Cleanup) ═══ -->
-<!--
-    Flusso esplicito a due fasi per la pulizia sicura dei media:
-    1. Mapping  — si scansiona TUTTO cio che referenzia media (featured,
-                  variation thumbs, gallery, featured di post/page, inline
-                  src/href) e si mostra un breakdown ispezionabile.
-    2. Diff     — tutti i media immagine meno l'insieme "mapped/used" =
-                  orfani 100% sicuri da eliminare.
-    Nessuno scenario di falso positivo per le sorgenti coperte.
+    Funzionalita chiave:
+    - Paginazione su migliaia di media
+    - Filtri: nome file, usage (mapped/unmapped), whitelist
+    - Bulk ops: whitelist, remove-from-galleries, delete
+    - Shortcut "Safe Cleanup": preview in-panel con lista whitelist esclusi + stats
+    - Row actions: whitelist toggle, link al prodotto, badge ruolo per ogni usage
+
+    Tutti i safety check (whitelist, rp_mm_is_used, log) vivono server-side in
+    rp_mm_delete_attachment() - questo panel li rispetta per costruzione.
 -->
-<div class="panel" id="panel-orphans" style="position:relative">
+<div class="panel" id="panel-media-library" style="position:relative">
+    <!-- Filters toolbar -->
     <div class="toolbar" style="flex-wrap:wrap;gap:8px;">
-        <button class="btn btn-primary" id="btn-scan" onclick="GH.scanOrphans()"><span class="spin" id="scan-spin" style="display:none"></span> Avvia Safe Cleanup</button>
+        <input class="filter-select" id="ml-search" placeholder="Nome file contiene (SKU, title, ...)" style="min-width:220px;flex:1;max-width:320px"
+               onkeydown="if(event.key==='Enter')GH.mlQuery(true)" />
+        <select class="filter-select" id="ml-usage" onchange="GH.mlQuery(true)">
+            <option value="all">Usage: tutti</option>
+            <option value="mapped">Mappati</option>
+            <option value="unmapped">Non mappati</option>
+        </select>
+        <select class="filter-select" id="ml-whitelist" onchange="GH.mlQuery(true)">
+            <option value="all">Whitelist: tutti</option>
+            <option value="yes">Whitelisted</option>
+            <option value="no">Non whitelisted</option>
+        </select>
+        <select class="filter-select" id="ml-orderby" onchange="GH.mlQuery(true)">
+            <option value="date">Data ↓</option>
+            <option value="id">ID ↓</option>
+            <option value="filename">Nome A→Z</option>
+        </select>
+        <button class="btn btn-primary" onclick="GH.mlQuery(true)"><span class="spin" id="ml-spin" style="display:none"></span> Cerca</button>
         <div class="filter-sep"></div>
-        <button class="btn btn-danger" id="btn-bulk-del" onclick="GH.bulkDeleteOrphans()" style="display:none">Elimina selezionati</button>
-        <span class="stat" id="sel-stat" style="display:none"><span id="sel-n">0</span> selezionati</span>
-        <div class="filter-sep"></div>
-        <button class="btn btn-danger" id="btn-delete-all" onclick="GH.deleteAllOrphans()" style="display:none">Elimina tutti</button>
-    </div>
-    <div id="orphan-cap-notice" style="display:none;padding:8px 16px;background:var(--s1);border-bottom:1px solid var(--b1);font-family:var(--mono);font-size:11px;color:var(--amb)"></div>
-
-    <!-- Phase 1 breakdown: cosa e stato mappato come "in uso" -->
-    <div class="stats-bar" id="orphan-breakdown" style="display:none;flex-wrap:wrap;gap:8px">
-        <div class="stat" title="Featured image di prodotti simple/variable">Featured prod.: <span class="blue" id="bd-featured-prod">0</span></div>
-        <div class="stat" title="Thumbnail delle varianti (product_variation)">Variation thumb: <span class="blue" id="bd-featured-var">0</span></div>
-        <div class="stat" title="ID in _product_image_gallery">Gallery: <span class="blue" id="bd-gallery">0</span></div>
-        <div class="stat" title="Featured image di post/page">Post/Page: <span class="blue" id="bd-featured-posts">0</span></div>
-        <div class="stat" title="Immagini referenziate via src/href nel content">Inline content: <span class="blue" id="bd-inline">0</span></div>
+        <button class="btn btn-warn" onclick="GH.mlSafeCleanup()" title="Preview + delete di tutti i media non mappati (esclude whitelist)">Safe Cleanup</button>
     </div>
 
-    <!-- Phase 2 diff: cosa e orfano -->
-    <div class="stats-bar" id="orphan-stats" style="display:none">
-        <div class="stat">Totale media: <span id="st-total-media">0</span></div>
-        <div class="stat">In uso (mapped): <span class="green" id="st-used">0</span></div>
-        <div class="stat">Orfani (diff): <span class="red" id="st-orphans">0</span></div>
-        <div class="stat">Spazio recuperabile: <span id="st-size">0</span></div>
+    <!-- Stats bar + pagination info -->
+    <div class="stats-bar" id="ml-stats-bar" style="display:none">
+        <div class="stat"><span id="ml-total">0</span> risultati</div>
+        <div class="stat">Pagina <span id="ml-page">1</span> / <span id="ml-total-pages">1</span></div>
+        <div class="stat" id="ml-sel-stat" style="display:none"><span class="green" id="ml-sel-n">0</span> selezionati</div>
     </div>
 
-    <div class="media-grid" id="orphan-grid"><div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">&#9888;</div><div class="empty-text">Premi "Avvia Safe Cleanup" per mappare i media in uso e trovare gli orfani</div></div></div>
-    <div class="gen-overlay" id="scan-overlay"><div class="gen-spinner"></div><div class="gen-text">Scansione in corso...</div></div>
+    <!-- Bulk action bar (hidden until selection) -->
+    <div id="ml-bulk-bar" style="display:none;padding:10px 16px;background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <span class="filter-label" style="color:var(--grn);font-weight:600">Azioni bulk:</span>
+            <button class="btn btn-ghost" onclick="GH.mlBulkWhitelist()">+ Whitelist</button>
+            <button class="btn btn-ghost" onclick="GH.mlBulkRemoveFromGalleries()">&#x2702; Rimuovi da gallerie</button>
+            <button class="btn btn-danger" onclick="GH.mlBulkDelete()">&times; Elimina dalla library</button>
+            <div class="filter-sep"></div>
+            <button class="btn btn-ghost" onclick="GH.mlSelectAllInFilter()" title="Seleziona tutti i media corrispondenti ai filtri (anche quelli non in pagina)">Seleziona tutti i risultati</button>
+            <button class="btn btn-ghost" onclick="GH.mlClearSelection()">Deseleziona tutto</button>
+        </div>
+    </div>
+
+    <!-- Results area (table) -->
+    <div id="ml-results" style="flex:1;overflow-y:auto">
+        <div class="empty-state"><div class="empty-icon">&#9636;</div><div class="empty-text">Usa i filtri per caricare i media</div></div>
+    </div>
+
+    <!-- Pagination controls -->
+    <div id="ml-pagination" style="display:none;padding:10px 16px;background:var(--s1);border-top:1px solid var(--b1);flex-shrink:0;display:flex;gap:8px;align-items:center;justify-content:center"></div>
+
+    <!-- Safe Cleanup preview (hidden until invoked) -->
+    <div id="ml-safe-preview" style="display:none;position:absolute;inset:0;background:var(--bg);z-index:20;overflow-y:auto;padding:20px"></div>
+
+    <div class="gen-overlay" id="ml-overlay"><div class="gen-spinner"></div><div class="gen-text" id="ml-overlay-text">Caricamento...</div></div>
 </div>
 
 <!-- ═══ GS FEED ═══ -->

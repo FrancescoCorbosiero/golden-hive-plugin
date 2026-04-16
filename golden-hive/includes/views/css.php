@@ -1,6 +1,17 @@
 <style>
 #gh{all:initial}#gh *,#gh *::before,#gh *::after{box-sizing:border-box;margin:0;padding:0;font-family:'DM Sans',system-ui,sans-serif}
-#gh{--bg:#0c0d10;--s1:#111317;--s2:#16181d;--s3:#1c1f26;--b1:#232630;--b2:#2e3240;--acc:#3d7fff;--grn:#22c78b;--red:#e85d5d;--amb:#e8a824;--pur:#9b72f5;--txt:#d8dce8;--dim:#5f6480;--mut:#2a2d3a;--mono:'JetBrains Mono','Courier New',monospace;display:flex;flex-direction:column;height:100vh;background:var(--bg);color:var(--txt);font-size:13px;margin:-10px -20px -20px -20px;overflow:hidden}
+/* Root: calc the exact remaining space after WP admin bar (32px desktop, 46px mobile).
+   Negative margins cancel the padding WP Admin wraps around .wrap / #wpbody-content. */
+#gh{--bg:#0c0d10;--s1:#111317;--s2:#16181d;--s3:#1c1f26;--b1:#232630;--b2:#2e3240;--acc:#3d7fff;--grn:#22c78b;--red:#e85d5d;--amb:#e8a824;--pur:#9b72f5;--txt:#d8dce8;--dim:#5f6480;--mut:#2a2d3a;--mono:'JetBrains Mono','Courier New',monospace;--sans:'DM Sans',system-ui,sans-serif;display:flex;flex-direction:column;height:calc(100vh - 32px);background:var(--bg);color:var(--txt);font-size:13px;margin:-10px -20px -20px -20px;overflow:hidden;box-sizing:border-box}
+#gh *,#gh *::before,#gh *::after{box-sizing:inherit}
+@media screen and (max-width:782px){#gh{height:calc(100vh - 46px)}}
+
+/* Thin dark scrollbars everywhere inside the plugin */
+#gh ::-webkit-scrollbar{width:6px;height:6px}
+#gh ::-webkit-scrollbar-track{background:transparent}
+#gh ::-webkit-scrollbar-thumb{background:var(--b2);border-radius:3px}
+#gh ::-webkit-scrollbar-thumb:hover{background:var(--dim)}
+#gh{scrollbar-width:thin;scrollbar-color:var(--b2) transparent}
 
 /* Header */
 #gh .header{background:var(--s1);border-bottom:1px solid var(--b1);padding:10px 20px;display:flex;align-items:center;gap:16px;flex-shrink:0}

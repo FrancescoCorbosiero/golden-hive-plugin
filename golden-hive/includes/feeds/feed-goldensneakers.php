@@ -635,39 +635,9 @@ function rp_rc_gs_assign_brand( int $product_id, string $brand, string $model = 
  * @param string $sku        SKU per il naming del file.
  */
 function rp_rc_gs_sideload_image( int $product_id, string $image_url, string $sku = '' ): void {
-
     if ( ! $image_url ) return;
-
-    // Serve media_sideload_image
-    if ( ! function_exists( 'media_sideload_image' ) ) {
-        require_once ABSPATH . 'wp-admin/includes/media.php';
-        require_once ABSPATH . 'wp-admin/includes/file.php';
-        require_once ABSPATH . 'wp-admin/includes/image.php';
-    }
-
-    // Scarica il file temporaneo
-    $tmp = download_url( $image_url, 30 );
-    if ( is_wp_error( $tmp ) ) return;
-
-    // Determina estensione
-    $ext = pathinfo( parse_url( $image_url, PHP_URL_PATH ), PATHINFO_EXTENSION );
-    if ( ! $ext ) $ext = 'jpg';
-
-    $filename = $sku ? sanitize_file_name( $sku . '.' . $ext ) : basename( $image_url );
-
-    $file_array = [
-        'name'     => $filename,
-        'tmp_name' => $tmp,
-    ];
-
-    $attachment_id = media_handle_sideload( $file_array, $product_id );
-
-    // Cleanup temp file se errore
-    if ( is_wp_error( $attachment_id ) ) {
-        @unlink( $tmp );
-        return;
-    }
-
-    // Imposta come featured image
-    set_post_thumbnail( $product_id, $attachment_id );
+    gh_parallel_sideload_to_product( $product_id, [ $image_url ], $sku, [
+        'first_is_featured' => true,
+        'rest_is_gallery'   => false,
+    ] );
 }

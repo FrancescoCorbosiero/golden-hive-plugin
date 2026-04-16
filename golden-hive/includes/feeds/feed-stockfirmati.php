@@ -412,48 +412,7 @@ function gh_sf_season_tag( string $code ): string {
  * Sideload immagini: prima → featured, resto → gallery.
  */
 function gh_sf_sideload_images( int $product_id, array $image_urls, string $sku = '' ): void {
-
-    if ( ! function_exists( 'media_sideload_image' ) ) {
-        require_once ABSPATH . 'wp-admin/includes/media.php';
-        require_once ABSPATH . 'wp-admin/includes/file.php';
-        require_once ABSPATH . 'wp-admin/includes/image.php';
-    }
-
-    $gallery_ids = [];
-
-    foreach ( $image_urls as $i => $url ) {
-        if ( ! $url ) continue;
-
-        $tmp = download_url( $url, 30 );
-        if ( is_wp_error( $tmp ) ) continue;
-
-        $ext = pathinfo( parse_url( $url, PHP_URL_PATH ), PATHINFO_EXTENSION ) ?: 'jpg';
-        $filename = sanitize_file_name( $sku . '-' . ( $i + 1 ) . '.' . $ext );
-
-        $attachment_id = media_handle_sideload( [
-            'name'     => $filename,
-            'tmp_name' => $tmp,
-        ], $product_id );
-
-        if ( is_wp_error( $attachment_id ) ) {
-            @unlink( $tmp );
-            continue;
-        }
-
-        if ( $i === 0 ) {
-            set_post_thumbnail( $product_id, $attachment_id );
-        } else {
-            $gallery_ids[] = $attachment_id;
-        }
-    }
-
-    if ( $gallery_ids ) {
-        $product = wc_get_product( $product_id );
-        if ( $product ) {
-            $product->set_gallery_image_ids( $gallery_ids );
-            $product->save();
-        }
-    }
+    gh_parallel_sideload_to_product( $product_id, $image_urls, $sku );
 }
 
 // ── Clean helpers ──────────────────────────────────────────

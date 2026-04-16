@@ -127,6 +127,7 @@
 
     // ── STOCKFIRMATI FEED ──────────────────────────────────
     let sfProducts = null, sfSelected = new Set(), sfDiffData = null, sfAllItems = [];
+    let sfPreimportAbort = false;
 
     function sfGetMarkup() { return parseFloat(document.getElementById('sf-markup').value) || 3.5; }
 
@@ -304,19 +305,21 @@
         if (!allUrls.length) { toast('Nessuna immagine trovata nei prodotti selezionati', 'inf'); return; }
 
         const total = allUrls.length;
-        const batchSize = 10;
+        const batchSize = 20;
         const ov = document.getElementById('sf-overlay'), ot = document.getElementById('sf-overlay-text');
         const btn = document.getElementById('btn-sf-preimport'), sp = document.getElementById('sf-preimport-spin');
         const statusEl = document.getElementById('sf-preimport-status');
         ov.classList.add('visible'); btn.disabled = true; if (sp) sp.style.display = '';
+        sfPreimportAbort = false;
 
         let downloaded = 0, skipped = 0, errors = 0;
 
         try {
             for (let offset = 0; offset < total; offset += batchSize) {
+                if (sfPreimportAbort) { toast('Interrotto. ' + downloaded + ' scaricate finora.', 'inf'); break; }
                 const batch = allUrls.slice(offset, offset + batchSize);
                 const done = Math.min(offset + batchSize, total);
-                ot.textContent = 'Scaricamento immagini ' + done + '/' + total + '...';
+                ot.textContent = 'Scaricamento immagini ' + done + '/' + total + '... (click Stop per interrompere)';
 
                 const r = await ajax('gh_ajax_preimport_download', {
                     urls: JSON.stringify(batch),
@@ -341,6 +344,8 @@
             ov.classList.remove('visible'); btn.disabled = false; if (sp) sp.style.display = 'none';
         }
     }
+
+    function sfPreimportStop() { sfPreimportAbort = true; }
 
     // SF Apply: chunked per evitare timeout su import grandi (2000+ prodotti).
     // Invia batch da 25 prodotti per request. Il PHP processa ogni batch e
@@ -1021,5 +1026,5 @@
     initSfFeed();
     initCsvUpload();
 
-    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfPreimportMedia,sfApply,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog};
+    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfPreimportMedia,sfPreimportStop,sfApply,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog};
 })();

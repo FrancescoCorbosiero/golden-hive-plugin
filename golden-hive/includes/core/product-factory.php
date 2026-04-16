@@ -47,8 +47,41 @@ function gh_create_variable_product( array $data ): int {
     }
 
     WC_Product_Variable::sync( $product_id );
+    gh_fix_variable_stock_status( $product_id );
 
     return $product_id;
+}
+
+/**
+ * Ensures a variable product's stock status matches its variations.
+ *
+ * WC_Product_Variable::sync() sometimes leaves the parent with a stale
+ * stock_status (especially when variations are created in the same request).
+ * This does a direct check: if ANY child has stock, parent must be instock.
+ *
+ * @param int $product_id
+ */
+function gh_fix_variable_stock_status( int $product_id ): void {
+    global $wpdb;
+
+    $has_instock = $wpdb->get_var( $wpdb->prepare(
+        "SELECT 1 FROM {$wpdb->postmeta}
+         WHERE post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_parent = %d AND post_type = 'product_variation')
+         AND meta_key = '_stock_status' AND meta_value = 'instock' LIMIT 1",
+        $product_id
+    ) );
+
+    $correct_status = $has_instock ? 'instock' : 'outofstock';
+    $current_status = get_post_meta( $product_id, '_stock_status', true );
+
+    if ( $current_status !== $correct_status ) {
+        update_post_meta( $product_id, '_stock_status', $correct_status );
+
+        // Update the WC lookup table so frontend queries see the correct status
+        if ( function_exists( 'wc_update_product_lookup_tables_column' ) ) {
+            wc_update_product_lookup_tables_column( 'stock_status', [ $product_id ] );
+        }
+    }
 }
 
 /**

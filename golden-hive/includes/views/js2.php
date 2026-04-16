@@ -162,6 +162,20 @@
             drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('dragover'); if (e.dataTransfer.files.length) sfUploadFile(e.dataTransfer.files[0]); });
         }
         sfLoadSettings();
+        sfLoadCached();
+    }
+
+    async function sfLoadCached() {
+        try {
+            const r = await ajax('gh_ajax_fc_load_cached', { config_id: 'stockfirmati' });
+            if (!r.success || !r.data || !r.data.products?.length) return;
+            sfProducts = r.data.products;
+            document.getElementById('sf-csv-rows').textContent = r.data.csv_rows || '?';
+            const age = r.data.fetched_at || '';
+            toast(r.data.products.length + ' prodotti (cache' + (age ? ' ' + age : '') + ')', 'inf', 3000);
+            const dr = await ajax('gh_ajax_fc_preview', { products: JSON.stringify(sfProducts), config_id: 'stockfirmati', markup: sfGetMarkup() });
+            if (dr.success) sfRenderPreview(dr.data);
+        } catch (e) { /* silent — no cached data is fine */ }
     }
 
     async function sfFetch() {

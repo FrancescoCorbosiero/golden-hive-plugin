@@ -219,11 +219,16 @@ function gh_fc_transform_one( array $product, array $config ): array {
     $reg_price  = gh_fc_resolve_price( $pc['regular_price'] ?? null, $row );
     $sale_price = gh_fc_resolve_price( $pc['sale_price'] ?? null, $row );
 
-    // Price logic: if sale >= regular, drop the sale
+    // Price logic: ensure regular > sale so a discount is always visible.
+    // If sale >= regular (markup exceeds street price), derive regular from sale.
     $price_logic = $pc['price_logic'] ?? '';
-    if ( $price_logic === 'sale_below_regular' && $sale_price >= $reg_price && $reg_price > 0 ) {
-        $reg_price  = $sale_price;
-        $sale_price = 0;
+    if ( $price_logic === 'sale_below_regular' && $sale_price > 0 ) {
+        $min_regular = round( $sale_price * 1.3 );
+        if ( $reg_price <= $sale_price ) {
+            $reg_price = $min_regular;
+        } else {
+            $reg_price = max( $reg_price, $min_regular );
+        }
     }
 
     $woo = [
@@ -272,9 +277,13 @@ function gh_fc_transform_one( array $product, array $config ): array {
             // Per-variation price
             if ( ! empty( $vc['per_variation_price'] ) && isset( $sz['_raw_price'] ) && $sz['_raw_price'] > 0 ) {
                 $var_sale = gh_fc_apply_transforms( $sz['_raw_price'], $pc['sale_price']['transforms'] ?? [] );
-                if ( $price_logic === 'sale_below_regular' && $var_sale >= $var_reg && $var_reg > 0 ) {
-                    $var_reg  = $var_sale;
-                    $var_sale = 0;
+                if ( $price_logic === 'sale_below_regular' && $var_sale > 0 ) {
+                    $min_reg = round( $var_sale * 1.3 );
+                    if ( $var_reg <= $var_sale ) {
+                        $var_reg = $min_reg;
+                    } else {
+                        $var_reg = max( $var_reg, $min_reg );
+                    }
                 }
             }
 

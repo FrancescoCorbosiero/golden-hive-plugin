@@ -186,6 +186,13 @@ add_action( 'wp_ajax_gh_ajax_fc_fetch', function () {
 
     $products = gh_fc_normalize( $rows, $config );
 
+    // Persist fetched data so the user doesn't have to re-fetch
+    set_transient( 'gh_fc_last_fetch_' . $config_id, [
+        'products'      => $products,
+        'csv_rows'      => count( $rows ),
+        'fetched_at'    => current_time( 'mysql' ),
+    ], 24 * HOUR_IN_SECONDS );
+
     wp_send_json_success( [
         'config'        => $config['name'] ?? $config_id,
         'csv_rows'      => count( $rows ),
@@ -214,12 +221,32 @@ add_action( 'wp_ajax_gh_ajax_fc_upload', function () {
 
     $products = gh_fc_normalize( $rows, $config );
 
+    set_transient( 'gh_fc_last_fetch_' . $config_id, [
+        'products'      => $products,
+        'csv_rows'      => count( $rows ),
+        'fetched_at'    => current_time( 'mysql' ),
+    ], 24 * HOUR_IN_SECONDS );
+
     wp_send_json_success( [
         'config'        => $config['name'] ?? $config_id,
         'csv_rows'      => count( $rows ),
         'product_count' => count( $products ),
         'products'      => $products,
     ] );
+} );
+
+// ── CONFIG ENGINE: Load cached fetch ──────────────────────
+add_action( 'wp_ajax_gh_ajax_fc_load_cached', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $config_id = sanitize_text_field( $_POST['config_id'] ?? '' );
+    if ( ! $config_id ) { wp_send_json_error( 'Config ID mancante.' ); }
+
+    $cached = get_transient( 'gh_fc_last_fetch_' . $config_id );
+    if ( ! $cached ) { wp_send_json_success( null ); }
+
+    wp_send_json_success( $cached );
 } );
 
 // ── CONFIG ENGINE: Preview (transform + diff) ──────────────

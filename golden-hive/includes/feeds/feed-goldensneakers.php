@@ -369,20 +369,18 @@ function rp_rc_gs_apply( array $diff, array $options = [] ): array {
 
     $results = [];
 
-    // Crea nuovi
-    if ( $create_new ) {
-        foreach ( $diff['new'] as $product ) {
-            $result = rp_rc_gs_create_product( $product, $sideload );
-            $results[] = $result;
-        }
+    if ( $create_new && ! empty( $diff['new'] ) ) {
+        $results = array_merge( $results, gh_fc_batch_with_retry(
+            $diff['new'],
+            fn( $p ) => rp_rc_gs_create_product( $p, $sideload )
+        ) );
     }
 
-    // Aggiorna esistenti
-    if ( $update_existing ) {
-        foreach ( $diff['update'] as $product ) {
-            $result = rp_rc_gs_update_product( $product );
-            $results[] = $result;
-        }
+    if ( $update_existing && ! empty( $diff['update'] ) ) {
+        $results = array_merge( $results, gh_fc_batch_with_retry(
+            $diff['update'],
+            fn( $p ) => rp_rc_gs_update_product( $p )
+        ) );
     }
 
     $created = count( array_filter( $results, fn( $r ) => $r['action'] === 'created' ) );

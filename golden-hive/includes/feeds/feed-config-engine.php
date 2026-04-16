@@ -654,6 +654,54 @@ function gh_fc_override_markup( array $config, float $markup ): array {
     return $config;
 }
 
+// ── Retry with binary split ──────────────────────────────
+
+/**
+ * Processes a batch of products with retry-on-failure using binary split.
+ *
+ * When a product fails (timeout/fatal), the batch is split in half and
+ * each half is retried with exponential backoff. Max 3 retry levels
+ * (25 → 12+13 → 6+7). Single-product failures are logged and skipped.
+ *
+ * Adapted from woo-importer WooCommerceImporter::executeBatchWithRetry().
+ *
+ * @param array    $items       Products to process.
+ * @param callable $process_fn  fn(array $product): array — returns result row.
+ * @param int      $retry_depth Current recursion depth (0-based).
+ * @return array Result rows.
+ */
+function gh_fc_batch_with_retry( array $items, callable $process_fn, int $retry_depth = 0 ): array {
+    $results = [];
+
+    foreach ( $items as $i => $product ) {
+        try {
+            $results[] = $process_fn( $product );
+        } catch ( \Throwable $e ) {
+            $remaining = array_slice( $items, $i );
+
+            if ( $retry_depth < 3 && count( $remaining ) > 1 ) {
+                $half = (int) ceil( count( $remaining ) / 2 );
+                sleep( min( (int) pow( 2, $retry_depth + 1 ), 8 ) );
+                $results = array_merge(
+                    $results,
+                    gh_fc_batch_with_retry( array_slice( $remaining, 0, $half ), $process_fn, $retry_depth + 1 ),
+                    gh_fc_batch_with_retry( array_slice( $remaining, $half ), $process_fn, $retry_depth + 1 )
+                );
+            } else {
+                $results[] = [
+                    'action' => 'error',
+                    'sku'    => $product['sku'] ?? '',
+                    'name'   => $product['name'] ?? '?',
+                    'reason' => $e->getMessage(),
+                ];
+            }
+            break;
+        }
+    }
+
+    return $results;
+}
+
 /**
  * Cleans a CSV value.
  */

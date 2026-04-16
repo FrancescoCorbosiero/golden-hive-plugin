@@ -386,13 +386,15 @@
 
                 if (!r.success) {
                     toast('Errore al batch ' + done + ': ' + (r.data || 'timeout'), 'err');
-                    break;
+                    totErrors++;
+                    continue;
                 }
 
                 allDetails = allDetails.concat(r.data.details || []);
                 totCreated += r.data.summary?.created || 0;
                 totUpdated += r.data.summary?.updated || 0;
                 totErrors  += r.data.summary?.errors || 0;
+                if (r.data.partial) toast('Batch ' + done + ': completamento parziale', 'inf');
             }
 
             // Render combined results

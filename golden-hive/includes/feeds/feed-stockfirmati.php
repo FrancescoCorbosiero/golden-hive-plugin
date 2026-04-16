@@ -253,16 +253,18 @@ function gh_sf_apply( array $diff, array $options = [] ): array {
 
     $results = [];
 
-    if ( $create_new ) {
-        foreach ( $diff['new'] as $product ) {
-            $results[] = gh_sf_create_product( $product, $sideload );
-        }
+    if ( $create_new && ! empty( $diff['new'] ) ) {
+        $results = array_merge( $results, gh_fc_batch_with_retry(
+            $diff['new'],
+            fn( $p ) => gh_sf_create_product( $p, $sideload )
+        ) );
     }
 
-    if ( $update_existing ) {
-        foreach ( $diff['update'] as $product ) {
-            $results[] = gh_sf_update_product( $product );
-        }
+    if ( $update_existing && ! empty( $diff['update'] ) ) {
+        $results = array_merge( $results, gh_fc_batch_with_retry(
+            $diff['update'],
+            fn( $p ) => gh_sf_update_product( $p )
+        ) );
     }
 
     $created = count( array_filter( $results, fn( $r ) => $r['action'] === 'created' ) );

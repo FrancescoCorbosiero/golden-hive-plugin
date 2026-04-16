@@ -295,28 +295,17 @@ add_action( 'wp_ajax_gh_ajax_fc_apply', function () {
     $sideload = $options['sideload_images'] ?? false;
     $results  = [];
 
-    try {
-        if ( $create ) {
-            foreach ( $diff['new'] as $p ) {
-                $results[] = gh_fc_create_product( $p, $sideload );
-            }
-        }
-        if ( $update ) {
-            foreach ( $diff['update'] as $p ) {
-                $results[] = gh_csv_update_product( $p );
-            }
-        }
-    } catch ( \Throwable $e ) {
-        // Ritorna i risultati parziali + l'errore
-        wp_send_json_success( [
-            'summary' => [
-                'created' => count( array_filter( $results, fn( $r ) => $r['action'] === 'created' ) ),
-                'updated' => count( array_filter( $results, fn( $r ) => $r['action'] === 'updated' ) ),
-                'errors'  => count( array_filter( $results, fn( $r ) => $r['action'] === 'error' ) ) + 1,
-            ],
-            'details' => array_merge( $results, [ [ 'action' => 'error', 'sku' => '', 'name' => 'FATAL', 'reason' => $e->getMessage() ] ] ),
-            'partial' => true,
-        ] );
+    if ( $create && ! empty( $diff['new'] ) ) {
+        $results = array_merge( $results, gh_fc_batch_with_retry(
+            $diff['new'],
+            fn( $p ) => gh_fc_create_product( $p, $sideload )
+        ) );
+    }
+    if ( $update && ! empty( $diff['update'] ) ) {
+        $results = array_merge( $results, gh_fc_batch_with_retry(
+            $diff['update'],
+            fn( $p ) => gh_csv_update_product( $p )
+        ) );
     }
 
     $created = count( array_filter( $results, fn( $r ) => $r['action'] === 'created' ) );

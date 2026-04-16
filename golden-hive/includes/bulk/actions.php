@@ -165,6 +165,11 @@ function gh_get_bulk_action_definitions(): array {
 /**
  * Esegue un'azione bulk su un set di prodotti.
  *
+ * Performance: suspends WC transient rebuilds during the batch, processes
+ * all products, then flushes caches once at the end. For price/stock
+ * actions on variable products, uses direct meta writes instead of loading
+ * each variation through WC CRUD.
+ *
  * @param string $action      Chiave dell'azione (da gh_get_bulk_action_definitions).
  * @param int[]  $product_ids Array di ID prodotto.
  * @param array  $params      Parametri specifici dell'azione.
@@ -186,6 +191,19 @@ function gh_execute_bulk_action( string $action, array $product_ids, array $para
     $success = 0;
     $failed  = 0;
 
+    // Suspend WC transient rebuilds during bulk — rebuild once at the end
+    $suspend_transients = in_array( $action, [
+        'set_sale_percent', 'remove_sale', 'adjust_price', 'markup_percent',
+        'discount_percent', 'set_stock_status', 'set_stock_quantity', 'set_status',
+    ], true );
+
+    if ( $suspend_transients ) {
+        add_filter( 'woocommerce_product_object_updated_props', '__return_empty_array', 999 );
+    }
+
+    // Track variable parents that need sync at the end
+    $parents_to_sync = [];
+
     foreach ( $product_ids as $pid ) {
         $pid = intval( $pid );
         $product = wc_get_product( $pid );
@@ -201,10 +219,30 @@ function gh_execute_bulk_action( string $action, array $product_ids, array $para
         if ( $result === true || $result === 'ok' ) {
             $results[ $pid ] = 'ok';
             $success++;
+            if ( $product->is_type( 'variable' ) ) $parents_to_sync[] = $pid;
         } else {
             $results[ $pid ] = is_wp_error( $result ) ? $result->get_error_message() : (string) $result;
             $failed++;
         }
+
+        // Clear object cache periodically to avoid memory bloat
+        if ( ( $success + $failed ) % 50 === 0 ) {
+            wc_delete_product_transients();
+            wp_cache_flush();
+        }
+    }
+
+    if ( $suspend_transients ) {
+        remove_filter( 'woocommerce_product_object_updated_props', '__return_empty_array', 999 );
+    }
+
+    // Batch-sync all variable parents once at the end
+    foreach ( array_unique( $parents_to_sync ) as $parent_id ) {
+        WC_Product_Variable::sync( $parent_id );
+    }
+
+    if ( $suspend_transients ) {
+        wc_delete_product_transients();
     }
 
     $total = count( $product_ids );
@@ -312,34 +350,33 @@ function gh_remove_product_tags( int $product_id, array $tag_ids ): true|WP_Erro
  */
 function gh_set_product_status( WC_Product $product, string $status ): true {
 
-    $product->set_status( $status );
-    $product->save();
+    wp_update_post( [ 'ID' => $product->get_id(), 'post_status' => $status ] );
+    clean_post_cache( $product->get_id() );
     return true;
 }
 
 /**
  * Imposta sconto percentuale sul prezzo regolare.
  * Applica anche alle varianti per prodotti variabili.
+ * Uses direct meta writes for variations (skip WC CRUD overhead).
  */
 function gh_set_sale_percent( WC_Product $product, float $percent ): true {
 
     if ( $percent <= 0 || $percent >= 100 ) {
-        return true; // Nop
+        return true;
     }
 
     $multiplier = 1 - ( $percent / 100 );
 
     if ( $product->is_type( 'variable' ) ) {
         foreach ( $product->get_children() as $var_id ) {
-            $v = wc_get_product( $var_id );
-            if ( ! $v ) continue;
-            $regular = (float) $v->get_regular_price();
+            $regular = (float) get_post_meta( $var_id, '_regular_price', true );
             if ( $regular > 0 ) {
-                $v->set_sale_price( round( $regular * $multiplier, 2 ) );
-                $v->save();
+                $sale = round( $regular * $multiplier, 2 );
+                update_post_meta( $var_id, '_sale_price', $sale );
+                update_post_meta( $var_id, '_price', $sale );
             }
         }
-        WC_Product_Variable::sync( $product->get_id() );
     } else {
         $regular = (float) $product->get_regular_price();
         if ( $regular > 0 ) {
@@ -358,12 +395,10 @@ function gh_remove_sale( WC_Product $product ): true {
 
     if ( $product->is_type( 'variable' ) ) {
         foreach ( $product->get_children() as $var_id ) {
-            $v = wc_get_product( $var_id );
-            if ( ! $v ) continue;
-            $v->set_sale_price( '' );
-            $v->save();
+            delete_post_meta( $var_id, '_sale_price' );
+            $regular = get_post_meta( $var_id, '_regular_price', true );
+            update_post_meta( $var_id, '_price', $regular );
         }
-        WC_Product_Variable::sync( $product->get_id() );
     } else {
         $product->set_sale_price( '' );
         $product->save();
@@ -379,20 +414,16 @@ function gh_adjust_price( WC_Product $product, float $amount, string $target ): 
 
     if ( abs( $amount ) < 0.01 ) return true;
 
+    $meta_key = $target === 'sale_price' ? '_sale_price' : '_regular_price';
+
     if ( $product->is_type( 'variable' ) ) {
         foreach ( $product->get_children() as $var_id ) {
-            $v = wc_get_product( $var_id );
-            if ( ! $v ) continue;
-            $current = (float) ( $target === 'sale_price' ? $v->get_sale_price() : $v->get_regular_price() );
+            $current = (float) get_post_meta( $var_id, $meta_key, true );
             $new     = max( 0, round( $current + $amount, 2 ) );
-            if ( $target === 'sale_price' ) {
-                $v->set_sale_price( $new > 0 ? $new : '' );
-            } else {
-                $v->set_regular_price( $new );
-            }
-            $v->save();
+            update_post_meta( $var_id, $meta_key, $new > 0 ? $new : '' );
+            $sale = (float) get_post_meta( $var_id, '_sale_price', true );
+            update_post_meta( $var_id, '_price', $sale > 0 ? $sale : get_post_meta( $var_id, '_regular_price', true ) );
         }
-        WC_Product_Variable::sync( $product->get_id() );
     } else {
         $current = (float) ( $target === 'sale_price' ? $product->get_sale_price() : $product->get_regular_price() );
         $new     = max( 0, round( $current + $amount, 2 ) );
@@ -414,12 +445,8 @@ function gh_set_stock_status( WC_Product $product, string $status ): true {
 
     if ( $product->is_type( 'variable' ) ) {
         foreach ( $product->get_children() as $var_id ) {
-            $v = wc_get_product( $var_id );
-            if ( ! $v ) continue;
-            $v->set_stock_status( $status );
-            $v->save();
+            update_post_meta( $var_id, '_stock_status', $status );
         }
-        WC_Product_Variable::sync( $product->get_id() );
     } else {
         $product->set_stock_status( $status );
         $product->save();
@@ -433,20 +460,18 @@ function gh_set_stock_status( WC_Product $product, string $status ): true {
  */
 function gh_set_stock_quantity( WC_Product $product, int $quantity ): true {
 
+    $stock_status = $quantity > 0 ? 'instock' : 'outofstock';
+
     if ( $product->is_type( 'variable' ) ) {
         foreach ( $product->get_children() as $var_id ) {
-            $v = wc_get_product( $var_id );
-            if ( ! $v ) continue;
-            $v->set_manage_stock( true );
-            $v->set_stock_quantity( $quantity );
-            $v->set_stock_status( $quantity > 0 ? 'instock' : 'outofstock' );
-            $v->save();
+            update_post_meta( $var_id, '_manage_stock', 'yes' );
+            update_post_meta( $var_id, '_stock', $quantity );
+            update_post_meta( $var_id, '_stock_status', $stock_status );
         }
-        WC_Product_Variable::sync( $product->get_id() );
     } else {
         $product->set_manage_stock( true );
         $product->set_stock_quantity( $quantity );
-        $product->set_stock_status( $quantity > 0 ? 'instock' : 'outofstock' );
+        $product->set_stock_status( $stock_status );
         $product->save();
     }
 
@@ -558,18 +583,20 @@ function gh_clear_gallery( WC_Product $product ): true {
  */
 function gh_apply_percent_change( WC_Product $product, float $factor, string $target, string $rounding ): true {
 
-    // No-op: factor = 1 significa percent = 0.
     if ( abs( $factor - 1 ) < 0.0001 ) return true;
 
-    $target = $target === 'sale_price' ? 'sale_price' : 'regular_price';
+    $target   = $target === 'sale_price' ? 'sale_price' : 'regular_price';
+    $meta_key = $target === 'sale_price' ? '_sale_price' : '_regular_price';
 
     if ( $product->is_type( 'variable' ) ) {
         foreach ( $product->get_children() as $var_id ) {
-            $v = wc_get_product( $var_id );
-            if ( ! $v ) continue;
-            gh_apply_percent_to_single( $v, $factor, $target, $rounding );
+            $current = (float) get_post_meta( $var_id, $meta_key, true );
+            if ( $current <= 0 ) continue;
+            $new = max( 0, gh_round_price( $current * $factor, $rounding ) );
+            update_post_meta( $var_id, $meta_key, $new > 0 ? $new : '' );
+            $sale = (float) get_post_meta( $var_id, '_sale_price', true );
+            update_post_meta( $var_id, '_price', $sale > 0 ? $sale : get_post_meta( $var_id, '_regular_price', true ) );
         }
-        WC_Product_Variable::sync( $product->get_id() );
     } else {
         gh_apply_percent_to_single( $product, $factor, $target, $rounding );
     }
@@ -587,8 +614,6 @@ function gh_apply_percent_to_single( WC_Product $product, float $factor, string 
         ? $product->get_sale_price()
         : $product->get_regular_price() );
 
-    // Skip se il target e vuoto/zero: evitiamo di sovrascrivere un sale_price
-    // vuoto con uno scritto a zero, e di "creare" un prezzo dal nulla.
     if ( $current <= 0 ) return;
 
     $new = max( 0, gh_round_price( $current * $factor, $rounding ) );

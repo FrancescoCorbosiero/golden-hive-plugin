@@ -22,6 +22,9 @@ add_action( 'wp_ajax_gh_ajax_bulk_execute', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
+    @set_time_limit( 300 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'admin' );
+
     $action = sanitize_key( $_POST['bulk_action'] ?? '' );
     if ( empty( $action ) ) {
         wp_send_json_error( 'Azione bulk mancante.' );

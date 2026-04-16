@@ -173,6 +173,15 @@ function gh_get_condition_definitions(): array {
             'operators'  => [ 'gt', 'lt', 'between', 'is' ],
             'value_type' => 'number_range',
         ],
+
+        // ── IMPORT ─────────────────────────────────────
+        'import_source' => [
+            'label'      => 'Fonte import',
+            'group'      => 'import',
+            'operators'  => [ 'is', 'is_not', 'exists', 'not_exists' ],
+            'value_type' => 'select',
+            'options'    => [ 'stockfirmati', 'goldensneakers', 'config', 'csv' ],
+        ],
     ];
 }
 
@@ -259,6 +268,9 @@ function gh_evaluate_condition( WC_Product $product, array $condition, array &$c
             $operator,
             $value
         ),
+
+        // ── IMPORT ─────────────────────────────────────
+        'import_source' => gh_eval_import_source( $pid, $operator, (string) $value ),
 
         default => true,
     };
@@ -503,4 +515,24 @@ function gh_get_cached_variants( int $product_id, array &$cache ): array {
         $cache['variants'][ $product_id ] = rp_cm_get_product_variants( $product_id );
     }
     return $cache['variants'][ $product_id ];
+}
+
+/**
+ * Evaluates import_source condition against _gh_import_source meta.
+ *
+ * @param int    $product_id
+ * @param string $operator   is|is_not|exists|not_exists
+ * @param string $value      Expected source value.
+ * @return bool
+ */
+function gh_eval_import_source( int $product_id, string $operator, string $value ): bool {
+    $source = get_post_meta( $product_id, '_gh_import_source', true );
+
+    return match ( $operator ) {
+        'is'         => $source === $value,
+        'is_not'     => $source !== $value,
+        'exists'     => $source !== '' && $source !== false,
+        'not_exists' => $source === '' || $source === false,
+        default      => true,
+    };
 }

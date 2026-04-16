@@ -429,6 +429,10 @@ function rp_rc_gs_create_product( array $data, bool $sideload = true ): array {
             rp_rc_gs_sideload_image( $product_id, $data['_gs_image_url'], $data['sku'] ?? '' );
         }
 
+        // Provenance meta
+        update_post_meta( $product_id, '_gh_import_source', 'goldensneakers' );
+        update_post_meta( $product_id, '_gh_import_date', current_time( 'mysql' ) );
+
         return [
             'action' => 'created',
             'id'     => $product_id,

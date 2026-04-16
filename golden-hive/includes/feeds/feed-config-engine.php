@@ -352,6 +352,10 @@ function gh_fc_transform_one( array $product, array $config ): array {
         $woo['_fc_meta'] = $meta;
     }
 
+    // Provenance: config ID as source identifier
+    $woo['_gh_import_source']  = 'config';
+    $woo['_gh_import_feed_id'] = $config['id'] ?? '';
+
     return $woo;
 }
 
@@ -462,6 +466,13 @@ function gh_fc_post_process( int $product_id, array $data, bool $sideload = true
         foreach ( $data['_fc_meta'] as $key => $val ) {
             update_post_meta( $product_id, $key, sanitize_text_field( $val ) );
         }
+    }
+
+    // Provenance meta
+    update_post_meta( $product_id, '_gh_import_source', $data['_gh_import_source'] ?? 'config' );
+    update_post_meta( $product_id, '_gh_import_date', current_time( 'mysql' ) );
+    if ( ! empty( $data['_gh_import_feed_id'] ) ) {
+        update_post_meta( $product_id, '_gh_import_feed_id', $data['_gh_import_feed_id'] );
     }
 
     // Images: prefer pre-imported media map, fallback to sideload if explicitly requested

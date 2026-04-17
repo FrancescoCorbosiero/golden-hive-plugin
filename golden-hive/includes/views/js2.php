@@ -1089,6 +1089,32 @@
         schedLoadLog();
     }
 
+    // ── FEED-SCOPED CLEANUP ─────────────────────────
+    async function feedCleanup(source) {
+        const cr = await ajax('gh_ajax_feed_count', { source });
+        if (!cr.success) { toast('Errore conteggio', 'err'); return; }
+        const count = cr.data.count;
+        if (!count) { toast('Nessun prodotto ' + source + ' da eliminare', 'inf'); return; }
+
+        const answer = prompt(
+            '\u26a0 ATTENZIONE\n\n' +
+            'Stai per eliminare TUTTI i ' + count + ' prodotti importati da "' + source + '" (+ varianti).\n' +
+            'L\'operazione e irreversibile.\n\n' +
+            'Digita "' + source + '" per confermare:'
+        );
+        if (answer !== source) { toast('Annullato', 'inf'); return; }
+
+        toast('Eliminazione in corso...', 'inf', 2000);
+        await acquireWakeLock();
+        try {
+            const r = await ajax('gh_ajax_feed_cleanup', { source, confirm: source });
+            if (!r.success) { toast('Errore: ' + (r.data || ''), 'err'); return; }
+            const d = r.data;
+            toast(d.deleted + ' prodotti + ' + d.variations + ' varianti eliminati', 'ok', 5000);
+        } catch (e) { toast('Errore: ' + (e.message || e), 'err'); }
+        finally { releaseWakeLock(); }
+    }
+
     // ── NUCLEAR CLEANUP ─────────────────────────────
     function nucGetTargets() {
         return {
@@ -1212,5 +1238,5 @@
     initSfFeed();
     initCsvUpload();
 
-    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog,nucPreview,nucExecute};
+    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog,nucPreview,nucExecute,feedCleanup};
 })();

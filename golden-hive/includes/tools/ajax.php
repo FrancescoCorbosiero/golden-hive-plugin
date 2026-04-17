@@ -54,6 +54,41 @@ add_action( 'wp_ajax_gh_ajax_nuclear_step', function () {
     }
 } );
 
+// ── FEED CLEANUP: Count products by source ────────────────
+add_action( 'wp_ajax_gh_ajax_feed_count', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $source = sanitize_key( $_POST['source'] ?? '' );
+    if ( ! $source ) { wp_send_json_error( 'Source mancante.' ); }
+
+    wp_send_json_success( [ 'count' => gh_feed_count_products( $source ) ] );
+} );
+
+// ── FEED CLEANUP: Delete all products from a feed source ──
+add_action( 'wp_ajax_gh_ajax_feed_cleanup', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    @set_time_limit( 300 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'admin' );
+
+    $source  = sanitize_key( $_POST['source'] ?? '' );
+    $confirm = sanitize_text_field( $_POST['confirm'] ?? '' );
+
+    if ( ! $source ) { wp_send_json_error( 'Source mancante.' ); }
+    if ( $confirm !== $source ) {
+        wp_send_json_error( 'Conferma mancante. Digita "' . $source . '" per procedere.' );
+    }
+
+    try {
+        $result = gh_feed_cleanup_products( $source );
+        wp_send_json_success( $result );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Cleanup fallito: ' . $e->getMessage() );
+    }
+} );
+
 // ── NUCLEAR CLEANUP: Media chunk (500 at a time) ──────────
 add_action( 'wp_ajax_gh_ajax_nuclear_media_chunk', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );

@@ -265,6 +265,8 @@ function gh_nuclear_get_whitelisted_ids(): array {
 
 /**
  * Counts products imported from a specific feed source.
+ * Checks _gh_import_source, _feed_source, and the feed's tag as fallbacks
+ * for products imported before provenance tagging was added.
  *
  * @param string $source Feed source key: 'stockfirmati', 'goldensneakers', 'config', 'csv'
  * @return int
@@ -275,14 +277,18 @@ function gh_feed_count_products( string $source ): int {
         "SELECT COUNT(DISTINCT p.ID) FROM {$wpdb->posts} p
          INNER JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
          WHERE p.post_type = 'product'
-         AND pm.meta_key = '_gh_import_source' AND pm.meta_value = %s",
-        $source
+         AND (
+             (pm.meta_key = '_gh_import_source' AND pm.meta_value = %s)
+             OR (pm.meta_key = '_feed_source' AND pm.meta_value = %s)
+         )",
+        $source, $source
     ) );
 }
 
 /**
  * Deletes all products (and their variations) imported from a specific feed source.
  * Uses direct SQL for speed — no wp_delete_post loop.
+ * Checks _gh_import_source, _feed_source, and feed tag as fallbacks.
  *
  * @param string $source Feed source key.
  * @return array { deleted: int, variations: int }
@@ -290,14 +296,38 @@ function gh_feed_count_products( string $source ): int {
 function gh_feed_cleanup_products( string $source ): array {
     global $wpdb;
 
-    // 1. Find parent product IDs tagged with this source
+    // Find parent product IDs tagged with this source via meta OR tag
+    $tag_slug = match( $source ) {
+        'stockfirmati'  => 'stockfirmati',
+        'goldensneakers' => 'super-sale',
+        default          => '',
+    };
+
     $parent_ids = $wpdb->get_col( $wpdb->prepare(
         "SELECT DISTINCT p.ID FROM {$wpdb->posts} p
          INNER JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
          WHERE p.post_type = 'product'
-         AND pm.meta_key = '_gh_import_source' AND pm.meta_value = %s",
-        $source
+         AND (
+             (pm.meta_key = '_gh_import_source' AND pm.meta_value = %s)
+             OR (pm.meta_key = '_feed_source' AND pm.meta_value = %s)
+         )",
+        $source, $source
     ) );
+
+    // Fallback: also find by product_tag if meta didn't catch them all
+    if ( $tag_slug ) {
+        $tag_term = get_term_by( 'slug', $tag_slug, 'product_tag' );
+        if ( $tag_term ) {
+            $tag_ids = $wpdb->get_col( $wpdb->prepare(
+                "SELECT DISTINCT p.ID FROM {$wpdb->posts} p
+                 INNER JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID
+                 WHERE p.post_type = 'product'
+                 AND tr.term_taxonomy_id = %d",
+                $tag_term->term_taxonomy_id
+            ) );
+            $parent_ids = array_values( array_unique( array_merge( $parent_ids, $tag_ids ) ) );
+        }
+    }
 
     if ( empty( $parent_ids ) ) {
         return [ 'deleted' => 0, 'variations' => 0 ];

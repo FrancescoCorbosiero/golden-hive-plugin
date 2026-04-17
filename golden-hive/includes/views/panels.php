@@ -199,6 +199,15 @@
         <button class="btn btn-ghost" id="btn-sf-validate-map" onclick="GH.sfValidateMap()" style="font-size:10px" title="Verifica che tutte le immagini nella mappa esistano ancora"><span class="spin" id="sf-validate-spin" style="display:none"></span> Valida mappa</button>
         <span id="sf-preimport-status" style="font-family:var(--mono);font-size:10px;color:var(--dim)"></span>
         <div class="filter-sep"></div>
+        <div style="display:flex;align-items:center;gap:4px;font-family:var(--mono);font-size:10px;color:var(--dim)">
+            <span>Ricarico:</span>
+            <select id="sf-markup-mode" class="filter-select" style="font-size:10px;min-width:auto;padding:2px 4px" onchange="GH.sfMarkupModeChange()">
+                <option value="none">Nessuno</option>
+                <option value="multiply">Moltiplicatore (&times;)</option>
+                <option value="percent">Percentuale (%)</option>
+            </select>
+            <input id="sf-markup-value" class="cfg-input" type="number" step="0.1" min="0" value="" placeholder="es: 3.5" style="width:70px;font-size:10px;display:none" />
+        </div>
         <button class="btn btn-ghost" onclick="GH.sfCancel()">Annulla</button>
         <button class="btn btn-warn" id="btn-sf-apply" onclick="GH.sfApply()"><span class="spin" id="sf-apply-spin" style="display:none"></span> 2. Importa Prodotti</button>
         <button class="btn btn-ghost" id="btn-sf-quickpatch" onclick="GH.sfQuickPatch()" style="margin-left:4px" title="Aggiorna solo prezzi e stock dei prodotti esistenti"><span class="spin" id="sf-quickpatch-spin" style="display:none"></span> Quick Update</button>

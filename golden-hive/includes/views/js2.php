@@ -143,6 +143,26 @@
         toast('Impostazioni salvate', 'ok');
     }
 
+    function sfMarkupModeChange() {
+        const mode = document.getElementById('sf-markup-mode').value;
+        const inp = document.getElementById('sf-markup-value');
+        if (mode === 'none') {
+            inp.style.display = 'none'; inp.value = '';
+        } else {
+            inp.style.display = '';
+            inp.placeholder = mode === 'multiply' ? 'es: 3.5' : 'es: 150';
+        }
+    }
+
+    function sfGetImportMarkup() {
+        const mode = document.getElementById('sf-markup-mode').value;
+        const raw = parseFloat(document.getElementById('sf-markup-value').value) || 0;
+        if (mode === 'none' || raw <= 0) return 1;
+        if (mode === 'multiply') return raw;
+        if (mode === 'percent') return 1 + raw / 100;
+        return 1;
+    }
+
     function sfToggleSource() {
         const type = document.getElementById('sf-source-type').value;
         document.getElementById('sf-source-url-row').style.display = type === 'url' ? '' : 'none';
@@ -408,7 +428,7 @@
 
                 const r = await ajax('gh_ajax_fc_apply', {
                     config_id: 'stockfirmati',
-                    markup: 1,
+                    markup: sfGetImportMarkup(),
                     products: JSON.stringify(chunk),
                     options: JSON.stringify(opts),
                 });
@@ -458,7 +478,7 @@
                 const done = Math.min(offset + chunkSize, total);
                 ot.textContent = 'Quick patch ' + done + '/' + total + '...';
                 const r = await ajax('gh_ajax_fc_quick_patch', {
-                    config_id: 'stockfirmati', markup: 1,
+                    config_id: 'stockfirmati', markup: sfGetImportMarkup(),
                     products: JSON.stringify(chunk),
                 });
                 if (!r.success) { toast('Errore: ' + (r.data || ''), 'err'); continue; }
@@ -1235,5 +1255,5 @@
     initSfFeed();
     initCsvUpload();
 
-    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog,nucPreview,nucExecute,feedCleanup};
+    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,sfMarkupModeChange,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog,nucPreview,nucExecute,feedCleanup};
 })();

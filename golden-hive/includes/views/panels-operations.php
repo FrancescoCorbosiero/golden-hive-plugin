@@ -63,9 +63,29 @@
                 <div id="bulk-params" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"></div>
 
                 <button class="btn btn-primary" id="btn-bulk-execute" onclick="GH.executeBulk()" disabled>Applica</button>
+                <div class="filter-sep"></div>
+                <button class="btn btn-ghost" id="btn-bulk-json" onclick="GH.openBulkJson()" style="color:var(--pur)" disabled>{ } JSON Editor</button>
                 <span id="bulk-result" style="font-size:11px;color:var(--grn);"></span>
             </div>
         </div>
+    </div>
+</div>
+
+    <!-- Bulk JSON Editor overlay (inside panel-filter) -->
+    <div id="bulk-json-overlay" style="display:none;position:absolute;inset:0;z-index:50;background:var(--bg);flex-direction:column;overflow:hidden;">
+        <div class="toolbar" style="flex-shrink:0;">
+            <button class="btn btn-ghost" onclick="GH.closeBulkJson()">&larr; Torna ai risultati</button>
+            <div class="filter-sep"></div>
+            <span style="font-family:var(--mono);font-size:11px;color:var(--pur);font-weight:500" id="bjson-title">Bulk JSON Editor</span>
+            <div style="flex:1"></div>
+            <span style="font-family:var(--mono);font-size:10px;color:var(--dim)" id="bjson-status"></span>
+            <button class="btn btn-ghost" onclick="GH.bulkJsonCopy()" style="font-size:10px">Copia</button>
+            <button class="btn btn-ghost" onclick="GH.bulkJsonPaste()" style="font-size:10px">Incolla</button>
+            <button class="btn btn-ghost" onclick="GH.bulkJsonFormat()" style="font-size:10px">Formatta</button>
+            <button class="btn btn-warn" id="btn-bjson-apply" onclick="GH.bulkJsonApply()"><span class="spin" id="bjson-apply-spin" style="display:none"></span> Applica</button>
+        </div>
+        <textarea id="bjson-editor" style="flex:1;width:100%;resize:none;background:var(--s2);color:var(--txt);border:none;padding:16px;font-family:var(--mono);font-size:11px;line-height:1.5;tab-size:2;outline:none;" spellcheck="false" placeholder="[ { ... }, { ... } ]"></textarea>
+        <div id="bjson-result" style="display:none;padding:12px 16px;background:var(--s1);border-top:1px solid var(--b1);flex-shrink:0;max-height:200px;overflow-y:auto;font-family:var(--mono);font-size:11px"></div>
     </div>
 </div>
 

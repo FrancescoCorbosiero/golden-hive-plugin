@@ -199,3 +199,150 @@ add_action( 'wp_ajax_gh_ajax_product_variations_save', function () {
         wp_send_json_error( 'Save fallita: ' . $e->getMessage() );
     }
 } );
+
+// ── BULK JSON LOAD — fetch full payloads for multiple products ─────────────
+
+add_action( 'wp_ajax_gh_ajax_product_bulk_load', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $raw = stripslashes( $_POST['product_ids'] ?? '[]' );
+    $ids = json_decode( $raw, true ) ?: [];
+
+    if ( ! is_array( $ids ) || empty( $ids ) ) {
+        wp_send_json_error( 'Nessun ID fornito.' );
+    }
+
+    $products = [];
+    foreach ( $ids as $id ) {
+        $id   = (int) $id;
+        $data = rp_get_product( $id );
+        if ( isset( $data['error'] ) ) continue;
+
+        $data['brands']       = taxonomy_exists( 'product_brand' )
+            ? wp_get_post_terms( $id, 'product_brand', [ 'fields' => 'names' ] ) : [];
+        $data['category_ids'] = wp_get_post_terms( $id, 'product_cat', [ 'fields' => 'ids' ] );
+        $data['tag_ids']      = wp_get_post_terms( $id, 'product_tag', [ 'fields' => 'ids' ] );
+        $data['brand_ids']    = taxonomy_exists( 'product_brand' )
+            ? wp_get_post_terms( $id, 'product_brand', [ 'fields' => 'ids' ] ) : [];
+
+        if ( wc_get_product( $id )?->is_type( 'variable' ) ) {
+            $data['variations'] = rp_get_product_variations( $id );
+        }
+
+        $products[] = $data;
+    }
+
+    wp_send_json_success( $products );
+} );
+
+// ── BULK JSON UPSERT — update existing by ID/SKU, create new ──────────────
+
+add_action( 'wp_ajax_gh_ajax_product_bulk_upsert', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    @set_time_limit( 300 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'admin' );
+
+    $raw      = stripslashes( $_POST['products'] ?? '[]' );
+    $products = json_decode( $raw, true );
+
+    if ( json_last_error() !== JSON_ERROR_NONE ) {
+        wp_send_json_error( 'JSON non valido: ' . json_last_error_msg() );
+    }
+    if ( ! is_array( $products ) || empty( $products ) ) {
+        wp_send_json_error( 'Array prodotti vuoto.' );
+    }
+
+    $read_only = [ 'type', 'price', 'date_created', 'date_modified', 'permalink', 'categories', 'tags', 'brands', 'attributes', 'gallery', 'featured_image' ];
+
+    $results = [];
+    $updated = 0;
+    $created = 0;
+    $errors  = 0;
+
+    foreach ( $products as $p ) {
+        if ( ! is_array( $p ) ) { $errors++; continue; }
+
+        $payload = $p;
+        foreach ( $read_only as $field ) unset( $payload[ $field ] );
+
+        $product_id = (int) ( $payload['id'] ?? 0 );
+        $sku        = $payload['sku'] ?? '';
+
+        if ( $product_id && wc_get_product( $product_id ) ) {
+            // found by ID
+        } elseif ( $sku ) {
+            $found = wc_get_product_id_by_sku( $sku );
+            if ( $found ) $product_id = $found;
+        }
+
+        try {
+            if ( $product_id ) {
+                unset( $payload['id'] );
+
+                $brand_ids = null;
+                if ( array_key_exists( 'brand_ids', $payload ) ) {
+                    $brand_ids = array_map( 'intval', (array) $payload['brand_ids'] );
+                    unset( $payload['brand_ids'] );
+                }
+
+                $variations = null;
+                if ( array_key_exists( 'variations', $payload ) ) {
+                    $variations = $payload['variations'];
+                    unset( $payload['variations'] );
+                }
+
+                if ( ! empty( $payload ) ) {
+                    $r = rp_update_product( $product_id, $payload );
+                    if ( is_wp_error( $r ) ) {
+                        $results[] = [ 'action' => 'error', 'id' => $product_id, 'sku' => $sku, 'reason' => $r->get_error_message() ];
+                        $errors++;
+                        continue;
+                    }
+                }
+
+                if ( $brand_ids !== null && taxonomy_exists( 'product_brand' ) ) {
+                    wp_set_object_terms( $product_id, $brand_ids, 'product_brand' );
+                }
+
+                if ( $variations !== null ) {
+                    rp_bulk_update_variations( $product_id, $variations );
+                }
+
+                $results[] = [ 'action' => 'updated', 'id' => $product_id, 'sku' => $sku, 'name' => $p['name'] ?? '' ];
+                $updated++;
+            } else {
+                unset( $payload['id'] );
+                $variations = $payload['variations'] ?? null;
+                unset( $payload['variations'] );
+                $brand_ids = $payload['brand_ids'] ?? null;
+                unset( $payload['brand_ids'] );
+
+                $type = $p['type'] ?? 'simple';
+                if ( $type === 'variable' && $variations ) {
+                    $payload['variations'] = $variations;
+                    $new_id = gh_create_variable_product( $payload );
+                } else {
+                    $new_id = gh_create_simple_product( $payload );
+                }
+
+                if ( $brand_ids && taxonomy_exists( 'product_brand' ) ) {
+                    wp_set_object_terms( $new_id, array_map( 'intval', (array) $brand_ids ), 'product_brand' );
+                }
+
+                $results[] = [ 'action' => 'created', 'id' => $new_id, 'sku' => $sku, 'name' => $p['name'] ?? '' ];
+                $created++;
+            }
+        } catch ( \Throwable $e ) {
+            $results[] = [ 'action' => 'error', 'id' => $product_id, 'sku' => $sku, 'reason' => $e->getMessage() ];
+            $errors++;
+        }
+    }
+
+    wp_send_json_success( [
+        'summary' => compact( 'updated', 'created', 'errors' ),
+        'details' => $results,
+    ] );
+} );

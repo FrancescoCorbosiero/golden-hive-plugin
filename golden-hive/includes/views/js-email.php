@@ -331,4 +331,231 @@
         GH.emHistoryLoad();
     };
 
+    // ═══ TEMPLATES ═══════════════════════════════════════════════
+
+    let tplList = [];
+    let tplEditing = null;
+    let tplCtx = {};
+
+    GH.emTplLoad = async function() {
+        const r = await ajax('rp_em_ajax_get_templates');
+        if (!r.success) { toast('Errore', 'err'); return; }
+        tplList = r.data || [];
+        tplRenderList();
+    };
+
+    function tplRenderList() {
+        const area = document.getElementById('em-tpl-list');
+        if (!tplList.length) {
+            area.innerHTML = '<div class="empty-state"><div class="empty-icon">&#9881;</div><div class="empty-text">Nessun template. Crea il primo per iniziare.</div></div>';
+            return;
+        }
+        const catLabels = { general: 'Generale', order: 'Ordine', marketing: 'Marketing', support: 'Supporto' };
+        let h = '<table class="ptable"><thead><tr><th>Nome</th><th>Categoria</th><th>Oggetto</th><th>Modificato</th></tr></thead><tbody>';
+        for (const t of tplList) {
+            h += '<tr style="cursor:pointer" onclick="GH.emTplEdit(\'' + esc(t.id) + '\')">';
+            h += '<td><strong>' + esc(t.name) + '</strong></td>';
+            h += '<td style="font-size:10px">' + esc(catLabels[t.category] || t.category || '') + '</td>';
+            h += '<td style="font-size:10px;color:var(--dim);max-width:300px;overflow:hidden;text-overflow:ellipsis">' + esc(t.subject || '') + '</td>';
+            h += '<td style="font-size:10px;color:var(--dim)">' + esc((t.updated_at || '').substring(0, 10)) + '</td>';
+            h += '</tr>';
+        }
+        h += '</tbody></table>';
+        area.innerHTML = h;
+    }
+
+    GH.emTplNew = function() {
+        tplEditing = null; tplCtx = {};
+        document.getElementById('em-tpl-editor-title').textContent = 'Nuovo Template';
+        document.getElementById('em-tpl-name').value = '';
+        document.getElementById('em-tpl-subject').value = '';
+        document.getElementById('em-tpl-body').value = '';
+        document.getElementById('em-tpl-category').value = 'general';
+        document.getElementById('em-tpl-send-to').value = '';
+        document.getElementById('em-tpl-ctx-order').value = '';
+        document.getElementById('em-tpl-ctx-customer').value = '';
+        document.getElementById('em-tpl-search-results').innerHTML = '';
+        document.getElementById('em-tpl-preview-area').style.display = 'none';
+        document.getElementById('btn-em-tpl-delete').style.display = 'none';
+        document.getElementById('em-tpl-list-view').style.display = 'none';
+        document.getElementById('em-tpl-editor-view').style.display = 'flex';
+        tplLoadPlaceholders();
+    };
+
+    GH.emTplEdit = function(id) {
+        const t = tplList.find(x => x.id === id);
+        if (!t) return;
+        tplEditing = id; tplCtx = {};
+        document.getElementById('em-tpl-editor-title').textContent = t.name;
+        document.getElementById('em-tpl-name').value = t.name || '';
+        document.getElementById('em-tpl-subject').value = t.subject || '';
+        document.getElementById('em-tpl-body').value = t.body || '';
+        document.getElementById('em-tpl-category').value = t.category || 'general';
+        document.getElementById('em-tpl-send-to').value = '';
+        document.getElementById('em-tpl-ctx-order').value = '';
+        document.getElementById('em-tpl-ctx-customer').value = '';
+        document.getElementById('em-tpl-search-results').innerHTML = '';
+        document.getElementById('em-tpl-preview-area').style.display = 'none';
+        document.getElementById('btn-em-tpl-delete').style.display = '';
+        document.getElementById('em-tpl-list-view').style.display = 'none';
+        document.getElementById('em-tpl-editor-view').style.display = 'flex';
+        tplLoadPlaceholders();
+    };
+
+    GH.emTplBackToList = function() {
+        document.getElementById('em-tpl-editor-view').style.display = 'none';
+        document.getElementById('em-tpl-list-view').style.display = '';
+        GH.emTplLoad();
+    };
+
+    GH.emTplSave = async function() {
+        const data = {
+            id:       tplEditing || '',
+            name:     document.getElementById('em-tpl-name').value,
+            subject:  document.getElementById('em-tpl-subject').value,
+            body:     document.getElementById('em-tpl-body').value,
+            category: document.getElementById('em-tpl-category').value,
+        };
+        if (!data.name) { toast('Nome obbligatorio', 'err'); return; }
+        const sp = document.getElementById('em-tpl-save-spin'); sp.style.display = '';
+        try {
+            const r = await ajax('rp_em_ajax_save_template', { template: JSON.stringify(data) });
+            if (!r.success) { toast('Errore: ' + (r.data || ''), 'err'); return; }
+            tplEditing = r.data.id;
+            document.getElementById('em-tpl-editor-title').textContent = data.name;
+            document.getElementById('btn-em-tpl-delete').style.display = '';
+            toast('Template salvato', 'ok');
+        } catch (e) { toast('Errore', 'err'); }
+        finally { sp.style.display = 'none'; }
+    };
+
+    GH.emTplDelete = async function() {
+        if (!tplEditing || !confirm('Eliminare questo template?')) return;
+        const r = await ajax('rp_em_ajax_delete_template', { template_id: tplEditing });
+        if (!r.success) { toast('Errore', 'err'); return; }
+        toast('Eliminato', 'ok');
+        GH.emTplBackToList();
+    };
+
+    async function tplLoadPlaceholders() {
+        const r = await ajax('rp_em_ajax_get_placeholders');
+        if (!r.success) return;
+        const area = document.getElementById('em-tpl-placeholders');
+        let h = '';
+        for (const [group, info] of Object.entries(r.data)) {
+            h += '<div style="width:100%;margin-top:4px;color:var(--dim);font-size:9px;text-transform:uppercase;letter-spacing:.1em">' + esc(info.label) + '</div>';
+            for (const [key, desc] of Object.entries(info.placeholders)) {
+                h += '<button class="btn btn-ghost" style="font-size:10px;padding:2px 6px;border:1px solid var(--b1);border-radius:3px" onclick="GH.emTplInsertPlaceholder(\'' + key + '\')" title="' + esc(desc) + '">{' + key + '}</button>';
+            }
+        }
+        area.innerHTML = h;
+    }
+
+    GH.emTplInsertPlaceholder = function(key) {
+        const ta = document.getElementById('em-tpl-body');
+        const start = ta.selectionStart, end = ta.selectionEnd;
+        const text = '{' + key + '}';
+        ta.value = ta.value.substring(0, start) + text + ta.value.substring(end);
+        ta.focus();
+        ta.selectionStart = ta.selectionEnd = start + text.length;
+    };
+
+    function tplBuildContext() {
+        const ctx = { ...tplCtx };
+        ctx.email = document.getElementById('em-tpl-send-to').value || 'test@example.com';
+        ctx.first_name = ctx.customer_name || 'Test';
+        const orderVal = document.getElementById('em-tpl-ctx-order').value;
+        if (orderVal && /^\d+$/.test(orderVal)) ctx.order_id = parseInt(orderVal);
+        const custVal = document.getElementById('em-tpl-ctx-customer').value;
+        if (custVal && /^\d+$/.test(custVal)) ctx.customer_id = parseInt(custVal);
+        return ctx;
+    }
+
+    GH.emTplPreview = async function() {
+        if (!tplEditing) { await GH.emTplSave(); if (!tplEditing) return; }
+        const sp = document.getElementById('em-tpl-preview-spin'); sp.style.display = '';
+        try {
+            const r = await ajax('rp_em_ajax_render_template', {
+                template_id: tplEditing,
+                context: JSON.stringify(tplBuildContext()),
+            });
+            if (!r.success) { toast('Errore: ' + (r.data || ''), 'err'); return; }
+            document.getElementById('em-tpl-preview-subject').textContent = 'Oggetto: ' + r.data.subject;
+            document.getElementById('em-tpl-preview-body').innerHTML = r.data.body;
+            document.getElementById('em-tpl-preview-area').style.display = '';
+        } catch (e) { toast('Errore', 'err'); }
+        finally { sp.style.display = 'none'; }
+    };
+
+    GH.emTplSend = async function() {
+        const to = document.getElementById('em-tpl-send-to').value;
+        if (!to) { toast('Inserisci email destinatario', 'err'); return; }
+        if (!tplEditing) { await GH.emTplSave(); if (!tplEditing) return; }
+        if (!confirm('Inviare email a ' + to + '?')) return;
+        const sp = document.getElementById('em-tpl-send-spin'); sp.style.display = '';
+        try {
+            const r = await ajax('rp_em_ajax_send_template', {
+                template_id: tplEditing,
+                to: to,
+                context: JSON.stringify(tplBuildContext()),
+            });
+            if (!r.success) { toast('Errore: ' + (r.data || ''), 'err'); return; }
+            toast(r.data.success ? 'Email inviata!' : 'Invio fallito: ' + (r.data.message || ''), r.data.success ? 'ok' : 'err', 5000);
+        } catch (e) { toast('Errore', 'err'); }
+        finally { sp.style.display = 'none'; }
+    };
+
+    GH.emTplSearchOrder = async function() {
+        const q = document.getElementById('em-tpl-ctx-order').value;
+        if (!q) return;
+        const r = await ajax('rp_em_ajax_search_orders', { query: q });
+        if (!r.success || !r.data.length) { document.getElementById('em-tpl-search-results').innerHTML = '<span style="color:var(--red)">Nessun ordine trovato</span>'; return; }
+        let h = '';
+        for (const o of r.data) {
+            h += '<a href="#" onclick="GH.emTplSelectOrder(' + o.id + ');return false" style="color:var(--acc);margin-right:8px">#' + o.number + '</a> ' +
+                 '<span style="color:var(--dim)">' + esc(o.customer) + ' — ' + esc(o.total) + ' — ' + esc(o.date) + '</span><br>';
+        }
+        document.getElementById('em-tpl-search-results').innerHTML = h;
+    };
+
+    GH.emTplSelectOrder = function(id) {
+        document.getElementById('em-tpl-ctx-order').value = id;
+        tplCtx.order_id = id;
+        document.getElementById('em-tpl-search-results').innerHTML = '<span style="color:var(--grn)">Ordine #' + id + ' selezionato</span>';
+    };
+
+    GH.emTplSearchCustomer = async function() {
+        const q = document.getElementById('em-tpl-ctx-customer').value;
+        if (!q) return;
+        const r = await ajax('rp_em_ajax_search_customers', { query: q });
+        if (!r.success || !r.data.length) { document.getElementById('em-tpl-search-results').innerHTML = '<span style="color:var(--red)">Nessun cliente trovato</span>'; return; }
+        let h = '';
+        for (const c of r.data) {
+            h += '<a href="#" onclick="GH.emTplSelectCustomer(' + c.id + ',\'' + esc(c.name) + '\');return false" style="color:var(--acc);margin-right:8px">' + esc(c.name) + '</a> ' +
+                 '<span style="color:var(--dim)">' + esc(c.email) + ' — ' + c.orders + ' ordini — ' + esc(c.spent) + '</span><br>';
+        }
+        document.getElementById('em-tpl-search-results').innerHTML = h;
+    };
+
+    GH.emTplSelectCustomer = function(id, name) {
+        document.getElementById('em-tpl-ctx-customer').value = id;
+        tplCtx.customer_id = id;
+        tplCtx.customer_name = name;
+        document.getElementById('em-tpl-search-results').innerHTML = '<span style="color:var(--grn)">Cliente "' + esc(name) + '" selezionato</span>';
+    };
+
+    GH.emTplUseInCampaign = function() {
+        const subject = document.getElementById('em-tpl-subject').value;
+        const body = document.getElementById('em-tpl-body').value;
+        if (!body) { toast('Template vuoto', 'err'); return; }
+        GH.switchTab('email-campaigns', document.querySelector('[onclick*="email-campaigns"]'));
+        GH.emCampaignsLoad();
+        setTimeout(function() {
+            GH.emCampaignNew();
+            document.getElementById('em-c-subject').value = subject;
+            document.getElementById('em-c-body').value = body;
+            toast('Template caricato nella campagna', 'ok');
+        }, 300);
+    };
+
 })();

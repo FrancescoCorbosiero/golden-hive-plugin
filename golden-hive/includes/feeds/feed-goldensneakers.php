@@ -179,6 +179,16 @@ function rp_rc_gs_transform_to_woo( array $product ): array {
     $has_sizes  = count( $sizes ) > 1 || ( count( $sizes ) === 1 && $sizes[0]['size_eu'] );
     $type       = $has_sizes ? 'variable' : 'simple';
 
+    // Detect category: numeric sizes (38, 42.5) = sneakers, alpha (S, M, XL) = abbigliamento
+    $gs_category = 'sneakers';
+    if ( ! empty( $all_eu ) ) {
+        $alpha_count = 0;
+        foreach ( $all_eu as $sz ) {
+            if ( preg_match( '/^[A-Z]{1,3}(\/[A-Z]{1,3})?$/i', trim( $sz ) ) ) $alpha_count++;
+        }
+        if ( $alpha_count > count( $all_eu ) / 2 ) $gs_category = 'abbigliamento';
+    }
+
     // Pricing: use first size's presented_price as base
     $base_price = $sizes[0]['presented_price'] ?? 0;
     $sale_price = (string) round( $base_price );
@@ -193,6 +203,7 @@ function rp_rc_gs_transform_to_woo( array $product ): array {
         '_gs_model'         => $product['model'],
         '_gs_image_url'     => $product['image_url'],
         '_gs_tag'           => RP_RC_GS_TAG_SLUG,
+        '_gs_category'      => $gs_category,
     ];
 
     if ( $type === 'simple' ) {
@@ -202,14 +213,35 @@ function rp_rc_gs_transform_to_woo( array $product ): array {
         $woo['manage_stock']  = true;
         $woo['stock_quantity'] = $qty;
         $woo['stock_status']  = $qty > 0 ? 'instock' : 'outofstock';
+
+        if ( ! empty( $product['brand'] ) ) {
+            $woo['attributes'] = [
+                'pa_brand' => [
+                    'options'   => [ $product['brand'] ],
+                    'visible'   => true,
+                    'variation' => false,
+                ],
+            ];
+        }
     } else {
-        $woo['attributes'] = [
+        $attrs = [
             'pa_taglia' => [
                 'options'   => array_values( array_unique( $all_eu ) ),
                 'visible'   => true,
                 'variation' => true,
             ],
         ];
+
+        // Brand as a WC filterable attribute (for frontend filter widgets)
+        if ( ! empty( $product['brand'] ) ) {
+            $attrs['pa_brand'] = [
+                'options'   => [ $product['brand'] ],
+                'visible'   => true,
+                'variation' => false,
+            ];
+        }
+
+        $woo['attributes'] = $attrs;
 
         $variations = [];
         foreach ( $sizes as $size ) {
@@ -417,6 +449,11 @@ function rp_rc_gs_create_product( array $data, bool $sideload = true ): array {
         // Brand taxonomy (product_brand)
         if ( ! empty( $data['_gs_brand'] ) ) {
             rp_rc_gs_assign_brand( $product_id, $data['_gs_brand'], $data['_gs_model'] ?? '' );
+        }
+
+        // Category: sneakers or abbigliamento
+        if ( ! empty( $data['_gs_category'] ) ) {
+            rp_rc_gs_assign_category( $product_id, $data['_gs_category'] );
         }
 
         // Tag super-sale
@@ -634,6 +671,33 @@ function rp_rc_gs_assign_brand( int $product_id, string $brand, string $model = 
     }
 
     wp_set_object_terms( $product_id, $term_ids, $taxonomy );
+}
+
+/**
+ * Assigns product category: 'Sneakers' or 'Abbigliamento'.
+ * Creates the term if it doesn't exist.
+ *
+ * @param int    $product_id
+ * @param string $category   'sneakers' or 'abbigliamento'
+ */
+function rp_rc_gs_assign_category( int $product_id, string $category ): void {
+    $labels = [
+        'sneakers'      => 'Sneakers',
+        'abbigliamento' => 'Abbigliamento',
+    ];
+    $name = $labels[ $category ] ?? ucfirst( $category );
+
+    $term = get_term_by( 'slug', sanitize_title( $category ), 'product_cat' );
+    if ( ! $term ) {
+        $result = wp_insert_term( $name, 'product_cat', [ 'slug' => sanitize_title( $category ) ] );
+        $term_id = is_wp_error( $result ) ? 0 : (int) $result['term_id'];
+    } else {
+        $term_id = (int) $term->term_id;
+    }
+
+    if ( $term_id ) {
+        wp_set_object_terms( $product_id, [ $term_id ], 'product_cat' );
+    }
 }
 
 /**

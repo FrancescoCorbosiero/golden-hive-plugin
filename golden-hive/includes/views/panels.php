@@ -115,6 +115,8 @@
             <span class="cfg-label">Formato</span>
             <select class="cfg-select" id="gs-format"><option value="hierarchical">Gerarchico</option><option value="flat">Flat</option></select>
             <button class="btn btn-primary" id="btn-gs-fetch" onclick="GH.gsFetch()"><span class="spin" id="gs-fetch-spin" style="display:none"></span> Fetch</button>
+            <div style="flex:1"></div>
+            <button class="btn btn-ghost" onclick="GH.feedCleanup('goldensneakers')" style="color:var(--red);font-size:10px" title="Elimina tutti i prodotti importati da Golden Sneakers">&#9762; Elimina prodotti GS</button>
         </div>
     </div>
     <div class="stats-bar" id="gs-stats" style="display:none">
@@ -173,6 +175,8 @@
             <div class="filter-sep"></div>
             <label style="font-family:var(--mono);font-size:10px;color:var(--dim);display:flex;align-items:center;gap:4px"><input type="checkbox" id="sf-opt-images" /> Sideload immagini</label>
             <label style="font-family:var(--mono);font-size:10px;color:var(--dim);display:flex;align-items:center;gap:4px"><input type="checkbox" id="sf-opt-draft" /> Importa come bozza</label>
+            <div style="flex:1"></div>
+            <button class="btn btn-ghost" onclick="GH.feedCleanup('stockfirmati')" style="color:var(--red);font-size:10px" title="Elimina tutti i prodotti importati da StockFirmati">&#9762; Elimina prodotti SF</button>
         </div>
     </div>
     <div class="stats-bar" id="sf-stats" style="display:none">

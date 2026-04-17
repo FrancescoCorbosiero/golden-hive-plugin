@@ -262,3 +262,73 @@ function gh_nuclear_get_whitelisted_ids(): array {
     }
     return $ids;
 }
+
+/**
+ * Counts products imported from a specific feed source.
+ *
+ * @param string $source Feed source key: 'stockfirmati', 'goldensneakers', 'config', 'csv'
+ * @return int
+ */
+function gh_feed_count_products( string $source ): int {
+    global $wpdb;
+    return (int) $wpdb->get_var( $wpdb->prepare(
+        "SELECT COUNT(DISTINCT p.ID) FROM {$wpdb->posts} p
+         INNER JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
+         WHERE p.post_type = 'product'
+         AND pm.meta_key = '_gh_import_source' AND pm.meta_value = %s",
+        $source
+    ) );
+}
+
+/**
+ * Deletes all products (and their variations) imported from a specific feed source.
+ * Uses direct SQL for speed — no wp_delete_post loop.
+ *
+ * @param string $source Feed source key.
+ * @return array { deleted: int, variations: int }
+ */
+function gh_feed_cleanup_products( string $source ): array {
+    global $wpdb;
+
+    // 1. Find parent product IDs tagged with this source
+    $parent_ids = $wpdb->get_col( $wpdb->prepare(
+        "SELECT DISTINCT p.ID FROM {$wpdb->posts} p
+         INNER JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
+         WHERE p.post_type = 'product'
+         AND pm.meta_key = '_gh_import_source' AND pm.meta_value = %s",
+        $source
+    ) );
+
+    if ( empty( $parent_ids ) ) {
+        return [ 'deleted' => 0, 'variations' => 0 ];
+    }
+
+    $ids_csv = implode( ',', array_map( 'intval', $parent_ids ) );
+
+    // 2. Find all variation IDs belonging to these parents
+    $var_ids = $wpdb->get_col(
+        "SELECT ID FROM {$wpdb->posts}
+         WHERE post_type = 'product_variation' AND post_parent IN ({$ids_csv})"
+    );
+    $var_count  = count( $var_ids );
+    $all_ids    = array_merge( $parent_ids, $var_ids );
+    $all_csv    = implode( ',', array_map( 'intval', $all_ids ) );
+
+    // 3. Bulk SQL delete — same pattern as nuclear cleanup but scoped
+    $wpdb->query( "DELETE FROM {$wpdb->term_relationships} WHERE object_id IN ({$all_csv})" );
+    $wpdb->query( "DELETE FROM {$wpdb->postmeta} WHERE post_id IN ({$all_csv})" );
+    $wpdb->query( "DELETE FROM {$wpdb->comments} WHERE comment_post_ID IN ({$ids_csv})" );
+    $wpdb->query( "DELETE FROM {$wpdb->posts} WHERE ID IN ({$all_csv})" );
+
+    // 4. Clean up WC lookup table for these products
+    $wpdb->query( "DELETE FROM {$wpdb->prefix}wc_product_meta_lookup WHERE product_id IN ({$all_csv})" );
+
+    // 5. Flush caches
+    wc_delete_product_transients();
+    wp_cache_flush();
+
+    return [
+        'deleted'    => count( $parent_ids ),
+        'variations' => $var_count,
+    ];
+}

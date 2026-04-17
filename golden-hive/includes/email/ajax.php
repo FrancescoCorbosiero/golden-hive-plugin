@@ -279,3 +279,131 @@ add_action( 'wp_ajax_rp_em_ajax_clear_log', function () {
     rp_em_clear_email_log();
     wp_send_json_success( [ 'message' => 'Storico email svuotato.' ] );
 } );
+
+// ═══ TEMPLATES ═════════════════════════════════════════════════════════════════
+
+add_action( 'wp_ajax_rp_em_ajax_get_templates', function () {
+    rp_em_check_nonce();
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    wp_send_json_success( rp_em_get_templates() );
+} );
+
+add_action( 'wp_ajax_rp_em_ajax_save_template', function () {
+    rp_em_check_nonce();
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $raw  = stripslashes( $_POST['template'] ?? '' );
+    $data = json_decode( $raw, true );
+    if ( ! is_array( $data ) ) { wp_send_json_error( 'JSON non valido.' ); }
+
+    $clean = [
+        'id'       => sanitize_text_field( $data['id'] ?? '' ),
+        'name'     => sanitize_text_field( $data['name'] ?? '' ),
+        'subject'  => sanitize_text_field( $data['subject'] ?? '' ),
+        'body'     => wp_kses_post( $data['body'] ?? '' ),
+        'category' => sanitize_key( $data['category'] ?? 'general' ),
+    ];
+
+    if ( ! $clean['name'] ) { wp_send_json_error( 'Nome obbligatorio.' ); }
+
+    $id = rp_em_save_template( $clean );
+    wp_send_json_success( [ 'id' => $id, 'template' => rp_em_get_template( $id ) ] );
+} );
+
+add_action( 'wp_ajax_rp_em_ajax_delete_template', function () {
+    rp_em_check_nonce();
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $id = sanitize_text_field( $_POST['template_id'] ?? '' );
+    if ( ! rp_em_delete_template( $id ) ) { wp_send_json_error( 'Non trovato.' ); }
+    wp_send_json_success( 'Eliminato.' );
+} );
+
+add_action( 'wp_ajax_rp_em_ajax_get_placeholders', function () {
+    rp_em_check_nonce();
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    wp_send_json_success( rp_em_get_placeholder_registry() );
+} );
+
+add_action( 'wp_ajax_rp_em_ajax_render_template', function () {
+    rp_em_check_nonce();
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $template_id = sanitize_text_field( $_POST['template_id'] ?? '' );
+    $raw_ctx     = stripslashes( $_POST['context'] ?? '{}' );
+    $context     = json_decode( $raw_ctx, true ) ?: [];
+
+    $tpl = rp_em_get_template( $template_id );
+    if ( ! $tpl ) { wp_send_json_error( 'Template non trovato.' ); }
+
+    $ctx = [];
+    if ( ! empty( $context['order_id'] ) )    $ctx['order_id']    = (int) $context['order_id'];
+    if ( ! empty( $context['customer_id'] ) ) $ctx['customer_id'] = (int) $context['customer_id'];
+    if ( ! empty( $context['product_id'] ) )  $ctx['product_id']  = (int) $context['product_id'];
+    if ( ! empty( $context['custom'] ) )      $ctx['custom']      = array_map( 'sanitize_text_field', (array) $context['custom'] );
+
+    $ctx['contact'] = (object) [
+        'email'        => sanitize_email( $context['email'] ?? 'test@example.com' ),
+        'display_name' => sanitize_text_field( $context['first_name'] ?? 'Test' ),
+    ];
+
+    $rendered_body    = rp_em_render_template( $tpl['body'] ?? '', $ctx );
+    $rendered_subject = rp_em_render_template( $tpl['subject'] ?? '', $ctx );
+    $placeholders     = rp_em_extract_placeholders( ( $tpl['body'] ?? '' ) . ' ' . ( $tpl['subject'] ?? '' ) );
+
+    wp_send_json_success( [
+        'subject'      => $rendered_subject,
+        'body'         => $rendered_body,
+        'placeholders' => $placeholders,
+    ] );
+} );
+
+add_action( 'wp_ajax_rp_em_ajax_send_template', function () {
+    rp_em_check_nonce();
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $template_id = sanitize_text_field( $_POST['template_id'] ?? '' );
+    $to          = sanitize_email( $_POST['to'] ?? '' );
+    $raw_ctx     = stripslashes( $_POST['context'] ?? '{}' );
+    $context     = json_decode( $raw_ctx, true ) ?: [];
+
+    if ( ! $to || ! is_email( $to ) ) { wp_send_json_error( 'Email destinatario non valida.' ); }
+
+    $tpl = rp_em_get_template( $template_id );
+    if ( ! $tpl ) { wp_send_json_error( 'Template non trovato.' ); }
+
+    $ctx = [];
+    if ( ! empty( $context['order_id'] ) )    $ctx['order_id']    = (int) $context['order_id'];
+    if ( ! empty( $context['customer_id'] ) ) $ctx['customer_id'] = (int) $context['customer_id'];
+    if ( ! empty( $context['product_id'] ) )  $ctx['product_id']  = (int) $context['product_id'];
+    if ( ! empty( $context['custom'] ) )      $ctx['custom']      = array_map( 'sanitize_text_field', (array) $context['custom'] );
+
+    $ctx['contact'] = (object) [
+        'email'        => $to,
+        'display_name' => sanitize_text_field( $context['first_name'] ?? '' ),
+    ];
+
+    $subject = rp_em_render_template( $tpl['subject'] ?? '', $ctx );
+    $body    = rp_em_render_template( $tpl['body'] ?? '', $ctx );
+
+    $result = rp_em_send_test_email( $to, $subject, $body );
+    wp_send_json_success( $result );
+} );
+
+add_action( 'wp_ajax_rp_em_ajax_search_orders', function () {
+    rp_em_check_nonce();
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $query = sanitize_text_field( $_POST['query'] ?? '' );
+    wp_send_json_success( rp_em_search_orders( $query, 10 ) );
+} );
+
+add_action( 'wp_ajax_rp_em_ajax_search_customers', function () {
+    rp_em_check_nonce();
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $query = sanitize_text_field( $_POST['query'] ?? '' );
+    wp_send_json_success( rp_em_search_customers( $query, 10 ) );
+} );

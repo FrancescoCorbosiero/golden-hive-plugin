@@ -1,3 +1,82 @@
+<!-- ═══ EMAIL — TEMPLATES ═══ -->
+<div class="panel" id="panel-email-templates">
+    <!-- Template List View -->
+    <div id="em-tpl-list-view">
+        <div class="toolbar">
+            <span class="filter-label">Email Templates</span>
+            <div class="filter-sep"></div>
+            <button class="btn btn-primary" onclick="GH.emTplNew()">+ Nuovo Template</button>
+            <button class="btn btn-ghost" onclick="GH.emTplLoad()">Aggiorna</button>
+        </div>
+        <div class="preview-wrap" id="em-tpl-list">
+            <div class="empty-state"><div class="empty-icon">&#9881;</div><div class="empty-text">Nessun template. Crea il primo per iniziare.</div></div>
+        </div>
+    </div>
+
+    <!-- Template Editor View -->
+    <div id="em-tpl-editor-view" style="display:none;flex:1;display:none;flex-direction:column;overflow:hidden">
+        <div class="toolbar">
+            <button class="btn btn-ghost" onclick="GH.emTplBackToList()">&larr; Lista</button>
+            <div class="filter-sep"></div>
+            <span class="filter-label" id="em-tpl-editor-title">Nuovo Template</span>
+            <div style="flex:1"></div>
+            <button class="btn btn-ghost" id="btn-em-tpl-delete" onclick="GH.emTplDelete()" style="color:var(--red);display:none">Elimina</button>
+            <button class="btn btn-primary" id="btn-em-tpl-save" onclick="GH.emTplSave()"><span class="spin" id="em-tpl-save-spin" style="display:none"></span> Salva</button>
+        </div>
+        <div style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px">
+            <div class="cfg-row"><span class="cfg-label">Nome</span><input class="cfg-input" id="em-tpl-name" placeholder="Es: Conferma spedizione" /></div>
+            <div class="cfg-row"><span class="cfg-label">Categoria</span>
+                <select class="cfg-select" id="em-tpl-category">
+                    <option value="general">Generale</option>
+                    <option value="order">Ordine</option>
+                    <option value="marketing">Marketing</option>
+                    <option value="support">Supporto</option>
+                </select>
+            </div>
+            <div class="cfg-row"><span class="cfg-label">Oggetto</span><input class="cfg-input" id="em-tpl-subject" placeholder="Es: Il tuo ordine #{order_id} è stato spedito" /></div>
+            <div class="cfg-row em-row-stretch" style="flex:1">
+                <span class="cfg-label">HTML Body</span>
+                <textarea class="cfg-input em-textarea" id="em-tpl-body" style="min-height:250px" placeholder="<h1>Ciao {first_name}!</h1>&#10;&#10;<p>Il tuo ordine #{order_id} è stato spedito.</p>"></textarea>
+            </div>
+
+            <!-- Placeholder Picker -->
+            <div style="border:1px solid var(--b1);border-radius:6px;padding:12px;background:var(--s2)">
+                <div style="font-family:var(--mono);font-size:11px;color:var(--acc);margin-bottom:8px">Placeholder disponibili — clicca per inserire</div>
+                <div id="em-tpl-placeholders" style="display:flex;flex-wrap:wrap;gap:4px;font-family:var(--mono);font-size:10px"></div>
+            </div>
+
+            <!-- Send / Preview Section -->
+            <div style="border:1px solid var(--b1);border-radius:6px;padding:12px;background:var(--s2)">
+                <div style="font-family:var(--mono);font-size:11px;color:var(--acc);margin-bottom:8px">Invia con dati reali</div>
+                <div class="cfg-row" style="flex-wrap:wrap;gap:6px">
+                    <span class="cfg-label" style="min-width:50px">A:</span>
+                    <input class="cfg-input" id="em-tpl-send-to" type="email" placeholder="email@destinatario.com" style="max-width:220px" />
+                    <div class="filter-sep"></div>
+                    <span class="cfg-label" style="min-width:50px">Ordine:</span>
+                    <input class="cfg-input" id="em-tpl-ctx-order" type="text" placeholder="ID o email" style="max-width:140px" />
+                    <button class="btn btn-ghost" onclick="GH.emTplSearchOrder()" style="font-size:10px">Cerca</button>
+                    <div class="filter-sep"></div>
+                    <span class="cfg-label" style="min-width:50px">Cliente:</span>
+                    <input class="cfg-input" id="em-tpl-ctx-customer" type="text" placeholder="ID o email" style="max-width:140px" />
+                    <button class="btn btn-ghost" onclick="GH.emTplSearchCustomer()" style="font-size:10px">Cerca</button>
+                </div>
+                <div id="em-tpl-search-results" style="font-family:var(--mono);font-size:10px;color:var(--dim);padding:4px 0"></div>
+                <div class="cfg-row" style="margin-top:8px;gap:6px">
+                    <button class="btn btn-ghost" onclick="GH.emTplPreview()"><span class="spin" id="em-tpl-preview-spin" style="display:none"></span> Anteprima</button>
+                    <button class="btn btn-warn" onclick="GH.emTplSend()"><span class="spin" id="em-tpl-send-spin" style="display:none"></span> Invia email</button>
+                    <button class="btn btn-ghost" onclick="GH.emTplUseInCampaign()" style="font-size:10px;color:var(--pur)" title="Usa questo template come corpo campagna">Usa in campagna</button>
+                </div>
+            </div>
+
+            <!-- Preview Output -->
+            <div id="em-tpl-preview-area" style="display:none;border:1px solid var(--b1);border-radius:6px;overflow:hidden">
+                <div style="padding:8px 12px;background:var(--s1);font-family:var(--mono);font-size:10px;color:var(--dim)" id="em-tpl-preview-subject"></div>
+                <div id="em-tpl-preview-body" style="padding:16px;background:#fff;color:#333;font-size:13px"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- ═══ EMAIL — TEST ═══ -->
 <div class="panel" id="panel-email-test">
     <div class="toolbar">

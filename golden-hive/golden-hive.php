@@ -87,6 +87,7 @@ require_once GH_DIR . 'includes/email/log.php';
 require_once GH_DIR . 'includes/email/contacts.php';
 require_once GH_DIR . 'includes/email/mailer.php';
 require_once GH_DIR . 'includes/email/campaigns.php';
+require_once GH_DIR . 'includes/email/templates.php';
 require_once GH_DIR . 'includes/email/ajax.php';
 
 // Tools

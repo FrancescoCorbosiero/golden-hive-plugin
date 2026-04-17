@@ -130,18 +130,15 @@
     let sfProducts = null, sfSelected = new Set(), sfDiffData = null, sfAllItems = [];
     let sfPreimportAbort = false;
 
-    function sfGetMarkup() { return parseFloat(document.getElementById('sf-markup').value) || 3.5; }
-
     async function sfLoadSettings() {
         const r = await ajax('gh_ajax_feed_load_settings', { feed_key: 'stockfirmati' });
         if (r.success && r.data) {
             if (r.data.url) document.getElementById('sf-url').value = r.data.url;
-            if (r.data.markup) document.getElementById('sf-markup').value = r.data.markup;
         }
     }
 
     async function sfSaveSettings() {
-        const s = { url: document.getElementById('sf-url').value, markup: sfGetMarkup() };
+        const s = { url: document.getElementById('sf-url').value };
         await ajax('gh_ajax_feed_save_settings', { feed_key: 'stockfirmati', settings: JSON.stringify(s) });
         toast('Impostazioni salvate', 'ok');
     }
@@ -411,7 +408,7 @@
 
                 const r = await ajax('gh_ajax_fc_apply', {
                     config_id: 'stockfirmati',
-                    markup: sfGetMarkup(),
+                    markup: 1,
                     products: JSON.stringify(chunk),
                     options: JSON.stringify(opts),
                 });
@@ -461,7 +458,7 @@
                 const done = Math.min(offset + chunkSize, total);
                 ot.textContent = 'Quick patch ' + done + '/' + total + '...';
                 const r = await ajax('gh_ajax_fc_quick_patch', {
-                    config_id: 'stockfirmati', markup: sfGetMarkup(),
+                    config_id: 'stockfirmati', markup: 1,
                     products: JSON.stringify(chunk),
                 });
                 if (!r.success) { toast('Errore: ' + (r.data || ''), 'err'); continue; }

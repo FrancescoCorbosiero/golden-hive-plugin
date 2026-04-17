@@ -24,6 +24,7 @@ function gh_render_page(): void {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 
+<style>#wpfooter{display:none !important}</style>
 <?php include GH_DIR . 'includes/views/css.php'; ?>
 
 <div id="gh">

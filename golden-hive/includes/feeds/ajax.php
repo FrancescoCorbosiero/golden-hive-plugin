@@ -88,7 +88,10 @@ add_action( 'wp_ajax_rp_rc_ajax_gs_preview', function () {
     $raw      = stripslashes( $_POST['products'] ?? '[]' );
     $products = json_decode( $raw, true ) ?: [];
 
-    $woo_products = rp_rc_gs_transform_all( $products );
+    $price_mode = sanitize_key( $_POST['price_mode'] ?? 'direct' );
+    $sale_mult  = (float) ( $_POST['sale_mult'] ?? 1.3 );
+
+    $woo_products = rp_rc_gs_transform_all( $products, $price_mode, $sale_mult );
     $diff         = rp_rc_gs_diff( $woo_products );
 
     wp_send_json_success( $diff );
@@ -108,7 +111,10 @@ add_action( 'wp_ajax_rp_rc_ajax_gs_apply', function () {
     $raw_opts = stripslashes( $_POST['options'] ?? '{}' );
     $options  = json_decode( $raw_opts, true ) ?: [];
 
-    $woo_products = rp_rc_gs_transform_all( $products );
+    $price_mode = sanitize_key( $options['price_mode'] ?? 'direct' );
+    $sale_mult  = (float) ( $options['sale_mult'] ?? 1.3 );
+
+    $woo_products = rp_rc_gs_transform_all( $products, $price_mode, $sale_mult );
 
     // Propaga import status (draft/publish)
     $import_status = sanitize_key( $options['status'] ?? 'publish' );
@@ -398,7 +404,10 @@ add_action( 'wp_ajax_rp_rc_ajax_gs_quick_patch', function () {
     $raw      = stripslashes( $_POST['products'] ?? '[]' );
     $products = json_decode( $raw, true ) ?: [];
 
-    $woo_products = rp_rc_gs_transform_all( $products );
+    $price_mode = sanitize_key( $_POST['price_mode'] ?? 'direct' );
+    $sale_mult  = (float) ( $_POST['sale_mult'] ?? 1.3 );
+
+    $woo_products = rp_rc_gs_transform_all( $products, $price_mode, $sale_mult );
 
     try {
         $result = gh_fc_quick_patch( $woo_products );

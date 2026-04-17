@@ -172,14 +172,18 @@ function rp_rc_gs_normalize_flat( array $data ): array {
  * @param array $product Prodotto normalizzato da rp_rc_gs_normalize_*.
  * @return array Prodotto nel formato bulk import di rp-catalog-manager.
  */
-function rp_rc_gs_transform_to_woo( array $product ): array {
+/**
+ * @param array  $product    Normalized product.
+ * @param string $price_mode 'direct' = presented→regular (no sale), 'sale' = presented→sale + fake regular.
+ * @param float  $sale_mult  Multiplier for fake regular in 'sale' mode (default 1.3).
+ */
+function rp_rc_gs_transform_to_woo( array $product, string $price_mode = 'direct', float $sale_mult = 1.3 ): array {
 
     $sizes      = $product['sizes'] ?? [];
     $all_eu     = array_column( $sizes, 'size_eu' );
     $has_sizes  = count( $sizes ) > 1 || ( count( $sizes ) === 1 && $sizes[0]['size_eu'] );
     $type       = $has_sizes ? 'variable' : 'simple';
 
-    // Detect category: numeric sizes (38, 42.5) = sneakers, alpha (S, M, XL) = abbigliamento
     $gs_category = 'sneakers';
     if ( ! empty( $all_eu ) ) {
         $alpha_count = 0;
@@ -188,11 +192,6 @@ function rp_rc_gs_transform_to_woo( array $product ): array {
         }
         if ( $alpha_count > count( $all_eu ) / 2 ) $gs_category = 'abbigliamento';
     }
-
-    // Pricing: use first size's presented_price as base
-    $base_price = $sizes[0]['presented_price'] ?? 0;
-    $sale_price = (string) round( $base_price );
-    $reg_price  = (string) round( $base_price * RP_RC_GS_FAKE_PRICE_MULTIPLIER );
 
     $woo = [
         'name'              => $product['name'],
@@ -206,59 +205,54 @@ function rp_rc_gs_transform_to_woo( array $product ): array {
         '_gs_category'      => $gs_category,
     ];
 
-    if ( $type === 'simple' ) {
-        $woo['regular_price'] = $reg_price;
-        $woo['sale_price']    = $sale_price;
-        $qty                  = $sizes[0]['available_quantity'] ?? 0;
-        $woo['manage_stock']  = true;
-        $woo['stock_quantity'] = $qty;
-        $woo['stock_status']  = $qty > 0 ? 'instock' : 'outofstock';
+    $brand_attr = ! empty( $product['brand'] ) ? [
+        'pa_brand' => [ 'options' => [ $product['brand'] ], 'visible' => true, 'variation' => false ],
+    ] : [];
 
-        if ( ! empty( $product['brand'] ) ) {
-            $woo['attributes'] = [
-                'pa_brand' => [
-                    'options'   => [ $product['brand'] ],
-                    'visible'   => true,
-                    'variation' => false,
-                ],
-            ];
+    if ( $type === 'simple' ) {
+        $base = $sizes[0]['presented_price'] ?? 0;
+        if ( $price_mode === 'sale' ) {
+            $woo['sale_price']    = (string) round( $base );
+            $woo['regular_price'] = (string) round( $base * $sale_mult );
+        } else {
+            $woo['regular_price'] = (string) round( $base );
+            $woo['sale_price']    = '';
         }
+        $qty = $sizes[0]['available_quantity'] ?? 0;
+        $woo['manage_stock']   = true;
+        $woo['stock_quantity'] = $qty;
+        $woo['stock_status']   = $qty > 0 ? 'instock' : 'outofstock';
+
+        if ( $brand_attr ) $woo['attributes'] = $brand_attr;
     } else {
         $attrs = [
-            'pa_taglia' => [
-                'options'   => array_values( array_unique( $all_eu ) ),
-                'visible'   => true,
-                'variation' => true,
-            ],
-        ];
-
-        // Brand as a WC filterable attribute (for frontend filter widgets)
-        if ( ! empty( $product['brand'] ) ) {
-            $attrs['pa_brand'] = [
-                'options'   => [ $product['brand'] ],
-                'visible'   => true,
-                'variation' => false,
-            ];
-        }
-
+            'pa_taglia' => [ 'options' => array_values( array_unique( $all_eu ) ), 'visible' => true, 'variation' => true ],
+        ] + $brand_attr;
         $woo['attributes'] = $attrs;
 
         $variations = [];
         foreach ( $sizes as $size ) {
-            $sp  = (string) round( $size['presented_price'] );
-            $rp  = (string) round( $size['presented_price'] * RP_RC_GS_FAKE_PRICE_MULTIPLIER );
+            $pp  = $size['presented_price'];
             $qty = $size['available_quantity'];
 
-            $variations[] = [
+            $var = [
                 'attributes'     => [ 'pa_taglia' => $size['size_eu'] ],
                 'sku'            => $product['sku'] . '-EU' . $size['size_eu'],
-                'regular_price'  => $rp,
-                'sale_price'     => $sp,
                 'manage_stock'   => true,
                 'stock_quantity' => $qty,
                 'stock_status'   => $qty > 0 ? 'instock' : 'outofstock',
                 'status'         => 'publish',
             ];
+
+            if ( $price_mode === 'sale' ) {
+                $var['sale_price']    = (string) round( $pp );
+                $var['regular_price'] = (string) round( $pp * $sale_mult );
+            } else {
+                $var['regular_price'] = (string) round( $pp );
+                $var['sale_price']    = '';
+            }
+
+            $variations[] = $var;
         }
         $woo['variations'] = $variations;
     }
@@ -272,9 +266,12 @@ function rp_rc_gs_transform_to_woo( array $product ): array {
  * @param array $products Array di prodotti normalizzati.
  * @return array Array di prodotti nel formato WooCommerce.
  */
-function rp_rc_gs_transform_all( array $products ): array {
+function rp_rc_gs_transform_all( array $products, string $price_mode = 'direct', float $sale_mult = 1.3 ): array {
 
-    return array_map( 'rp_rc_gs_transform_to_woo', $products );
+    return array_map(
+        fn( $p ) => rp_rc_gs_transform_to_woo( $p, $price_mode, $sale_mult ),
+        $products
+    );
 }
 
 // ── Diff against WooCommerce ────────────────────────────────

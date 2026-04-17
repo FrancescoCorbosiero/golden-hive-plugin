@@ -135,6 +135,15 @@
     <div class="preview-wrap" id="gs-preview"><div class="empty-state"><div class="empty-icon">&#9733;</div><div class="empty-text">Configura l'endpoint Golden Sneakers</div></div></div>
     <div class="confirm-bar" id="gs-confirm" style="display:none">
         <div class="summary-text" id="gs-confirm-text"></div>
+        <div style="display:flex;align-items:center;gap:4px;font-family:var(--mono);font-size:10px;color:var(--dim)">
+            <span>Prezzo:</span>
+            <select id="gs-price-mode" class="filter-select" style="font-size:10px;min-width:auto;padding:2px 4px" onchange="GH.gsPriceModeChange()">
+                <option value="direct">Diretto (presented = regular)</option>
+                <option value="sale">Scontato (presented = sale)</option>
+            </select>
+            <input id="gs-sale-multiplier" class="cfg-input" type="number" step="0.1" min="1.01" value="1.3" placeholder="×1.3" style="width:60px;font-size:10px;display:none" title="Moltiplicatore per regular_price fittizio" />
+        </div>
+        <div class="filter-sep"></div>
         <label style="font-family:var(--mono);font-size:10px;color:var(--dim);display:flex;align-items:center;gap:4px"><input type="checkbox" id="gs-opt-images" checked /> Sideload img</label>
         <label style="font-family:var(--mono);font-size:10px;color:var(--dim);display:flex;align-items:center;gap:4px"><input type="checkbox" id="gs-opt-draft" /> Bozza</label>
         <button class="btn btn-ghost" onclick="GH.gsCancel()">Annulla</button>

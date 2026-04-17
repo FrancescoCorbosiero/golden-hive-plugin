@@ -133,10 +133,9 @@ function gh_sf_transform_to_woo( array $product ): array {
 
     // Calcolo prezzi:
     // sale_price = PRICE × moltiplicatore (prezzo di vendita)
-    // regular_price = max(STREET_PRICE, sale_price × 1.3) — sempre sconto visibile
+    // regular_price = STREET_PRICE (pass-through dal CSV)
     $sale_price = round( $cost_price * GH_SF_PRICE_MULTIPLIER );
-    $min_reg    = round( $sale_price * 1.3 );
-    $reg_price  = max( round( $street_price ), $min_reg );
+    $reg_price  = round( $street_price );
 
     // Nome: usa titolo ITA se disponibile, altrimenti componi da brand + model
     $name = $product['name'] ?: ( $product['brand'] . ' ' . $product['model_name'] );
@@ -183,8 +182,7 @@ function gh_sf_transform_to_woo( array $product ): array {
         foreach ( $sizes as $size ) {
             $var_cost       = $size['price'] ?: $cost_price;
             $var_sale_price = round( $var_cost * GH_SF_PRICE_MULTIPLIER );
-            $var_min_reg    = round( $var_sale_price * 1.3 );
-            $var_reg_price  = max( round( $street_price ), $var_min_reg );
+            $var_reg_price  = round( $street_price );
 
             $var_sku = $product['sku'] . '-' . sanitize_title( $size['size'] );
             $qty     = $size['quantity'];

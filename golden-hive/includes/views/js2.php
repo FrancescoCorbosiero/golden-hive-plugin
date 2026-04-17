@@ -1133,33 +1133,70 @@
     }
 
     async function nucExecute() {
-        const confirm = (document.getElementById('nuc-confirm-input').value || '').trim().toUpperCase();
-        if (confirm !== 'NUCLEAR') { toast('Digita NUCLEAR per confermare', 'err'); return; }
+        const confirmVal = (document.getElementById('nuc-confirm-input').value || '').trim().toUpperCase();
+        if (confirmVal !== 'NUCLEAR') { toast('Digita NUCLEAR per confermare', 'err'); return; }
         const targets = nucGetTargets();
         const ov = document.getElementById('nuc-overlay'), ot = document.getElementById('nuc-overlay-text');
         const btn = document.getElementById('btn-nuc-execute'), sp = document.getElementById('nuc-exec-spin');
+        const area = document.getElementById('nuc-preview-area');
         ov.classList.add('visible'); btn.disabled = true; sp.style.display = '';
-        ot.textContent = 'Eliminazione in corso... non chiudere la pagina';
-        try {
-            const r = await ajax('gh_ajax_nuclear_execute', {
-                targets: JSON.stringify(targets),
-                confirm: 'NUCLEAR',
-            });
-            if (!r.success) { toast('Errore: ' + (r.data || ''), 'err'); return; }
-            const d = r.data;
-            const area = document.getElementById('nuc-preview-area');
-            let h = '<div style="font-family:var(--mono);font-size:12px;color:var(--grn);margin:12px 0">&#10003; Cleanup completato</div>';
-            h += '<table class="ptable"><thead><tr><th>Categoria</th><th>Eliminati</th></tr></thead><tbody>';
-            for (const [key, val] of Object.entries(d)) {
-                const n = typeof val === 'number' ? val : (val.deleted ?? val.postmeta ?? JSON.stringify(val));
-                h += '<tr><td>' + esc(key) + '</td><td class="red" style="font-family:var(--mono)">' + n + '</td></tr>';
+
+        const steps = [];
+        if (targets.products)    steps.push({ key: 'products',    label: 'Prodotti' });
+        if (targets.media)       steps.push({ key: 'media',       label: 'Media' });
+        if (targets.transients)  steps.push({ key: 'transients',  label: 'Transients' });
+        if (targets.taxonomy)    steps.push({ key: 'taxonomy',    label: 'Tassonomie' });
+        if (targets.orphan_meta) steps.push({ key: 'orphan_meta', label: 'Dati orfani' });
+
+        const results = {};
+        let errors = 0;
+
+        for (let i = 0; i < steps.length; i++) {
+            const step = steps[i];
+            ot.textContent = '(' + (i + 1) + '/' + steps.length + ') ' + step.label + '...';
+
+            try {
+                if (step.key === 'media') {
+                    let totalDeleted = 0;
+                    let round = 0;
+                    while (true) {
+                        round++;
+                        ot.textContent = '(' + (i + 1) + '/' + steps.length + ') Media — batch ' + round + ' (' + totalDeleted + ' eliminati)...';
+                        const r = await ajax('gh_ajax_nuclear_media_chunk', { confirm: 'NUCLEAR' });
+                        if (!r.success) { toast('Errore media batch ' + round + ': ' + (r.data || ''), 'err'); errors++; break; }
+                        totalDeleted += r.data.deleted || 0;
+                        if (r.data.done) break;
+                    }
+                    results.media = totalDeleted;
+                } else {
+                    const r = await ajax('gh_ajax_nuclear_step', { step: step.key, confirm: 'NUCLEAR' });
+                    if (!r.success) {
+                        toast('Errore ' + step.label + ': ' + (r.data || ''), 'err');
+                        results[step.key] = 'ERRORE';
+                        errors++;
+                    } else {
+                        results[step.key] = r.data.result;
+                    }
+                }
+            } catch (e) {
+                toast('Errore ' + step.label + ': ' + (e.message || 'timeout'), 'err');
+                results[step.key] = 'ERRORE';
+                errors++;
             }
-            h += '</tbody></table>';
-            area.innerHTML = h;
-            document.getElementById('nuc-confirm').style.display = 'none';
-            toast('Cleanup completato', 'ok', 5000);
-        } catch (e) { toast('Errore: ' + (e.message || e), 'err'); }
-        finally { ov.classList.remove('visible'); btn.disabled = false; sp.style.display = 'none'; }
+        }
+
+        let h = '<div style="font-family:var(--mono);font-size:12px;color:' + (errors ? 'var(--amb)' : 'var(--grn)') + ';margin:12px 0">&#10003; Cleanup ' + (errors ? 'completato con ' + errors + ' errori' : 'completato') + '</div>';
+        h += '<table class="ptable"><thead><tr><th>Categoria</th><th>Eliminati</th></tr></thead><tbody>';
+        for (const [key, val] of Object.entries(results)) {
+            const isErr = val === 'ERRORE';
+            const n = typeof val === 'number' ? val : (typeof val === 'object' ? (val.deleted ?? val.postmeta ?? JSON.stringify(val)) : val);
+            h += '<tr><td>' + esc(key) + '</td><td class="' + (isErr ? 'amber' : 'red') + '" style="font-family:var(--mono)">' + n + '</td></tr>';
+        }
+        h += '</tbody></table>';
+        area.innerHTML = h;
+        document.getElementById('nuc-confirm').style.display = 'none';
+        ov.classList.remove('visible'); btn.disabled = false; sp.style.display = 'none';
+        toast('Cleanup ' + (errors ? 'parziale' : 'completato'), errors ? 'err' : 'ok', 5000);
     }
 
     // ── INIT

@@ -159,6 +159,8 @@
         if (el) el.textContent = selectedIds.size > 0 ? selectedIds.size + ' selezionati' : '';
         const btn = document.getElementById('btn-bulk-execute');
         if (btn) btn.disabled = selectedIds.size === 0 || !document.getElementById('bulk-action-select').value;
+        const bjson = document.getElementById('btn-bulk-json');
+        if (bjson) bjson.disabled = selectedIds.size === 0;
     }
     function getSelectedIds() { return Array.from(selectedIds); }
 
@@ -494,6 +496,101 @@
         html += '</table>';
         area.innerHTML = html;
     }
+
+    // ── BULK JSON EDITOR ────────────────────────────────────────
+
+    GH.openBulkJson = async function() {
+        const ids = getSelectedIds();
+        if (!ids.length) { GH.toast('Seleziona almeno un prodotto.','err'); return; }
+        const overlay = document.getElementById('bulk-json-overlay');
+        const editor = document.getElementById('bjson-editor');
+        const status = document.getElementById('bjson-status');
+        const result = document.getElementById('bjson-result');
+        overlay.style.display = 'flex';
+        editor.value = '';
+        result.style.display = 'none';
+        status.textContent = 'Caricamento ' + ids.length + ' prodotti...';
+        try {
+            const r = await GH.ajax('gh_ajax_product_bulk_load', { product_ids: JSON.stringify(ids) });
+            if (!r.success) { GH.toast('Errore: ' + (r.data || ''), 'err'); return; }
+            editor.value = JSON.stringify(r.data, null, 2);
+            status.textContent = r.data.length + ' prodotti caricati';
+            document.getElementById('bjson-title').textContent = 'Bulk JSON Editor — ' + r.data.length + ' prodotti';
+        } catch (e) { GH.toast('Errore caricamento', 'err'); }
+    };
+
+    GH.closeBulkJson = function() {
+        document.getElementById('bulk-json-overlay').style.display = 'none';
+    };
+
+    GH.bulkJsonCopy = function() {
+        const editor = document.getElementById('bjson-editor');
+        navigator.clipboard.writeText(editor.value).then(
+            function() { GH.toast('Copiato', 'ok'); },
+            function() { editor.select(); document.execCommand('copy'); GH.toast('Copiato', 'ok'); }
+        );
+    };
+
+    GH.bulkJsonPaste = async function() {
+        try {
+            const text = await navigator.clipboard.readText();
+            document.getElementById('bjson-editor').value = text;
+            GH.toast('Incollato', 'ok');
+        } catch (e) { GH.toast('Usa Ctrl+V per incollare', 'inf'); }
+    };
+
+    GH.bulkJsonFormat = function() {
+        const editor = document.getElementById('bjson-editor');
+        try {
+            const parsed = JSON.parse(editor.value);
+            editor.value = JSON.stringify(parsed, null, 2);
+            const count = Array.isArray(parsed) ? parsed.length : 1;
+            document.getElementById('bjson-status').textContent = count + ' prodotti — JSON valido';
+        } catch (e) {
+            GH.toast('JSON non valido: ' + e.message, 'err');
+        }
+    };
+
+    GH.bulkJsonApply = async function() {
+        const editor = document.getElementById('bjson-editor');
+        let products;
+        try {
+            products = JSON.parse(editor.value);
+        } catch (e) {
+            GH.toast('JSON non valido: ' + e.message, 'err'); return;
+        }
+        if (!Array.isArray(products)) products = [products];
+        if (!products.length) { GH.toast('Nessun prodotto nel JSON', 'err'); return; }
+        if (!confirm('Applicare modifiche a ' + products.length + ' prodotti?\n\nProdotti esistenti (by ID/SKU) verranno aggiornati.\nNuovi prodotti verranno creati.')) return;
+
+        const btn = document.getElementById('btn-bjson-apply');
+        const sp = document.getElementById('bjson-apply-spin');
+        const status = document.getElementById('bjson-status');
+        btn.disabled = true; sp.style.display = '';
+        status.textContent = 'Upsert ' + products.length + ' prodotti...';
+
+        try {
+            const r = await GH.ajax('gh_ajax_product_bulk_upsert', { products: JSON.stringify(products) });
+            if (!r.success) { GH.toast('Errore: ' + (r.data || ''), 'err'); return; }
+            const s = r.data.summary;
+            status.textContent = s.updated + ' aggiornati, ' + s.created + ' creati, ' + s.errors + ' errori';
+            GH.toast(status.textContent, s.errors ? 'err' : 'ok', 5000);
+
+            const resEl = document.getElementById('bjson-result');
+            let h = '<table style="width:100%;border-collapse:collapse;"><tr style="color:var(--dim)"><th style="text-align:left;padding:2px 6px">Azione</th><th style="text-align:left;padding:2px 6px">ID</th><th style="text-align:left;padding:2px 6px">SKU</th><th style="text-align:left;padding:2px 6px">Nome</th></tr>';
+            for (const d of r.data.details) {
+                const c = d.action === 'updated' ? 'color:var(--grn)' : d.action === 'created' ? 'color:var(--acc)' : 'color:var(--red)';
+                const lb = d.action === 'updated' ? '\u2713 Agg.' : d.action === 'created' ? '+ Nuovo' : '\u2717 ' + (d.reason || 'Err');
+                h += '<tr><td style="padding:2px 6px;' + c + '">' + lb + '</td><td style="padding:2px 6px">' + (d.id || '-') + '</td><td style="padding:2px 6px">' + esc(d.sku || '') + '</td><td style="padding:2px 6px">' + esc(d.name || '') + '</td></tr>';
+            }
+            h += '</table>';
+            resEl.innerHTML = h;
+            resEl.style.display = '';
+
+            GH.runFilter();
+        } catch (e) { GH.toast('Errore: ' + (e.message || e), 'err'); }
+        finally { btn.disabled = false; sp.style.display = 'none'; }
+    };
 
     // ── HELPERS ──────────────────────────────────────────────────
     function esc(s) { if(!s)return''; const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }

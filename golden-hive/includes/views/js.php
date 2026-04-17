@@ -14,6 +14,14 @@ const GH = (function() {
         document.getElementById('gh-toasts').appendChild(t); setTimeout(()=>t.remove(),ms);
     }
     function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+
+    let _wakeLock = null;
+    async function acquireWakeLock() {
+        try { if ('wakeLock' in navigator) _wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {}
+    }
+    function releaseWakeLock() {
+        if (_wakeLock) { _wakeLock.release().catch(()=>{}); _wakeLock = null; }
+    }
     function hl(j){return String(j).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,m=>{let c='jn';if(/^"/.test(m))c=/:$/.test(m)?'jk':'js';else if(/true|false/.test(m))c='jb';else if(/null/.test(m))c='jx';return'<span class="'+c+'">'+m+'</span>'})}
     function fileSize(b){if(b<1024)return b+' B';if(b<1048576)return(b/1024).toFixed(1)+' KB';return(b/1048576).toFixed(1)+' MB'}
     function switchTab(name,el){document.querySelectorAll('#gh .tab-item').forEach(t=>t.classList.remove('active'));document.querySelectorAll('#gh .panel').forEach(p=>p.classList.remove('active'));el.classList.add('active');document.getElementById('panel-'+name).classList.add('active')}

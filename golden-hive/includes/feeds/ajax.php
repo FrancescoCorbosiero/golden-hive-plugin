@@ -123,8 +123,12 @@ add_action( 'wp_ajax_rp_rc_ajax_gs_apply', function () {
         unset( $wp );
     }
 
-    $diff   = rp_rc_gs_diff( $woo_products );
+    $diff = rp_rc_gs_diff( $woo_products );
+
+    add_filter( 'woocommerce_product_object_updated_props', '__return_empty_array', 999 );
     $result = rp_rc_gs_apply( $diff, $options );
+    remove_filter( 'woocommerce_product_object_updated_props', '__return_empty_array', 999 );
+    wc_delete_product_transients();
 
     wp_send_json_success( $result );
 } );
@@ -324,6 +328,9 @@ add_action( 'wp_ajax_gh_ajax_fc_apply', function () {
 
     $tax_map = gh_fc_prepare_taxonomies( $woo_products );
 
+    // Suppress expensive WC hooks during batch — flush once at the end
+    add_filter( 'woocommerce_product_object_updated_props', '__return_empty_array', 999 );
+
     if ( $create && ! empty( $diff['new'] ) ) {
         $results = array_merge( $results, gh_fc_batch_with_retry(
             $diff['new'],
@@ -336,6 +343,9 @@ add_action( 'wp_ajax_gh_ajax_fc_apply', function () {
             fn( $p ) => gh_csv_update_product( $p )
         ) );
     }
+
+    remove_filter( 'woocommerce_product_object_updated_props', '__return_empty_array', 999 );
+    wc_delete_product_transients();
 
     $created = count( array_filter( $results, fn( $r ) => $r['action'] === 'created' ) );
     $updated = count( array_filter( $results, fn( $r ) => $r['action'] === 'updated' ) );

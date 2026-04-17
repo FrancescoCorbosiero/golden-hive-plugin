@@ -96,6 +96,11 @@ function gh_nuclear_preview( array $targets ): array {
 /**
  * Executes the nuclear cleanup for selected targets.
  *
+ * Uses direct SQL for speed. For 2000 products + 17k media, this takes
+ * seconds not hours. Media files are deleted in batches of 500 via
+ * wp_delete_attachment (needed to remove files from disk), but with
+ * hooks suppressed for speed.
+ *
  * @param array $targets { products, media, transients, taxonomy, orphan_meta }
  * @return array Per-category results.
  */
@@ -104,42 +109,84 @@ function gh_nuclear_execute( array $targets ): array {
 
     $results = [];
 
-    // 1. Products (must come before media so product images are detached first)
+    // 1. Products — pure SQL nuke (no wp_delete_post loop)
     if ( ! empty( $targets['products'] ) ) {
-        $product_ids = $wpdb->get_col(
-            "SELECT ID FROM {$wpdb->posts} WHERE post_type IN ('product', 'product_variation')"
+        $count = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type IN ('product', 'product_variation')"
         );
-        $deleted = 0;
-        foreach ( $product_ids as $pid ) {
-            wp_delete_post( (int) $pid, true );
-            $deleted++;
-        }
-        // Clear WC product lookup table
+
+        // Delete term relationships for products
+        $wpdb->query(
+            "DELETE tr FROM {$wpdb->term_relationships} tr
+             INNER JOIN {$wpdb->posts} p ON tr.object_id = p.ID
+             WHERE p.post_type IN ('product', 'product_variation')"
+        );
+
+        // Delete postmeta for products
+        $wpdb->query(
+            "DELETE pm FROM {$wpdb->postmeta} pm
+             INNER JOIN {$wpdb->posts} p ON pm.post_id = p.ID
+             WHERE p.post_type IN ('product', 'product_variation')"
+        );
+
+        // Delete comments (reviews) on products
+        $wpdb->query(
+            "DELETE c FROM {$wpdb->comments} c
+             INNER JOIN {$wpdb->posts} p ON c.comment_post_ID = p.ID
+             WHERE p.post_type = 'product'"
+        );
+
+        // Delete the posts themselves
+        $wpdb->query(
+            "DELETE FROM {$wpdb->posts} WHERE post_type IN ('product', 'product_variation')"
+        );
+
+        // Clear WC lookup tables
         $wpdb->query( "TRUNCATE TABLE {$wpdb->prefix}wc_product_meta_lookup" );
-        $results['products'] = $deleted;
+
+        $results['products'] = $count;
     }
 
-    // 2. Media (respect whitelist)
+    // 2. Media — batch wp_delete_attachment (needed to remove files from disk)
     if ( ! empty( $targets['media'] ) ) {
-        $wl_ids     = gh_nuclear_get_whitelisted_ids();
-        $all_images = $wpdb->get_col(
-            "SELECT ID FROM {$wpdb->posts} WHERE post_type = 'attachment' AND post_mime_type LIKE 'image/%'"
-        );
-        $deleted  = 0;
-        $skipped  = 0;
-        foreach ( $all_images as $att_id ) {
-            $att_id = (int) $att_id;
-            if ( in_array( $att_id, $wl_ids, true ) ) {
-                $skipped++;
-                continue;
-            }
-            wp_delete_attachment( $att_id, true );
-            $deleted++;
+        $wl_ids = gh_nuclear_get_whitelisted_ids();
+
+        $where_not_wl = '';
+        if ( ! empty( $wl_ids ) ) {
+            $placeholders = implode( ',', array_fill( 0, count( $wl_ids ), '%d' ) );
+            $where_not_wl = $wpdb->prepare( " AND ID NOT IN ($placeholders)", ...$wl_ids );
         }
-        $results['media'] = [ 'deleted' => $deleted, 'protected' => $skipped ];
+
+        $total = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$wpdb->posts}
+             WHERE post_type = 'attachment' AND post_mime_type LIKE 'image/%'" . $where_not_wl
+        );
+
+        // Suppress hooks for speed
+        remove_all_actions( 'delete_attachment' );
+        remove_all_actions( 'wp_delete_file' );
+
+        $deleted = 0;
+        $batch   = 500;
+
+        while ( true ) {
+            $ids = $wpdb->get_col(
+                "SELECT ID FROM {$wpdb->posts}
+                 WHERE post_type = 'attachment' AND post_mime_type LIKE 'image/%'"
+                . $where_not_wl . " LIMIT {$batch}"
+            );
+            if ( empty( $ids ) ) break;
+
+            foreach ( $ids as $att_id ) {
+                wp_delete_attachment( (int) $att_id, true );
+                $deleted++;
+            }
+        }
+
+        $results['media'] = [ 'deleted' => $deleted, 'protected' => count( $wl_ids ) ];
     }
 
-    // 3. Transients & cache
+    // 3. Transients & cache — pure SQL
     if ( ! empty( $targets['transients'] ) ) {
         $del_wp = (int) $wpdb->query(
             "DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_%' OR option_name LIKE '_site_transient_%'"
@@ -147,29 +194,41 @@ function gh_nuclear_execute( array $targets ): array {
         $del_wc = (int) $wpdb->query(
             "DELETE FROM {$wpdb->options} WHERE option_name LIKE 'wc_%_transient_%' OR option_name LIKE '_wc_%'"
         );
-        wc_delete_product_transients();
         wp_cache_flush();
         $results['transients'] = $del_wp + $del_wc;
     }
 
-    // 4. Taxonomy
+    // 4. Taxonomy — bulk SQL delete per taxonomy
     if ( ! empty( $targets['taxonomy'] ) ) {
         $tax_deleted = 0;
 
         foreach ( [ 'product_cat', 'product_brand', 'product_tag' ] as $taxonomy ) {
             if ( ! taxonomy_exists( $taxonomy ) ) continue;
-            $terms = get_terms( [ 'taxonomy' => $taxonomy, 'hide_empty' => false, 'fields' => 'ids' ] );
-            if ( is_wp_error( $terms ) ) continue;
-            foreach ( $terms as $term_id ) {
-                wp_delete_term( (int) $term_id, $taxonomy );
-                $tax_deleted++;
-            }
+
+            $term_ids = $wpdb->get_col( $wpdb->prepare(
+                "SELECT t.term_id FROM {$wpdb->terms} t
+                 INNER JOIN {$wpdb->term_taxonomy} tt ON t.term_id = tt.term_id
+                 WHERE tt.taxonomy = %s",
+                $taxonomy
+            ) );
+            if ( empty( $term_ids ) ) continue;
+
+            $id_list = implode( ',', array_map( 'intval', $term_ids ) );
+
+            $wpdb->query( "DELETE FROM {$wpdb->term_relationships} WHERE term_taxonomy_id IN (
+                SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy} WHERE taxonomy = '{$taxonomy}'
+            )" );
+            $wpdb->query( "DELETE FROM {$wpdb->term_taxonomy} WHERE taxonomy = '{$taxonomy}'" );
+            $wpdb->query( "DELETE FROM {$wpdb->terms} WHERE term_id IN ({$id_list})" );
+            $wpdb->query( "DELETE FROM {$wpdb->termmeta} WHERE term_id IN ({$id_list})" );
+
+            $tax_deleted += count( $term_ids );
         }
 
         $results['taxonomy'] = $tax_deleted;
     }
 
-    // 5. Orphan meta & WC sessions
+    // 5. Orphan meta & WC sessions — pure SQL
     if ( ! empty( $targets['orphan_meta'] ) ) {
         $del_meta = (int) $wpdb->query(
             "DELETE pm FROM {$wpdb->postmeta} pm
@@ -181,6 +240,9 @@ function gh_nuclear_execute( array $targets ): array {
         );
         $results['orphan_meta'] = [ 'postmeta' => $del_meta, 'sessions' => $del_sessions ];
     }
+
+    // Final: flush all caches
+    wp_cache_flush();
 
     return $results;
 }

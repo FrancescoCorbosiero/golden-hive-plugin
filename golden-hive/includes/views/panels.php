@@ -200,7 +200,7 @@
         <span id="sf-preimport-status" style="font-family:var(--mono);font-size:10px;color:var(--dim)"></span>
         <div class="filter-sep"></div>
         <div style="display:flex;align-items:center;gap:4px;font-family:var(--mono);font-size:10px;color:var(--dim)">
-            <span>Ricarico:</span>
+            <span>Markup sale price:</span>
             <select id="sf-markup-mode" class="filter-select" style="font-size:10px;min-width:auto;padding:2px 4px" onchange="GH.sfMarkupModeChange()">
                 <option value="none">Nessuno</option>
                 <option value="multiply">Moltiplicatore (&times;)</option>

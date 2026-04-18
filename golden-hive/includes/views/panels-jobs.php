@@ -13,16 +13,19 @@ defined( 'ABSPATH' ) || exit;
     <div class="toolbar">
         <button class="btn btn-primary" onclick="GH.jobsNew()">+ Nuovo job</button>
         <div class="filter-sep"></div>
-        <button class="btn btn-ghost" id="btn-jobs-view-list" onclick="GH.jobsShow('list')" style="border-color:var(--acc)">Jobs</button>
-        <button class="btn btn-ghost" id="btn-jobs-view-log"  onclick="GH.jobsShow('log')">Run Log</button>
-        <div class="filter-sep"></div>
+        <div class="gh-job-viewswitch" role="tablist">
+            <button class="gh-job-viewswitch-btn is-active" id="btn-jobs-view-list" onclick="GH.jobsShow('list')">Jobs</button>
+            <button class="gh-job-viewswitch-btn" id="btn-jobs-view-log"  onclick="GH.jobsShow('log')">Run log</button>
+        </div>
+        <div style="flex:1"></div>
         <button class="btn btn-ghost" onclick="GH.jobsReload()">Aggiorna</button>
         <button class="btn btn-ghost" id="btn-jobs-clear-log" onclick="GH.jobsClearLog()" style="color:var(--red);display:none">Svuota log</button>
     </div>
 
     <!-- List view -->
     <div id="jobs-list-view">
-        <div class="preview-wrap" id="jobs-list-area">
+        <div class="gh-job-chips" id="jobs-list-chips" style="display:none"></div>
+        <div class="gh-job-list" id="jobs-list-area">
             <div class="empty-state">
                 <div class="empty-icon">&#9202;</div>
                 <div class="empty-text">Nessun job schedulato.<br>Crea un job per eseguire operazioni periodiche via wp-cron.</div>
@@ -32,7 +35,7 @@ defined( 'ABSPATH' ) || exit;
 
     <!-- Log view -->
     <div id="jobs-log-view" style="display:none">
-        <div class="preview-wrap" id="jobs-log-area">
+        <div class="gh-joblog" id="jobs-log-area">
             <div class="empty-state"><div class="empty-icon">&#9776;</div><div class="empty-text">Nessun run registrato</div></div>
         </div>
     </div>

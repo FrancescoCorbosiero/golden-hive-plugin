@@ -335,7 +335,11 @@
 
     let tplList = [];
     let tplEditing = null;
-    let tplCtx = {};
+    let tplCtx = {};                  // { order_id, customer_id, customer_name, ... }
+    let tplOrderInfo = null;          // last resolved order: { id, number, customer, email, total }
+    let tplCustomerInfo = null;       // last resolved customer: { id, name, email }
+    let tplRMode = 'custom';          // 'custom' | 'customer'
+    const TPL_PH_LS_KEY = 'gh_em_tpl_ph_open';
 
     GH.emTplLoad = async function() {
         const r = await ajax('rp_em_ajax_get_templates');
@@ -365,42 +369,58 @@
     }
 
     GH.emTplNew = function() {
-        tplEditing = null; tplCtx = {};
+        tplEditing = null; tplResetContext();
         document.getElementById('em-tpl-editor-title').textContent = 'Nuovo Template';
         document.getElementById('em-tpl-name').value = '';
         document.getElementById('em-tpl-subject').value = '';
         document.getElementById('em-tpl-body').value = '';
         document.getElementById('em-tpl-category').value = 'general';
-        document.getElementById('em-tpl-send-to').value = '';
-        document.getElementById('em-tpl-ctx-order').value = '';
-        document.getElementById('em-tpl-ctx-customer').value = '';
-        document.getElementById('em-tpl-search-results').innerHTML = '';
-        document.getElementById('em-tpl-preview-area').style.display = 'none';
-        document.getElementById('btn-em-tpl-delete').style.display = 'none';
         document.getElementById('em-tpl-list-view').style.display = 'none';
         document.getElementById('em-tpl-editor-view').style.display = 'flex';
+        document.getElementById('btn-em-tpl-delete').style.display = 'none';
+        tplResetEditorUI();
         tplLoadPlaceholders();
+        tplApplyPlaceholderToggleFromLS();
     };
 
     GH.emTplEdit = function(id) {
         const t = tplList.find(x => x.id === id);
         if (!t) return;
-        tplEditing = id; tplCtx = {};
+        tplEditing = id; tplResetContext();
         document.getElementById('em-tpl-editor-title').textContent = t.name;
         document.getElementById('em-tpl-name').value = t.name || '';
         document.getElementById('em-tpl-subject').value = t.subject || '';
         document.getElementById('em-tpl-body').value = t.body || '';
         document.getElementById('em-tpl-category').value = t.category || 'general';
-        document.getElementById('em-tpl-send-to').value = '';
-        document.getElementById('em-tpl-ctx-order').value = '';
-        document.getElementById('em-tpl-ctx-customer').value = '';
-        document.getElementById('em-tpl-search-results').innerHTML = '';
-        document.getElementById('em-tpl-preview-area').style.display = 'none';
-        document.getElementById('btn-em-tpl-delete').style.display = '';
         document.getElementById('em-tpl-list-view').style.display = 'none';
         document.getElementById('em-tpl-editor-view').style.display = 'flex';
+        document.getElementById('btn-em-tpl-delete').style.display = '';
+        tplResetEditorUI();
         tplLoadPlaceholders();
+        tplApplyPlaceholderToggleFromLS();
     };
+
+    function tplResetContext() {
+        tplCtx = {};
+        tplOrderInfo = null;
+        tplCustomerInfo = null;
+        tplRMode = 'custom';
+    }
+
+    function tplResetEditorUI() {
+        const sendTo    = document.getElementById('em-tpl-send-to');
+        const ctxOrder  = document.getElementById('em-tpl-ctx-order');
+        const ctxCust   = document.getElementById('em-tpl-ctx-customer');
+        const results   = document.getElementById('em-tpl-search-results');
+        if (sendTo)   sendTo.value = '';
+        if (ctxOrder) ctxOrder.value = '';
+        if (ctxCust)  ctxCust.value = '';
+        if (results)  results.innerHTML = '';
+        const rCustom = document.querySelector('input[name="em-tpl-rmode"][value="custom"]');
+        if (rCustom) rCustom.checked = true;
+        tplRenderChips();
+        tplUpdateRecipientUI();
+    }
 
     GH.emTplBackToList = function() {
         document.getElementById('em-tpl-editor-view').style.display = 'none';
@@ -443,13 +463,35 @@
         const area = document.getElementById('em-tpl-placeholders');
         let h = '';
         for (const [group, info] of Object.entries(r.data)) {
-            h += '<div style="width:100%;margin-top:4px;color:var(--dim);font-size:9px;text-transform:uppercase;letter-spacing:.1em">' + esc(info.label) + '</div>';
+            h += '<div class="em-tpl-ph-group">' + esc(info.label) + '</div>';
             for (const [key, desc] of Object.entries(info.placeholders)) {
-                h += '<button class="btn btn-ghost" style="font-size:10px;padding:2px 6px;border:1px solid var(--b1);border-radius:3px" onclick="GH.emTplInsertPlaceholder(\'' + key + '\')" title="' + esc(desc) + '">{' + key + '}</button>';
+                h += '<button type="button" class="em-tpl-ph-tag" onclick="GH.emTplInsertPlaceholder(\'' + key + '\')" title="' + esc(desc) + '">{' + key + '}</button>';
             }
         }
         area.innerHTML = h;
     }
+
+    function tplApplyPlaceholderToggleFromLS() {
+        const open = localStorage.getItem(TPL_PH_LS_KEY) === '1';
+        tplSetPlaceholdersOpen(open);
+    }
+
+    function tplSetPlaceholdersOpen(open) {
+        const body  = document.getElementById('em-tpl-placeholders');
+        const caret = document.getElementById('em-tpl-ph-caret');
+        const head  = document.querySelector('#em-tpl-ph-box .em-tpl-box-head');
+        if (!body || !caret) return;
+        body.style.display = open ? 'flex' : 'none';
+        caret.innerHTML = open ? '&#9662;' : '&#9656;';
+        if (head) head.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+
+    GH.emTplTogglePlaceholders = function() {
+        const body = document.getElementById('em-tpl-placeholders');
+        const open = body.style.display === 'none';
+        tplSetPlaceholdersOpen(open);
+        localStorage.setItem(TPL_PH_LS_KEY, open ? '1' : '0');
+    };
 
     GH.emTplInsertPlaceholder = function(key) {
         const ta = document.getElementById('em-tpl-body');
@@ -460,38 +502,121 @@
         ta.selectionStart = ta.selectionEnd = start + text.length;
     };
 
+    // ── Context chips / recipient resolution ────────────────────
+
+    function tplRenderChips() {
+        const box = document.getElementById('em-tpl-ctx-chips');
+        if (!box) return;
+        let h = '';
+        if (tplOrderInfo) {
+            h += '<span class="em-tpl-chip">'
+              +    '<span class="em-tpl-chip-icon">#</span>'
+              +    '<span class="em-tpl-chip-main">Ordine ' + esc(String(tplOrderInfo.number || tplOrderInfo.id)) + '</span>'
+              +    (tplOrderInfo.customer ? '<span class="em-tpl-chip-sub">' + esc(tplOrderInfo.customer) + '</span>' : '')
+              +    (tplOrderInfo.total    ? '<span class="em-tpl-chip-sub">' + esc(tplOrderInfo.total)    + '</span>' : '')
+              +    (tplOrderInfo.email    ? '<span class="em-tpl-chip-sub">' + esc(tplOrderInfo.email)    + '</span>' : '')
+              +    '<button type="button" class="em-tpl-chip-x" title="Rimuovi" onclick="GH.emTplClearOrder()">&times;</button>'
+              +  '</span>';
+        }
+        if (tplCustomerInfo) {
+            h += '<span class="em-tpl-chip">'
+              +    '<span class="em-tpl-chip-icon">@</span>'
+              +    '<span class="em-tpl-chip-main">' + esc(tplCustomerInfo.name || ('Cliente #' + tplCustomerInfo.id)) + '</span>'
+              +    (tplCustomerInfo.email ? '<span class="em-tpl-chip-sub">' + esc(tplCustomerInfo.email) + '</span>' : '')
+              +    '<button type="button" class="em-tpl-chip-x" title="Rimuovi" onclick="GH.emTplClearCustomer()">&times;</button>'
+              +  '</span>';
+        }
+        box.innerHTML = h;
+        box.style.display = h ? 'flex' : 'none';
+    }
+
+    function tplResolveCustomerEmail() {
+        if (tplCustomerInfo && tplCustomerInfo.email) return tplCustomerInfo.email;
+        if (tplOrderInfo && tplOrderInfo.email)       return tplOrderInfo.email;
+        return '';
+    }
+
+    function tplUpdateRecipientUI() {
+        const customerWrap = document.getElementById('em-tpl-rmode-customer');
+        const customerRadio = customerWrap.querySelector('input[type="radio"]');
+        const resolved = document.getElementById('em-tpl-rmode-resolved');
+        const sendLabel = document.getElementById('em-tpl-send-label');
+        const customEmail = tplResolveCustomerEmail();
+
+        if (customEmail) {
+            customerWrap.classList.remove('em-tpl-rmode-disabled');
+            customerRadio.disabled = false;
+            resolved.innerHTML = '<strong>&rarr; ' + esc(customEmail) + '</strong>'
+                + (tplOrderInfo ? '<span class="em-tpl-hint-inline"> (cliente di ordine ' + esc(String(tplOrderInfo.number || tplOrderInfo.id)) + ')</span>' : '');
+        } else {
+            customerWrap.classList.add('em-tpl-rmode-disabled');
+            customerRadio.disabled = true;
+            if (tplRMode === 'customer') {
+                tplRMode = 'custom';
+                const rCustom = document.querySelector('input[name="em-tpl-rmode"][value="custom"]');
+                if (rCustom) rCustom.checked = true;
+            }
+            resolved.textContent = 'seleziona prima un ordine o un cliente al punto 1';
+        }
+
+        if (sendLabel) {
+            sendLabel.textContent = (tplRMode === 'customer' && customEmail)
+                ? 'Invia al cliente'
+                : 'Invia email';
+        }
+
+        document.getElementById('em-tpl-rmode-custom').classList.toggle('is-active', tplRMode === 'custom');
+        customerWrap.classList.toggle('is-active', tplRMode === 'customer' && !!customEmail);
+    }
+
+    GH.emTplSetRecipientMode = function(mode) {
+        tplRMode = (mode === 'customer') ? 'customer' : 'custom';
+        tplUpdateRecipientUI();
+    };
+
+    GH.emTplClearOrder = function() {
+        tplOrderInfo = null;
+        delete tplCtx.order_id;
+        document.getElementById('em-tpl-ctx-order').value = '';
+        tplRenderChips();
+        tplUpdateRecipientUI();
+    };
+
+    GH.emTplClearCustomer = function() {
+        tplCustomerInfo = null;
+        delete tplCtx.customer_id;
+        delete tplCtx.customer_name;
+        document.getElementById('em-tpl-ctx-customer').value = '';
+        tplRenderChips();
+        tplUpdateRecipientUI();
+    };
+
     function tplBuildContext() {
         const ctx = { ...tplCtx };
-        ctx.email = document.getElementById('em-tpl-send-to').value || 'test@example.com';
-        ctx.first_name = ctx.customer_name || 'Test';
-        const orderVal = document.getElementById('em-tpl-ctx-order').value;
-        if (orderVal && /^\d+$/.test(orderVal)) ctx.order_id = parseInt(orderVal);
-        const custVal = document.getElementById('em-tpl-ctx-customer').value;
-        if (custVal && /^\d+$/.test(custVal)) ctx.customer_id = parseInt(custVal);
+        const recipientEmail = tplGetRecipientEmail();
+        ctx.email = recipientEmail || 'test@example.com';
+        ctx.first_name = ctx.customer_name
+            || (tplOrderInfo && tplOrderInfo.customer)
+            || 'Test';
         return ctx;
     }
 
-    GH.emTplPreview = async function() {
-        if (!tplEditing) { await GH.emTplSave(); if (!tplEditing) return; }
-        const sp = document.getElementById('em-tpl-preview-spin'); sp.style.display = '';
-        try {
-            const r = await ajax('rp_em_ajax_render_template', {
-                template_id: tplEditing,
-                context: JSON.stringify(tplBuildContext()),
-            });
-            if (!r.success) { toast('Errore: ' + (r.data || ''), 'err'); return; }
-            document.getElementById('em-tpl-preview-subject').textContent = 'Oggetto: ' + r.data.subject;
-            document.getElementById('em-tpl-preview-body').innerHTML = r.data.body;
-            document.getElementById('em-tpl-preview-area').style.display = '';
-        } catch (e) { toast('Errore', 'err'); }
-        finally { sp.style.display = 'none'; }
-    };
+    function tplGetRecipientEmail() {
+        if (tplRMode === 'customer') return tplResolveCustomerEmail();
+        return (document.getElementById('em-tpl-send-to').value || '').trim();
+    }
 
     GH.emTplSend = async function() {
-        const to = document.getElementById('em-tpl-send-to').value;
-        if (!to) { toast('Inserisci email destinatario', 'err'); return; }
+        const to = tplGetRecipientEmail();
+        if (!to) {
+            toast(tplRMode === 'customer' ? 'Nessun cliente selezionato' : 'Inserisci email destinatario', 'err');
+            return;
+        }
         if (!tplEditing) { await GH.emTplSave(); if (!tplEditing) return; }
-        if (!confirm('Inviare email a ' + to + '?')) return;
+        const label = (tplRMode === 'customer')
+            ? 'Inviare al CLIENTE REALE ' + to + '?'
+            : 'Inviare email di test a ' + to + '?';
+        if (!confirm(label)) return;
         const sp = document.getElementById('em-tpl-send-spin'); sp.style.display = '';
         try {
             const r = await ajax('rp_em_ajax_send_template', {
@@ -500,7 +625,7 @@
                 context: JSON.stringify(tplBuildContext()),
             });
             if (!r.success) { toast('Errore: ' + (r.data || ''), 'err'); return; }
-            toast(r.data.success ? 'Email inviata!' : 'Invio fallito: ' + (r.data.message || ''), r.data.success ? 'ok' : 'err', 5000);
+            toast(r.data.success ? 'Email inviata a ' + to : 'Invio fallito: ' + (r.data.message || ''), r.data.success ? 'ok' : 'err', 5000);
         } catch (e) { toast('Errore', 'err'); }
         finally { sp.style.display = 'none'; }
     };
@@ -509,39 +634,74 @@
         const q = document.getElementById('em-tpl-ctx-order').value;
         if (!q) return;
         const r = await ajax('rp_em_ajax_search_orders', { query: q });
-        if (!r.success || !r.data.length) { document.getElementById('em-tpl-search-results').innerHTML = '<span style="color:var(--red)">Nessun ordine trovato</span>'; return; }
-        let h = '';
+        const area = document.getElementById('em-tpl-search-results');
+        if (!r.success || !r.data.length) { area.innerHTML = '<span class="em-tpl-res-empty">Nessun ordine trovato</span>'; return; }
+        let h = '<div class="em-tpl-res-title">Ordini trovati</div>';
         for (const o of r.data) {
-            h += '<a href="#" onclick="GH.emTplSelectOrder(' + o.id + ');return false" style="color:var(--acc);margin-right:8px">#' + o.number + '</a> ' +
-                 '<span style="color:var(--dim)">' + esc(o.customer) + ' — ' + esc(o.total) + ' — ' + esc(o.date) + '</span><br>';
+            const payload = JSON.stringify(o).replace(/"/g, '&quot;');
+            h += '<a href="#" class="em-tpl-res-row" onclick="GH.emTplSelectOrderObj(&quot;' + encodeURIComponent(JSON.stringify(o)) + '&quot;);return false">'
+              +    '<span class="em-tpl-res-key">#' + esc(String(o.number)) + '</span>'
+              +    '<span class="em-tpl-res-val">' + esc(o.customer || '—') + '</span>'
+              +    '<span class="em-tpl-res-meta">' + esc(o.email || '') + '</span>'
+              +    '<span class="em-tpl-res-meta">' + esc(o.total || '') + '</span>'
+              +    '<span class="em-tpl-res-meta">' + esc(o.date || '') + '</span>'
+              +  '</a>';
         }
-        document.getElementById('em-tpl-search-results').innerHTML = h;
+        area.innerHTML = h;
     };
 
-    GH.emTplSelectOrder = function(id) {
-        document.getElementById('em-tpl-ctx-order').value = id;
-        tplCtx.order_id = id;
-        document.getElementById('em-tpl-search-results').innerHTML = '<span style="color:var(--grn)">Ordine #' + id + ' selezionato</span>';
+    GH.emTplSelectOrderObj = function(encoded) {
+        const o = JSON.parse(decodeURIComponent(encoded));
+        tplOrderInfo = {
+            id:       o.id,
+            number:   o.number || o.id,
+            customer: o.customer || '',
+            email:    o.email || '',
+            total:    o.total || '',
+        };
+        tplCtx.order_id = o.id;
+        if (o.customer) tplCtx.customer_name = o.customer;
+        document.getElementById('em-tpl-ctx-order').value = '';
+        document.getElementById('em-tpl-search-results').innerHTML = '';
+        tplRenderChips();
+        tplUpdateRecipientUI();
     };
 
     GH.emTplSearchCustomer = async function() {
         const q = document.getElementById('em-tpl-ctx-customer').value;
         if (!q) return;
         const r = await ajax('rp_em_ajax_search_customers', { query: q });
-        if (!r.success || !r.data.length) { document.getElementById('em-tpl-search-results').innerHTML = '<span style="color:var(--red)">Nessun cliente trovato</span>'; return; }
-        let h = '';
+        const area = document.getElementById('em-tpl-search-results');
+        if (!r.success || !r.data.length) { area.innerHTML = '<span class="em-tpl-res-empty">Nessun cliente trovato</span>'; return; }
+        let h = '<div class="em-tpl-res-title">Clienti trovati</div>';
         for (const c of r.data) {
-            h += '<a href="#" onclick="GH.emTplSelectCustomer(' + c.id + ',\'' + esc(c.name) + '\');return false" style="color:var(--acc);margin-right:8px">' + esc(c.name) + '</a> ' +
-                 '<span style="color:var(--dim)">' + esc(c.email) + ' — ' + c.orders + ' ordini — ' + esc(c.spent) + '</span><br>';
+            h += '<a href="#" class="em-tpl-res-row" onclick="GH.emTplSelectCustomerObj(&quot;' + encodeURIComponent(JSON.stringify(c)) + '&quot;);return false">'
+              +    '<span class="em-tpl-res-key">' + esc(c.name || ('#' + c.id)) + '</span>'
+              +    '<span class="em-tpl-res-val">' + esc(c.email || '') + '</span>'
+              +    '<span class="em-tpl-res-meta">' + esc(String(c.orders || 0)) + ' ordini</span>'
+              +    '<span class="em-tpl-res-meta">' + esc(c.spent || '') + '</span>'
+              +  '</a>';
         }
-        document.getElementById('em-tpl-search-results').innerHTML = h;
+        area.innerHTML = h;
     };
 
+    GH.emTplSelectCustomerObj = function(encoded) {
+        const c = JSON.parse(decodeURIComponent(encoded));
+        tplCustomerInfo = { id: c.id, name: c.name || '', email: c.email || '' };
+        tplCtx.customer_id = c.id;
+        if (c.name) tplCtx.customer_name = c.name;
+        document.getElementById('em-tpl-ctx-customer').value = '';
+        document.getElementById('em-tpl-search-results').innerHTML = '';
+        tplRenderChips();
+        tplUpdateRecipientUI();
+    };
+
+    // Legacy aliases kept in case older panels invoke them.
+    GH.emTplSelectOrder = function(id) {
+        GH.emTplSelectOrderObj(encodeURIComponent(JSON.stringify({ id: id, number: id })));
+    };
     GH.emTplSelectCustomer = function(id, name) {
-        document.getElementById('em-tpl-ctx-customer').value = id;
-        tplCtx.customer_id = id;
-        tplCtx.customer_name = name;
-        document.getElementById('em-tpl-search-results').innerHTML = '<span style="color:var(--grn)">Cliente "' + esc(name) + '" selezionato</span>';
+        GH.emTplSelectCustomerObj(encodeURIComponent(JSON.stringify({ id: id, name: name, email: '' })));
     };
 
     GH.emTplUseInCampaign = function() {

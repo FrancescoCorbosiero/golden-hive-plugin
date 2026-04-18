@@ -39,39 +39,76 @@
                 <textarea class="cfg-input em-textarea" id="em-tpl-body" style="min-height:250px" placeholder="<h1>Ciao {first_name}!</h1>&#10;&#10;<p>Il tuo ordine #{order_id} è stato spedito.</p>"></textarea>
             </div>
 
-            <!-- Placeholder Picker -->
-            <div style="border:1px solid var(--b1);border-radius:6px;padding:12px;background:var(--s2)">
-                <div style="font-family:var(--mono);font-size:11px;color:var(--acc);margin-bottom:8px">Placeholder disponibili — clicca per inserire</div>
-                <div id="em-tpl-placeholders" style="display:flex;flex-wrap:wrap;gap:4px;font-family:var(--mono);font-size:10px"></div>
+            <!-- Placeholder Picker (collapsible) -->
+            <div class="em-tpl-box em-tpl-ph-box" id="em-tpl-ph-box">
+                <button type="button" class="em-tpl-box-head" onclick="GH.emTplTogglePlaceholders()" aria-expanded="false">
+                    <span class="em-tpl-caret" id="em-tpl-ph-caret">&#9656;</span>
+                    <span class="em-tpl-box-title">Placeholder disponibili</span>
+                    <span class="em-tpl-box-hint">clicca un tag per inserirlo nel body</span>
+                </button>
+                <div id="em-tpl-placeholders" class="em-tpl-ph-body" style="display:none"></div>
             </div>
 
-            <!-- Send / Preview Section -->
-            <div style="border:1px solid var(--b1);border-radius:6px;padding:12px;background:var(--s2)">
-                <div style="font-family:var(--mono);font-size:11px;color:var(--acc);margin-bottom:8px">Invia con dati reali</div>
-                <div class="cfg-row" style="flex-wrap:wrap;gap:6px">
-                    <span class="cfg-label" style="min-width:50px">A:</span>
-                    <input class="cfg-input" id="em-tpl-send-to" type="email" placeholder="email@destinatario.com" style="max-width:220px" />
-                    <div class="filter-sep"></div>
-                    <span class="cfg-label" style="min-width:50px">Ordine:</span>
-                    <input class="cfg-input" id="em-tpl-ctx-order" type="text" placeholder="ID o email" style="max-width:140px" />
-                    <button class="btn btn-ghost" onclick="GH.emTplSearchOrder()" style="font-size:10px">Cerca</button>
-                    <div class="filter-sep"></div>
-                    <span class="cfg-label" style="min-width:50px">Cliente:</span>
-                    <input class="cfg-input" id="em-tpl-ctx-customer" type="text" placeholder="ID o email" style="max-width:140px" />
-                    <button class="btn btn-ghost" onclick="GH.emTplSearchCustomer()" style="font-size:10px">Cerca</button>
-                </div>
-                <div id="em-tpl-search-results" style="font-family:var(--mono);font-size:10px;color:var(--dim);padding:4px 0"></div>
-                <div class="cfg-row" style="margin-top:8px;gap:6px">
-                    <button class="btn btn-ghost" onclick="GH.emTplPreview()"><span class="spin" id="em-tpl-preview-spin" style="display:none"></span> Anteprima</button>
-                    <button class="btn btn-warn" onclick="GH.emTplSend()"><span class="spin" id="em-tpl-send-spin" style="display:none"></span> Invia email</button>
-                    <button class="btn btn-ghost" onclick="GH.emTplUseInCampaign()" style="font-size:10px;color:var(--pur)" title="Usa questo template come corpo campagna">Usa in campagna</button>
-                </div>
-            </div>
+            <!-- Send Section -->
+            <div class="em-tpl-box em-tpl-send-box">
+                <div class="em-tpl-box-title-strong">Invia con dati reali</div>
 
-            <!-- Preview Output -->
-            <div id="em-tpl-preview-area" style="display:none;border:1px solid var(--b1);border-radius:6px;overflow:hidden">
-                <div style="padding:8px 12px;background:var(--s1);font-family:var(--mono);font-size:10px;color:var(--dim)" id="em-tpl-preview-subject"></div>
-                <div id="em-tpl-preview-body" style="padding:16px;background:#fff;color:#333;font-size:13px"></div>
+                <!-- Step 1: Context -->
+                <div class="em-tpl-step">
+                    <div class="em-tpl-step-label">
+                        <span class="em-tpl-step-num">1</span>
+                        Dati contesto
+                        <span class="em-tpl-step-hint">popola i placeholder (es. <code>{order_id}</code>, <code>{first_name}</code>)</span>
+                    </div>
+                    <div id="em-tpl-ctx-chips" class="em-tpl-chips"></div>
+                    <div class="em-tpl-ctx-pickers">
+                        <div class="em-tpl-picker">
+                            <span class="em-tpl-picker-label">Ordine</span>
+                            <input class="cfg-input" id="em-tpl-ctx-order" type="text" placeholder="ID o email" onkeydown="if(event.key==='Enter'){event.preventDefault();GH.emTplSearchOrder();}" />
+                            <button class="btn btn-ghost em-tpl-picker-btn" onclick="GH.emTplSearchOrder()">Cerca</button>
+                        </div>
+                        <div class="em-tpl-picker">
+                            <span class="em-tpl-picker-label">Cliente</span>
+                            <input class="cfg-input" id="em-tpl-ctx-customer" type="text" placeholder="ID o email" onkeydown="if(event.key==='Enter'){event.preventDefault();GH.emTplSearchCustomer();}" />
+                            <button class="btn btn-ghost em-tpl-picker-btn" onclick="GH.emTplSearchCustomer()">Cerca</button>
+                        </div>
+                    </div>
+                    <div id="em-tpl-search-results" class="em-tpl-search-results"></div>
+                </div>
+
+                <!-- Step 2: Recipient -->
+                <div class="em-tpl-step">
+                    <div class="em-tpl-step-label">
+                        <span class="em-tpl-step-num">2</span>
+                        Destinatario
+                        <span class="em-tpl-step-hint">dove arriverà realmente l'email</span>
+                    </div>
+                    <div class="em-tpl-rmode" id="em-tpl-rmode-custom">
+                        <label class="em-tpl-rmode-head">
+                            <input type="radio" name="em-tpl-rmode" value="custom" checked onchange="GH.emTplSetRecipientMode('custom')" />
+                            <span class="em-tpl-rmode-title">Email di test</span>
+                            <span class="em-tpl-rmode-desc">invia a un indirizzo qualsiasi (i dati di contesto popolano comunque i placeholder)</span>
+                        </label>
+                        <input class="cfg-input em-tpl-rmode-input" id="em-tpl-send-to" type="email" placeholder="me@example.com" />
+                    </div>
+                    <div class="em-tpl-rmode em-tpl-rmode-disabled" id="em-tpl-rmode-customer">
+                        <label class="em-tpl-rmode-head">
+                            <input type="radio" name="em-tpl-rmode" value="customer" onchange="GH.emTplSetRecipientMode('customer')" disabled />
+                            <span class="em-tpl-rmode-title">Cliente reale</span>
+                            <span class="em-tpl-rmode-desc">invia direttamente al cliente associato a ordine/cliente selezionato</span>
+                        </label>
+                        <div class="em-tpl-rmode-resolved" id="em-tpl-rmode-resolved">seleziona prima un ordine o un cliente al punto 1</div>
+                    </div>
+                </div>
+
+                <!-- Actions -->
+                <div class="em-tpl-actions">
+                    <button class="btn btn-warn em-tpl-send-btn" onclick="GH.emTplSend()">
+                        <span class="spin" id="em-tpl-send-spin" style="display:none"></span>
+                        <span id="em-tpl-send-label">Invia email</span>
+                    </button>
+                    <button class="btn btn-ghost" onclick="GH.emTplUseInCampaign()" title="Usa questo template come corpo campagna">Usa in campagna</button>
+                </div>
             </div>
         </div>
     </div>

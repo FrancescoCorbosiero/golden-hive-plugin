@@ -23,7 +23,8 @@
             <button class="btn btn-ghost" id="btn-em-tpl-delete" onclick="GH.emTplDelete()" style="color:var(--red);display:none">Elimina</button>
             <button class="btn btn-primary" id="btn-em-tpl-save" onclick="GH.emTplSave()"><span class="spin" id="em-tpl-save-spin" style="display:none"></span> Salva</button>
         </div>
-        <div style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px">
+        <div class="em-tpl-editor-body">
+          <div class="em-tpl-editor-left">
             <div class="cfg-row"><span class="cfg-label">Nome</span><input class="cfg-input" id="em-tpl-name" placeholder="Es: Conferma spedizione" /></div>
             <div class="cfg-row"><span class="cfg-label">Categoria</span>
                 <select class="cfg-select" id="em-tpl-category">
@@ -33,10 +34,10 @@
                     <option value="support">Supporto</option>
                 </select>
             </div>
-            <div class="cfg-row"><span class="cfg-label">Oggetto</span><input class="cfg-input" id="em-tpl-subject" placeholder="Es: Il tuo ordine #{order_id} è stato spedito" /></div>
+            <div class="cfg-row"><span class="cfg-label">Oggetto</span><input class="cfg-input" id="em-tpl-subject" placeholder="Es: Il tuo ordine #{order_id} è stato spedito" oninput="GH.emTplSchedulePreview()" /></div>
             <div class="cfg-row em-row-stretch" style="flex:1">
                 <span class="cfg-label">HTML Body</span>
-                <textarea class="cfg-input em-textarea" id="em-tpl-body" style="min-height:250px" placeholder="<h1>Ciao {first_name}!</h1>&#10;&#10;<p>Il tuo ordine #{order_id} è stato spedito.</p>"></textarea>
+                <textarea class="cfg-input em-textarea" id="em-tpl-body" style="min-height:250px" placeholder="<h1>Ciao {first_name}!</h1>&#10;&#10;<p>Il tuo ordine #{order_id} è stato spedito.</p>" oninput="GH.emTplSchedulePreview()"></textarea>
             </div>
 
             <!-- Placeholder Picker (collapsible) -->
@@ -110,6 +111,29 @@
                     <button class="btn btn-ghost" onclick="GH.emTplUseInCampaign()" title="Usa questo template come corpo campagna">Usa in campagna</button>
                 </div>
             </div>
+          </div>
+
+          <!-- Live Preview (right pane) -->
+          <aside class="em-tpl-editor-preview" id="em-tpl-preview">
+            <div class="em-tpl-preview-head">
+                <span class="em-tpl-preview-title">Anteprima</span>
+                <span class="em-tpl-preview-state" id="em-tpl-preview-state">—</span>
+                <div class="em-tpl-preview-modes">
+                    <button type="button" class="em-tpl-preview-mode is-active" id="em-tpl-preview-mode-desktop" onclick="GH.emTplSetPreviewMode('desktop')" title="Desktop">&#9633;</button>
+                    <button type="button" class="em-tpl-preview-mode" id="em-tpl-preview-mode-mobile" onclick="GH.emTplSetPreviewMode('mobile')" title="Mobile">&#9744;</button>
+                </div>
+                <button type="button" class="em-tpl-preview-collapse" onclick="GH.emTplTogglePreview()" title="Nascondi anteprima" id="em-tpl-preview-collapse">&times;</button>
+            </div>
+            <div class="em-tpl-preview-subjectbar">
+                <span class="em-tpl-preview-subj-label">Oggetto</span>
+                <span class="em-tpl-preview-subj" id="em-tpl-preview-subject">—</span>
+            </div>
+            <div class="em-tpl-preview-frame-wrap" id="em-tpl-preview-frame-wrap">
+                <iframe id="em-tpl-preview-frame" class="em-tpl-preview-frame" sandbox="allow-same-origin" title="Anteprima email"></iframe>
+            </div>
+          </aside>
+
+          <button type="button" class="em-tpl-preview-show" id="em-tpl-preview-show" onclick="GH.emTplTogglePreview()" style="display:none" title="Mostra anteprima">&laquo;</button>
         </div>
     </div>
 </div>

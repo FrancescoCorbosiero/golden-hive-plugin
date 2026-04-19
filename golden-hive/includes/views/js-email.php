@@ -339,7 +339,11 @@
     let tplOrderInfo = null;          // last resolved order: { id, number, customer, email, total }
     let tplCustomerInfo = null;       // last resolved customer: { id, name, email }
     let tplRMode = 'custom';          // 'custom' | 'customer'
-    const TPL_PH_LS_KEY = 'gh_em_tpl_ph_open';
+    let tplPreviewTimer = null;       // debounce handle for live preview
+    let tplPreviewToken = 0;          // race guard: discard stale responses
+    const TPL_PH_LS_KEY      = 'gh_em_tpl_ph_open';
+    const TPL_PREVIEW_LS_KEY = 'gh_em_tpl_preview_open';
+    const TPL_PREVIEW_DEVICE_KEY = 'gh_em_tpl_preview_device';
 
     GH.emTplLoad = async function() {
         const r = await ajax('rp_em_ajax_get_templates');
@@ -381,6 +385,8 @@
         tplResetEditorUI();
         tplLoadPlaceholders();
         tplApplyPlaceholderToggleFromLS();
+        tplApplyPreviewPrefs();
+        tplRenderPreview();
     };
 
     GH.emTplEdit = function(id) {
@@ -398,6 +404,8 @@
         tplResetEditorUI();
         tplLoadPlaceholders();
         tplApplyPlaceholderToggleFromLS();
+        tplApplyPreviewPrefs();
+        tplRenderPreview();
     };
 
     function tplResetContext() {
@@ -580,6 +588,7 @@
         document.getElementById('em-tpl-ctx-order').value = '';
         tplRenderChips();
         tplUpdateRecipientUI();
+        GH.emTplSchedulePreview();
     };
 
     GH.emTplClearCustomer = function() {
@@ -589,6 +598,7 @@
         document.getElementById('em-tpl-ctx-customer').value = '';
         tplRenderChips();
         tplUpdateRecipientUI();
+        GH.emTplSchedulePreview();
     };
 
     function tplBuildContext() {
@@ -604,6 +614,98 @@
     function tplGetRecipientEmail() {
         if (tplRMode === 'customer') return tplResolveCustomerEmail();
         return (document.getElementById('em-tpl-send-to').value || '').trim();
+    }
+
+    // ── Live preview ────────────────────────────────────────────
+
+    GH.emTplSchedulePreview = function() {
+        clearTimeout(tplPreviewTimer);
+        tplPreviewTimer = setTimeout(tplRenderPreview, 250);
+        tplSetPreviewState('Aggiornamento…', 'pending');
+    };
+
+    function tplSetPreviewState(label, cls) {
+        const el = document.getElementById('em-tpl-preview-state');
+        if (!el) return;
+        el.textContent = label;
+        el.className = 'em-tpl-preview-state' + (cls ? ' em-tpl-preview-state-' + cls : '');
+    }
+
+    async function tplRenderPreview() {
+        const wrap  = document.getElementById('em-tpl-preview');
+        if (!wrap || wrap.classList.contains('is-hidden')) return;
+
+        const subjRaw = document.getElementById('em-tpl-subject').value || '';
+        const bodyRaw = document.getElementById('em-tpl-body').value || '';
+
+        if (!subjRaw && !bodyRaw) {
+            writePreview('(nessun contenuto)', '<div style="padding:24px;color:#999;font:13px system-ui">Inizia a scrivere oggetto e body per vedere l\'anteprima.</div>');
+            tplSetPreviewState('Vuoto', 'idle');
+            return;
+        }
+
+        const token = ++tplPreviewToken;
+        try {
+            const r = await ajax('rp_em_ajax_render_template', {
+                template_id: tplEditing || '',
+                subject_raw: subjRaw,
+                body_raw:    bodyRaw,
+                context:     JSON.stringify(tplBuildContext()),
+            });
+            if (token !== tplPreviewToken) return; // stale response, discard
+            if (!r.success) {
+                tplSetPreviewState('Errore: ' + (r.data || ''), 'err');
+                return;
+            }
+            writePreview(r.data.subject || '(oggetto vuoto)', r.data.body || '<div style="padding:24px;color:#999;font:13px system-ui">(body vuoto)</div>');
+            tplSetPreviewState(tplOrderInfo || tplCustomerInfo ? 'Con dati reali' : 'Dati di test', 'ok');
+        } catch (e) {
+            if (token !== tplPreviewToken) return;
+            tplSetPreviewState('Errore di rete', 'err');
+        }
+    }
+
+    function writePreview(subject, bodyHTML) {
+        const subjEl = document.getElementById('em-tpl-preview-subject');
+        const iframe = document.getElementById('em-tpl-preview-frame');
+        if (subjEl) subjEl.textContent = subject;
+        if (!iframe) return;
+        const doc = '<!doctype html><html><head><meta charset="utf-8"><base target="_blank">'
+            + '<style>html,body{margin:0;padding:0;background:#fff;color:#222;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}'
+            + 'body{padding:20px}img{max-width:100%;height:auto}a{color:#0066cc}</style></head>'
+            + '<body>' + bodyHTML + '</body></html>';
+        iframe.srcdoc = doc;
+    }
+
+    GH.emTplTogglePreview = function() {
+        const wrap = document.getElementById('em-tpl-preview');
+        const show = document.getElementById('em-tpl-preview-show');
+        if (!wrap || !show) return;
+        const hide = !wrap.classList.contains('is-hidden');
+        wrap.classList.toggle('is-hidden', hide);
+        show.style.display = hide ? '' : 'none';
+        localStorage.setItem(TPL_PREVIEW_LS_KEY, hide ? '0' : '1');
+        if (!hide) tplRenderPreview();
+    };
+
+    GH.emTplSetPreviewMode = function(mode) {
+        const wrap = document.getElementById('em-tpl-preview-frame-wrap');
+        if (!wrap) return;
+        wrap.classList.toggle('is-mobile', mode === 'mobile');
+        document.getElementById('em-tpl-preview-mode-desktop').classList.toggle('is-active', mode !== 'mobile');
+        document.getElementById('em-tpl-preview-mode-mobile').classList.toggle('is-active', mode === 'mobile');
+        localStorage.setItem(TPL_PREVIEW_DEVICE_KEY, mode);
+    };
+
+    function tplApplyPreviewPrefs() {
+        const wrap = document.getElementById('em-tpl-preview');
+        const show = document.getElementById('em-tpl-preview-show');
+        if (!wrap || !show) return;
+        const hidden = localStorage.getItem(TPL_PREVIEW_LS_KEY) === '0';
+        wrap.classList.toggle('is-hidden', hidden);
+        show.style.display = hidden ? '' : 'none';
+        const device = localStorage.getItem(TPL_PREVIEW_DEVICE_KEY) === 'mobile' ? 'mobile' : 'desktop';
+        GH.emTplSetPreviewMode(device);
     }
 
     GH.emTplSend = async function() {
@@ -665,6 +767,7 @@
         document.getElementById('em-tpl-search-results').innerHTML = '';
         tplRenderChips();
         tplUpdateRecipientUI();
+        GH.emTplSchedulePreview();
     };
 
     GH.emTplSearchCustomer = async function() {
@@ -694,6 +797,7 @@
         document.getElementById('em-tpl-search-results').innerHTML = '';
         tplRenderChips();
         tplUpdateRecipientUI();
+        GH.emTplSchedulePreview();
     };
 
     // Legacy aliases kept in case older panels invoke them.

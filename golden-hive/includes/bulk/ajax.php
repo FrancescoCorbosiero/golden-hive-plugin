@@ -54,6 +54,81 @@ add_action( 'wp_ajax_gh_ajax_bulk_execute', function () {
     wp_send_json_success( $result );
 } );
 
+// ── DISPATCH BULK ACTION AS BACKGROUND JOB ──────────────────────
+// Creates a one-shot `bulk_action` job (enabled:false → no cron
+// rescheduling) and fires it immediately via wp-cron loopback. The
+// job's chunked handler honors tick_budget + continuation ticks, so
+// 1000+ product operations no longer block the admin request.
+add_action( 'wp_ajax_gh_ajax_bulk_dispatch_job', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $action = sanitize_key( $_POST['bulk_action'] ?? '' );
+    if ( $action === '' ) {
+        wp_send_json_error( 'Azione bulk mancante.' );
+    }
+    if ( ! isset( gh_get_bulk_action_definitions()[ $action ] ) ) {
+        wp_send_json_error( 'Azione sconosciuta.' );
+    }
+
+    $ids_raw = stripslashes( $_POST['product_ids'] ?? '[]' );
+    $ids     = json_decode( $ids_raw, true );
+    if ( ! is_array( $ids ) || empty( $ids ) ) {
+        wp_send_json_error( 'Nessun prodotto selezionato.' );
+    }
+    $ids = array_values( array_unique( array_filter( array_map( 'intval', $ids ) ) ) );
+    if ( empty( $ids ) ) {
+        wp_send_json_error( 'Lista prodotti vuota dopo sanitize.' );
+    }
+
+    $params_raw = stripslashes( $_POST['params'] ?? '{}' );
+    $params     = json_decode( $params_raw, true );
+    if ( ! is_array( $params ) ) $params = [];
+    $params = gh_sanitize_bulk_params( $action, $params );
+
+    $chunk_size = max( 10, min( 500, (int) ( $_POST['chunk_size'] ?? 100 ) ) );
+
+    $label = sprintf( 'Bulk %s · %d prodotti', $action, count( $ids ) );
+
+    $saved = gh_jobs_save( [
+        'kind'        => 'bulk_action',
+        'label'       => $label,
+        // Valid expression required by validator; enabled:false means it
+        // is never actually scheduled by cron. We fire a single run below.
+        'cron'        => '0 0 1 1 *',
+        'enabled'     => false,
+        'max_runtime' => 3600,
+        'tick_budget' => 25,
+        'params'      => [
+            'action'        => $action,
+            'product_ids'   => wp_json_encode( $ids ),
+            'action_params' => wp_json_encode( $params ),
+            'chunk_size'    => (string) $chunk_size,
+        ],
+    ] );
+
+    if ( is_wp_error( $saved ) ) {
+        wp_send_json_error( $saved->get_error_message() );
+    }
+
+    $job_id = $saved['id'];
+
+    // Kick off immediately. wp_schedule_single_event + spawn_cron asks
+    // WordPress to loopback wp-cron.php right away; the tick hook lands
+    // on gh_jobs_run_tick() which handles locking, chunking and
+    // continuation by itself.
+    wp_schedule_single_event( time(), GH_JOBS_TICK_HOOK, [ $job_id ] );
+    if ( function_exists( 'spawn_cron' ) ) {
+        spawn_cron( time() );
+    }
+
+    wp_send_json_success( [
+        'job_id' => $job_id,
+        'label'  => $label,
+        'total'  => count( $ids ),
+    ] );
+} );
+
 // ── SORT PREVIEW ────────────────────────────────────────────────
 add_action( 'wp_ajax_gh_ajax_sort_preview', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );

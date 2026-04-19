@@ -662,5 +662,8 @@
     #gh .gh-joblog-kind,#gh .gh-joblog-dur,#gh .gh-joblog-trigger,#gh .gh-joblog-time{display:none}
 }
 
+/* Bulk bar: "Esegui come job" toggle highlights when ticked. */
+#gh #bulk-as-job-wrap:has(input:checked){border-color:var(--acc);color:var(--acc);background:rgba(61,127,255,.06)}
+
 @media(max-width:768px){#gh .tabs-col{width:48px}#gh .tab-label,#gh .tab-section{display:none}#gh .tab-item{justify-content:center;padding:10px 8px}#gh .summary-grid{grid-template-columns:repeat(2,1fr)}#gh .tax-detail{display:none!important}#gh .mp-mapper-layout{flex-direction:column}#gh .mp-col-source,#gh .mp-col-target{width:100%;max-height:150px;border-right:none;border-bottom:1px solid var(--b1)}#gh .mp-col-target{border-left:none;border-top:1px solid var(--b1);border-bottom:none}#gh .em-row{grid-template-columns:1fr 70px;gap:6px}#gh .em-row .em-time,#gh .em-row .em-type{display:none}#gh .em-hint{padding-left:0}}
 </style>

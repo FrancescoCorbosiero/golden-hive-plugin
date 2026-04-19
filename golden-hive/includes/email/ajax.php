@@ -335,8 +335,18 @@ add_action( 'wp_ajax_rp_em_ajax_render_template', function () {
     $raw_ctx     = stripslashes( $_POST['context'] ?? '{}' );
     $context     = json_decode( $raw_ctx, true ) ?: [];
 
-    $tpl = rp_em_get_template( $template_id );
-    if ( ! $tpl ) { wp_send_json_error( 'Template non trovato.' ); }
+    // Raw subject/body let the editor preview before the template is saved.
+    // When present, they override the stored values (the saved template stays
+    // untouched — this endpoint is read-only).
+    $has_raw     = isset( $_POST['subject_raw'] ) || isset( $_POST['body_raw'] );
+    $subject_raw = isset( $_POST['subject_raw'] ) ? wp_unslash( (string) $_POST['subject_raw'] ) : null;
+    $body_raw    = isset( $_POST['body_raw'] )    ? wp_unslash( (string) $_POST['body_raw'] )    : null;
+
+    $tpl = $template_id ? rp_em_get_template( $template_id ) : null;
+    if ( ! $tpl && ! $has_raw ) { wp_send_json_error( 'Template non trovato.' ); }
+
+    $subject_source = $subject_raw !== null ? $subject_raw : ( $tpl['subject'] ?? '' );
+    $body_source    = $body_raw    !== null ? $body_raw    : ( $tpl['body']    ?? '' );
 
     $ctx = [];
     if ( ! empty( $context['order_id'] ) )    $ctx['order_id']    = (int) $context['order_id'];
@@ -349,9 +359,9 @@ add_action( 'wp_ajax_rp_em_ajax_render_template', function () {
         'display_name' => sanitize_text_field( $context['first_name'] ?? 'Test' ),
     ];
 
-    $rendered_body    = rp_em_render_template( $tpl['body'] ?? '', $ctx );
-    $rendered_subject = rp_em_render_template( $tpl['subject'] ?? '', $ctx );
-    $placeholders     = rp_em_extract_placeholders( ( $tpl['body'] ?? '' ) . ' ' . ( $tpl['subject'] ?? '' ) );
+    $rendered_body    = rp_em_render_template( $body_source, $ctx );
+    $rendered_subject = rp_em_render_template( $subject_source, $ctx );
+    $placeholders     = rp_em_extract_placeholders( $body_source . ' ' . $subject_source );
 
     wp_send_json_success( [
         'subject'      => $rendered_subject,

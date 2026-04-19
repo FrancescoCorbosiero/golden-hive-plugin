@@ -507,6 +507,42 @@
     #gh .em-tpl-res-meta{display:none}
 }
 
+/* Two-column editor + live preview */
+#gh .em-tpl-editor-body{flex:1;display:flex;min-height:0;position:relative}
+#gh .em-tpl-editor-left{flex:1;min-width:0;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+#gh .em-tpl-editor-preview{width:480px;max-width:50%;flex-shrink:0;border-left:1px solid var(--b1);background:var(--s1);display:flex;flex-direction:column;min-height:0;transition:width .2s}
+#gh .em-tpl-editor-preview.is-hidden{width:0;border-left:0;overflow:hidden}
+#gh .em-tpl-preview-head{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--b1);background:var(--s2);flex-shrink:0}
+#gh .em-tpl-preview-title{font-family:var(--mono);font-size:11px;color:var(--acc);text-transform:uppercase;letter-spacing:.08em;font-weight:600}
+#gh .em-tpl-preview-state{font-family:var(--mono);font-size:10px;color:var(--dim);padding:2px 8px;border-radius:10px;background:var(--s1)}
+#gh .em-tpl-preview-state-ok{color:var(--grn);background:rgba(34,199,139,.1)}
+#gh .em-tpl-preview-state-pending{color:var(--amb);background:rgba(232,168,36,.1)}
+#gh .em-tpl-preview-state-err{color:var(--red);background:rgba(232,93,93,.1)}
+#gh .em-tpl-preview-state-idle{color:var(--dim)}
+#gh .em-tpl-preview-modes{display:inline-flex;border:1px solid var(--b1);border-radius:4px;overflow:hidden;margin-left:auto}
+#gh .em-tpl-preview-mode{appearance:none;background:transparent;border:0;padding:3px 8px;color:var(--dim);font-size:12px;cursor:pointer;border-right:1px solid var(--b1)}
+#gh .em-tpl-preview-mode:last-child{border-right:0}
+#gh .em-tpl-preview-mode:hover{color:var(--txt);background:var(--s1)}
+#gh .em-tpl-preview-mode.is-active{color:var(--acc);background:var(--s1)}
+#gh .em-tpl-preview-collapse{appearance:none;background:transparent;border:0;color:var(--dim);font-size:16px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:4px}
+#gh .em-tpl-preview-collapse:hover{color:var(--red);background:var(--s1)}
+#gh .em-tpl-preview-subjectbar{display:flex;align-items:baseline;gap:10px;padding:8px 14px;border-bottom:1px solid var(--b1);background:var(--s2);flex-shrink:0}
+#gh .em-tpl-preview-subj-label{font-family:var(--mono);font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em}
+#gh .em-tpl-preview-subj{color:var(--txt);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+#gh .em-tpl-preview-frame-wrap{flex:1;min-height:0;overflow:auto;display:flex;justify-content:center;padding:14px;background:var(--s1)}
+#gh .em-tpl-preview-frame-wrap.is-mobile{padding:20px 14px}
+#gh .em-tpl-preview-frame{width:100%;height:100%;min-height:400px;border:0;background:#fff;border-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,.35)}
+#gh .em-tpl-preview-frame-wrap.is-mobile .em-tpl-preview-frame{width:375px;max-width:100%;height:640px;min-height:0;flex-shrink:0}
+#gh .em-tpl-preview-show{position:absolute;top:14px;right:0;background:var(--s2);border:1px solid var(--b1);border-right:0;border-radius:6px 0 0 6px;color:var(--acc);padding:8px 6px;cursor:pointer;font-size:14px;writing-mode:vertical-rl;text-orientation:mixed}
+#gh .em-tpl-preview-show:hover{background:var(--s3);color:var(--txt)}
+
+@media(max-width:960px){
+    #gh .em-tpl-editor-body{flex-direction:column}
+    #gh .em-tpl-editor-preview{width:100%!important;max-width:100%;max-height:50%;border-left:0;border-top:1px solid var(--b1)}
+    #gh .em-tpl-preview-frame-wrap.is-mobile .em-tpl-preview-frame{width:100%;max-width:375px}
+    #gh .em-tpl-preview-show{top:auto;bottom:14px;border-radius:6px 6px 0 0;border-right:1px solid var(--b1);border-bottom:0;writing-mode:horizontal-tb}
+}
+
 /* ═══ JOBS — card UX ═════════════════════════════════════════ */
 
 /* View switch */

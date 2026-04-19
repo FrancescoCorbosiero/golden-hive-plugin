@@ -132,6 +132,22 @@
         <button class="btn btn-ghost" onclick="GH.gsSelectByType('update')">Solo aggiorn.</button>
         <span class="gs-sel-count" id="gs-sel-count"></span>
     </div>
+    <!-- Force re-import (per-SKU recreate) -->
+    <details class="gh-reimport-box">
+        <summary class="gh-reimport-head">
+            <span class="gh-reimport-caret">&#9656;</span>
+            <span class="gh-reimport-title">Ri-importa forzato</span>
+            <span class="gh-reimport-hint">cancella e ricrea i prodotti selezionati — utile per fix di prodotti corrotti</span>
+        </summary>
+        <div class="gh-reimport-body">
+            <textarea class="cfg-input gh-reimport-skus" id="gs-reimport-skus" rows="3" placeholder="SKU separati da virgola o a capo&#10;es. ABC-001, DEF-042"></textarea>
+            <div class="gh-reimport-opts">
+                <label><input type="checkbox" id="gs-reimport-media" checked /> Anche media (cancella + riscarica)</label>
+                <button class="btn btn-warn" id="btn-gs-reimport" onclick="GH.gsReimportDispatch()">Ri-importa forzato</button>
+            </div>
+            <div class="gh-reimport-status" id="gs-reimport-status"></div>
+        </div>
+    </details>
     <div class="preview-wrap" id="gs-preview"><div class="empty-state"><div class="empty-icon">&#9733;</div><div class="empty-text">Configura l'endpoint Golden Sneakers</div></div></div>
     <div class="confirm-bar" id="gs-confirm" style="display:none">
         <div class="summary-text" id="gs-confirm-text"></div>
@@ -201,6 +217,22 @@
         <button class="btn btn-ghost" onclick="GH.sfSelectByType('update')">Solo aggiorn.</button>
         <span class="gs-sel-count" id="sf-sel-count"></span>
     </div>
+    <!-- Force re-import (per-SKU recreate) -->
+    <details class="gh-reimport-box">
+        <summary class="gh-reimport-head">
+            <span class="gh-reimport-caret">&#9656;</span>
+            <span class="gh-reimport-title">Ri-importa forzato</span>
+            <span class="gh-reimport-hint">cancella e ricrea i prodotti selezionati — utile per fix di prodotti corrotti</span>
+        </summary>
+        <div class="gh-reimport-body">
+            <textarea class="cfg-input gh-reimport-skus" id="sf-reimport-skus" rows="3" placeholder="SKU separati da virgola o a capo&#10;es. 12345, 67890"></textarea>
+            <div class="gh-reimport-opts">
+                <label><input type="checkbox" id="sf-reimport-media" checked /> Anche media (cancella + riscarica)</label>
+                <button class="btn btn-warn" id="btn-sf-reimport" onclick="GH.sfReimportDispatch()">Ri-importa forzato</button>
+            </div>
+            <div class="gh-reimport-status" id="sf-reimport-status"></div>
+        </div>
+    </details>
     <div class="preview-wrap" id="sf-preview"><div class="empty-state"><div class="empty-icon">&#9783;</div><div class="empty-text">Configura l'endpoint StockFirmati (URL o file CSV)</div></div></div>
     <div class="confirm-bar" id="sf-confirm" style="display:none">
         <div class="summary-text" id="sf-confirm-text"></div>

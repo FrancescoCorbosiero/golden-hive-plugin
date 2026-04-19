@@ -883,3 +883,75 @@ add_action( 'wp_ajax_gh_ajax_preimport_validate', function () {
         wp_send_json_error( 'Validazione fallita: ' . $e->getMessage() );
     }
 } );
+
+// ── FORCE RE-IMPORT: dispatch as background job ────────────────
+// Takes the current feed-tab config (GS url+token or SF url) plus a list
+// of SKUs and spins up a one-shot `force_reimport` job. Handler side does
+// the chunked fetch+recreate; HTTP request returns immediately.
+add_action( 'wp_ajax_gh_ajax_reimport_dispatch', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $feed_type       = sanitize_key( $_POST['feed_type'] ?? '' );
+    $feed_config_raw = stripslashes( $_POST['feed_config'] ?? '{}' );
+    $skus_raw        = stripslashes( $_POST['skus'] ?? '[]' );
+    $overwrite_media = ! empty( $_POST['overwrite_media'] );
+
+    if ( ! in_array( $feed_type, [ 'gs', 'sf' ], true ) ) {
+        wp_send_json_error( 'feed_type non valido (atteso: gs|sf).' );
+    }
+
+    $feed_config = json_decode( $feed_config_raw, true );
+    if ( ! is_array( $feed_config ) || empty( $feed_config ) ) {
+        wp_send_json_error( 'feed_config mancante o non valido.' );
+    }
+
+    $skus = json_decode( $skus_raw, true );
+    if ( ! is_array( $skus ) ) { wp_send_json_error( 'skus non valido.' ); }
+
+    $skus = array_values( array_unique( array_filter( array_map( function ( $s ) {
+        return sanitize_text_field( (string) $s );
+    }, $skus ) ) ) );
+
+    if ( empty( $skus ) ) { wp_send_json_error( 'Lista SKU vuota.' ); }
+
+    $label = sprintf(
+        'Ri-importa %s · %d SKU%s',
+        strtoupper( $feed_type ),
+        count( $skus ),
+        $overwrite_media ? ' (+ media)' : ''
+    );
+
+    $saved = gh_jobs_save( [
+        'kind'        => 'force_reimport',
+        'label'       => $label,
+        'cron'        => '0 0 1 1 *',   // valid but never fires; enabled:false keeps cron silent
+        'enabled'     => false,
+        'max_runtime' => 7200,
+        'tick_budget' => 25,
+        'params'      => [
+            'feed_type'       => $feed_type,
+            'feed_config'     => wp_json_encode( $feed_config ),
+            'skus'            => wp_json_encode( $skus ),
+            'overwrite_media' => $overwrite_media,
+            'chunk_size'      => '10',
+        ],
+    ] );
+
+    if ( is_wp_error( $saved ) ) {
+        wp_send_json_error( $saved->get_error_message() );
+    }
+
+    $job_id = $saved['id'];
+
+    wp_schedule_single_event( time(), GH_JOBS_TICK_HOOK, [ $job_id ] );
+    if ( function_exists( 'spawn_cron' ) ) {
+        spawn_cron( time() );
+    }
+
+    wp_send_json_success( [
+        'job_id' => $job_id,
+        'label'  => $label,
+        'total'  => count( $skus ),
+    ] );
+} );

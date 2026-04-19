@@ -21,6 +21,37 @@ function gh_preimport_get_map(): array {
 }
 
 /**
+ * Removes every URL→attachment_id entry whose attachment_id is in
+ * $ids. Used by the force re-import flow after it has just deleted
+ * those attachments, so the next sideload redownloads fresh bytes
+ * instead of resolving stale map entries to nonexistent attachments.
+ *
+ * @param int[] $ids
+ * @return int Number of map entries removed.
+ */
+function gh_preimport_purge_by_attachment_ids( array $ids ): int {
+
+    if ( empty( $ids ) ) return 0;
+
+    $ids = array_flip( array_map( 'intval', $ids ) );
+    $map = gh_preimport_get_map();
+
+    $removed = 0;
+    foreach ( $map as $url => $att_id ) {
+        if ( isset( $ids[ (int) $att_id ] ) ) {
+            unset( $map[ $url ] );
+            $removed++;
+        }
+    }
+
+    if ( $removed > 0 ) {
+        update_option( GH_MEDIA_PREIMPORT_MAP_KEY, $map, false );
+    }
+
+    return $removed;
+}
+
+/**
  * Downloads a batch of image URLs using a sliding-window curl_multi and
  * imports each into WP media library with thumbnail generation DISABLED.
  *

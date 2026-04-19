@@ -665,5 +665,22 @@
 /* Bulk bar: "Esegui come job" toggle highlights when ticked. */
 #gh #bulk-as-job-wrap:has(input:checked){border-color:var(--acc);color:var(--acc);background:rgba(61,127,255,.06)}
 
+/* Force re-import accordion inside feed panels */
+#gh .gh-reimport-box{margin:10px 20px;border:1px solid var(--b1);border-radius:6px;background:var(--s2);overflow:hidden}
+#gh .gh-reimport-head{display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;list-style:none;user-select:none}
+#gh .gh-reimport-head::-webkit-details-marker{display:none}
+#gh .gh-reimport-head:hover{background:var(--s1)}
+#gh .gh-reimport-caret{display:inline-block;color:var(--acc);font-size:10px;transition:transform .15s}
+#gh .gh-reimport-box[open] .gh-reimport-caret{transform:rotate(90deg)}
+#gh .gh-reimport-title{font-family:var(--mono);font-size:11px;color:var(--amb);text-transform:uppercase;letter-spacing:.08em;font-weight:600}
+#gh .gh-reimport-hint{font-family:var(--mono);font-size:10px;color:var(--dim)}
+#gh .gh-reimport-body{padding:10px 12px 12px;border-top:1px solid var(--b1);display:flex;flex-direction:column;gap:8px;background:var(--s1)}
+#gh .gh-reimport-skus{min-height:60px;font-family:var(--mono);font-size:11px;resize:vertical}
+#gh .gh-reimport-opts{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+#gh .gh-reimport-opts label{font-family:var(--mono);font-size:10px;color:var(--dim);display:inline-flex;align-items:center;gap:4px}
+#gh .gh-reimport-status{font-family:var(--mono);font-size:10px;color:var(--dim);min-height:12px}
+#gh .gh-reimport-status a{color:var(--acc);text-decoration:none}
+#gh .gh-reimport-status a:hover{text-decoration:underline}
+
 @media(max-width:768px){#gh .tabs-col{width:48px}#gh .tab-label,#gh .tab-section{display:none}#gh .tab-item{justify-content:center;padding:10px 8px}#gh .summary-grid{grid-template-columns:repeat(2,1fr)}#gh .tax-detail{display:none!important}#gh .mp-mapper-layout{flex-direction:column}#gh .mp-col-source,#gh .mp-col-target{width:100%;max-height:150px;border-right:none;border-bottom:1px solid var(--b1)}#gh .mp-col-target{border-left:none;border-top:1px solid var(--b1);border-bottom:none}#gh .em-row{grid-template-columns:1fr 70px;gap:6px}#gh .em-row .em-time,#gh .em-row .em-type{display:none}#gh .em-hint{padding-left:0}}
 </style>

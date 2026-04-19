@@ -161,6 +161,7 @@
         if (btn) btn.disabled = selectedIds.size === 0 || !document.getElementById('bulk-action-select').value;
         const bjson = document.getElementById('btn-bulk-json');
         if (bjson) bjson.disabled = selectedIds.size === 0;
+        if (typeof maybeSuggestAsJob === 'function') maybeSuggestAsJob();
     }
     function getSelectedIds() { return Array.from(selectedIds); }
 
@@ -352,7 +353,21 @@
         bulkSelect.addEventListener('change', function() {
             renderBulkParams(this.value);
             document.getElementById('btn-bulk-execute').disabled = !this.value || selectedIds.size === 0;
+            maybeSuggestAsJob();
         });
+    }
+
+    // Heuristic: tick "Esegui come job" by default when the selected action
+    // is destructive (delete) or when the selection is large. The user can
+    // still untick to force inline execution.
+    const AS_JOB_THRESHOLD = 200;
+    function maybeSuggestAsJob() {
+        const box = document.getElementById('bulk-as-job');
+        if (!box) return;
+        const action = document.getElementById('bulk-action-select').value;
+        const isDelete = action === 'delete_product' || action === 'delete_with_media';
+        const isLarge  = selectedIds.size >= AS_JOB_THRESHOLD;
+        if (isDelete || isLarge) box.checked = true;
     }
 
     function renderBulkParams(action) {
@@ -422,18 +437,43 @@
         if (!action) return;
         const ids = getSelectedIds();
         if (!ids.length) { GH.toast('Seleziona almeno un prodotto.','err'); return; }
+        const asJobBox = document.getElementById('bulk-as-job');
+        const asJob = !!(asJobBox && asJobBox.checked);
         const isDelete = action === 'delete_product' || action === 'delete_with_media';
+
+        const asJobSuffix = asJob
+            ? '\n\nVerra eseguito in background come job (vedi tab Jobs per progress e log).'
+            : '';
         const msg = isDelete
             ? 'ELIMINARE DEFINITIVAMENTE '+ids.length+' prodott'+(ids.length===1?'o':'i')+'?\n\n'
                 + (action === 'delete_with_media'
                     ? 'Verranno eliminati prodotto, varianti e i media associati (featured, gallery, thumbnail varianti). Le immagini in whitelist o usate da altri prodotti saranno preservate.\n\n'
                     : 'Verranno eliminati prodotto e varianti. I media NON saranno toccati.\n\n')
-                + 'Questa azione NON e reversibile.'
-            : 'Applicare "'+action+'" a '+ids.length+' prodotti?\n\nQuesta azione non e reversibile.';
+                + 'Questa azione NON e reversibile.' + asJobSuffix
+            : 'Applicare "'+action+'" a '+ids.length+' prodotti?\n\nQuesta azione non e reversibile.' + asJobSuffix;
         if (!confirm(msg)) return;
+
         const params = collectBulkParams(action);
         const btn = document.getElementById('btn-bulk-execute');
         btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
+
+        if (asJob) {
+            const r = await GH.ajax('gh_ajax_bulk_dispatch_job', {
+                bulk_action: action,
+                product_ids: JSON.stringify(ids),
+                params:      JSON.stringify(params),
+            });
+            btn.disabled = false; btn.textContent = 'Applica';
+            if (r.success) {
+                const lbl = r.data.label || ('Job bulk · ' + ids.length);
+                document.getElementById('bulk-result').innerHTML = 'Job avviato: <strong>' + (lbl.replace(/</g,'&lt;')) + '</strong> — <a href="#" onclick="GH.switchTab(\'jobs\',document.querySelector(\'[onclick*=\\\'jobs\\\']\'));return false" style="color:var(--acc)">apri Jobs</a>';
+                GH.toast('Job avviato. Apri la tab Jobs per monitorarlo.', 'ok', 5000);
+            } else {
+                GH.toast(r.data || 'Errore dispatch job.', 'err');
+            }
+            return;
+        }
+
         const r = await GH.ajax('gh_ajax_bulk_execute', { bulk_action: action, product_ids: JSON.stringify(ids), params: JSON.stringify(params) });
         btn.disabled = false; btn.textContent = 'Applica';
         if (r.success) {

@@ -1264,5 +1264,68 @@
     initSfFeed();
     initCsvUpload();
 
-    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,gsPriceModeChange,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,sfMarkupModeChange,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog,nucPreview,nucExecute,feedCleanup};
+    // ── FORCE RE-IMPORT (dispatched as background Jobs) ───────────
+    // Shared helper: parses the textarea, reads the feed's current tab
+    // config, dispatches the one-shot `force_reimport` job and renders
+    // a tiny status line with a link to the Jobs tab.
+    function parseSkuList(raw) {
+        if (!raw) return [];
+        return raw
+            .split(/[\s,;\n\r\t]+/)
+            .map(s => s.trim())
+            .filter(Boolean);
+    }
+    async function dispatchReimport(feedType, cfg, skus, overwriteMedia, statusId) {
+        const statusEl = document.getElementById(statusId);
+        statusEl.innerHTML = 'Dispatch...';
+        const r = await ajax('gh_ajax_reimport_dispatch', {
+            feed_type:       feedType,
+            feed_config:     JSON.stringify(cfg),
+            skus:            JSON.stringify(skus),
+            overwrite_media: overwriteMedia ? '1' : '',
+        });
+        if (!r.success) {
+            statusEl.innerHTML = '<span style="color:var(--red)">Errore: ' + esc(r.data || 'dispatch fallito') + '</span>';
+            toast(r.data || 'Errore dispatch', 'err');
+            return;
+        }
+        const lbl = r.data.label || 'Ri-importa forzato';
+        statusEl.innerHTML = 'Job avviato: <strong>' + esc(lbl) + '</strong> — <a href="#" onclick="GH.switchTab(\'jobs\',document.querySelector(\'[onclick*=\\\'jobs\\\']\'));return false">apri Jobs</a>';
+        toast('Job avviato. Apri la tab Jobs per monitorarlo.', 'ok', 5000);
+    }
+
+    async function gsReimportDispatch() {
+        const skus = parseSkuList(document.getElementById('gs-reimport-skus').value || '');
+        if (!skus.length) { toast('Incolla almeno uno SKU', 'err'); return; }
+        const cfg = {
+            url:    document.getElementById('gs-url').value,
+            token:  document.getElementById('gs-token').value,
+            cookie: document.getElementById('gs-cookie').value,
+            format: document.getElementById('gs-format').value,
+        };
+        if (!cfg.url || !cfg.token) { toast('Compila URL + Token GS prima di ri-importare', 'err'); return; }
+        const po = gsGetPriceOpts();
+        cfg.price_mode = po.price_mode;
+        cfg.sale_mult  = po.sale_mult;
+        const overwriteMedia = document.getElementById('gs-reimport-media').checked;
+        if (!confirm('Ri-importare ' + skus.length + ' SKU da Golden Sneakers?\n\n' +
+            (overwriteMedia ? 'Media esistenti saranno cancellate (whitelist preservata).\n' : '') +
+            'I prodotti verranno eliminati e ricreati. Azione NON reversibile.')) return;
+        await dispatchReimport('gs', cfg, skus, overwriteMedia, 'gs-reimport-status');
+    }
+
+    async function sfReimportDispatch() {
+        const skus = parseSkuList(document.getElementById('sf-reimport-skus').value || '');
+        if (!skus.length) { toast('Incolla almeno uno SKU', 'err'); return; }
+        const sourceType = document.getElementById('sf-source-type').value;
+        const cfg = { url: sourceType === 'url' ? document.getElementById('sf-url').value : '' };
+        if (!cfg.url) { toast('Il force re-import SF richiede un URL CSV valido (non upload file)', 'err'); return; }
+        const overwriteMedia = document.getElementById('sf-reimport-media').checked;
+        if (!confirm('Ri-importare ' + skus.length + ' SKU da StockFirmati?\n\n' +
+            (overwriteMedia ? 'Media esistenti saranno cancellate (whitelist preservata).\n' : '') +
+            'I prodotti verranno eliminati e ricreati. Azione NON reversibile.')) return;
+        await dispatchReimport('sf', cfg, skus, overwriteMedia, 'sf-reimport-status');
+    }
+
+    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,gsPriceModeChange,gsReimportDispatch,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,sfMarkupModeChange,sfReimportDispatch,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog,nucPreview,nucExecute,feedCleanup};
 })();

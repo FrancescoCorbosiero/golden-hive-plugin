@@ -53,6 +53,7 @@ require_once GH_DIR . 'includes/feeds/csv-presets.php';
 require_once GH_DIR . 'includes/feeds/feed-csv.php';
 require_once GH_DIR . 'includes/feeds/feed-config-engine.php';
 require_once GH_DIR . 'includes/feeds/scheduler.php';
+require_once GH_DIR . 'includes/feeds/reimport.php';
 require_once GH_DIR . 'includes/feeds/ajax.php';
 
 // Jobs — unified scheduler (cron-expression based, chunked, pluggable)

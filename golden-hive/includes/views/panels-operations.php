@@ -66,6 +66,10 @@
                 <!-- Dynamic param inputs -->
                 <div id="bulk-params" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"></div>
 
+                <label id="bulk-as-job-wrap" title="Esegue in background via Jobs (chunking + resume). Consigliato per &gt;200 prodotti o azioni distruttive." style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--dim);cursor:pointer;padding:4px 8px;border:1px solid var(--b1);border-radius:4px;">
+                    <input type="checkbox" id="bulk-as-job" style="accent-color:var(--acc);margin:0;" />
+                    <span>Esegui come job</span>
+                </label>
                 <button class="btn btn-primary" id="btn-bulk-execute" onclick="GH.executeBulk()" disabled>Applica</button>
                 <div class="filter-sep"></div>
                 <button class="btn btn-ghost" id="btn-bulk-json" onclick="GH.openBulkJson()" style="color:var(--pur)" disabled>{ } JSON Editor</button>

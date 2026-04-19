@@ -422,7 +422,15 @@
         if (!action) return;
         const ids = getSelectedIds();
         if (!ids.length) { GH.toast('Seleziona almeno un prodotto.','err'); return; }
-        if (!confirm('Applicare "'+action+'" a '+ids.length+' prodotti?\n\nQuesta azione non e reversibile.')) return;
+        const isDelete = action === 'delete_product' || action === 'delete_with_media';
+        const msg = isDelete
+            ? 'ELIMINARE DEFINITIVAMENTE '+ids.length+' prodott'+(ids.length===1?'o':'i')+'?\n\n'
+                + (action === 'delete_with_media'
+                    ? 'Verranno eliminati prodotto, varianti e i media associati (featured, gallery, thumbnail varianti). Le immagini in whitelist o usate da altri prodotti saranno preservate.\n\n'
+                    : 'Verranno eliminati prodotto e varianti. I media NON saranno toccati.\n\n')
+                + 'Questa azione NON e reversibile.'
+            : 'Applicare "'+action+'" a '+ids.length+' prodotti?\n\nQuesta azione non e reversibile.';
+        if (!confirm(msg)) return;
         const params = collectBulkParams(action);
         const btn = document.getElementById('btn-bulk-execute');
         btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
@@ -450,6 +458,7 @@
             'set_seo_template':{meta_title_template:g('bulk-seo-title'),meta_description_template:g('bulk-seo-desc')},
             'remove_first_gallery_image':{}, 'clear_gallery':{},
             'set_menu_order':{menu_order:parseInt(g('bulk-order')||0)},
+            'delete_product':{}, 'delete_with_media':{},
         }[action] || {};
     }
 

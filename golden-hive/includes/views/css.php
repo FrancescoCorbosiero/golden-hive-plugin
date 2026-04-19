@@ -507,9 +507,14 @@
     #gh .em-tpl-res-meta{display:none}
 }
 
+/* Template editor container — explicit full-width flex column so the
+   preview pane has a dependable stretch context. JS toggles the inline
+   `display` style between 'none' and 'flex' to switch list/editor views. */
+#gh .em-tpl-editor-view{flex:1 1 auto;width:100%;min-width:0;flex-direction:column;overflow:hidden}
+
 /* Two-column editor + live preview */
-#gh .em-tpl-editor-body{flex:1;display:flex;min-height:0;position:relative}
-#gh .em-tpl-editor-left{flex:1;min-width:0;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+#gh .em-tpl-editor-body{flex:1 1 auto;width:100%;min-width:0;display:flex;min-height:0;position:relative}
+#gh .em-tpl-editor-left{flex:1 1 0;min-width:0;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
 #gh .em-tpl-editor-preview{width:480px;max-width:50%;flex-shrink:0;border-left:1px solid var(--b1);background:var(--s1);display:flex;flex-direction:column;min-height:0;transition:width .2s}
 #gh .em-tpl-editor-preview.is-hidden{width:0;border-left:0;overflow:hidden}
 #gh .em-tpl-preview-head{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--b1);background:var(--s2);flex-shrink:0}

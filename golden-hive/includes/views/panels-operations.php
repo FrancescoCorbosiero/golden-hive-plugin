@@ -57,6 +57,10 @@
                     <optgroup label="Ordine">
                         <option value="set_menu_order">Imposta ordine</option>
                     </optgroup>
+                    <optgroup label="Elimina">
+                        <option value="delete_product">Elimina prodotto (+ varianti)</option>
+                        <option value="delete_with_media">Elimina prodotto + media</option>
+                    </optgroup>
                 </select>
 
                 <!-- Dynamic param inputs -->

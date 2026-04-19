@@ -159,6 +159,20 @@ function gh_get_bulk_action_definitions(): array {
             'description' => 'Imposta menu_order a un valore fisso.',
             'params'      => [ 'menu_order' => 'number' ],
         ],
+
+        // ── DELETE ──────────────────────────────────────
+        'delete_product' => [
+            'label'       => 'Elimina prodotto',
+            'group'       => 'delete',
+            'description' => 'Elimina definitivamente i prodotti selezionati (varianti incluse via cascata WooCommerce). Non tocca le immagini.',
+            'params'      => [],
+        ],
+        'delete_with_media' => [
+            'label'       => 'Elimina prodotto + media',
+            'group'       => 'delete',
+            'description' => 'Elimina il prodotto (varianti incluse) e poi tenta di eliminare featured, gallery e thumbnail delle varianti. Le immagini in whitelist o ancora usate da altri prodotti vengono preservate.',
+            'params'      => [],
+        ],
     ];
 }
 
@@ -219,7 +233,10 @@ function gh_execute_bulk_action( string $action, array $product_ids, array $para
         if ( $result === true || $result === 'ok' ) {
             $results[ $pid ] = 'ok';
             $success++;
-            if ( $product->is_type( 'variable' ) ) $parents_to_sync[] = $pid;
+            // Variable parents need a sync after meta writes — but not if
+            // we just deleted the product, since WC already tore it down.
+            $is_delete = $action === 'delete_product' || $action === 'delete_with_media';
+            if ( ! $is_delete && $product->is_type( 'variable' ) ) $parents_to_sync[] = $pid;
         } else {
             $results[ $pid ] = is_wp_error( $result ) ? $result->get_error_message() : (string) $result;
             $failed++;
@@ -316,6 +333,10 @@ function gh_apply_bulk_action( WC_Product $product, string $action, array $param
 
         // ── ORDER ───────────────────────────────────────
         'set_menu_order' => gh_set_menu_order( $pid, intval( $params['menu_order'] ?? 0 ) ),
+
+        // ── DELETE ──────────────────────────────────────
+        'delete_product'    => gh_bulk_delete_product( $product, false ),
+        'delete_with_media' => gh_bulk_delete_product( $product, true ),
 
         default => "Azione sconosciuta: {$action}",
     };
@@ -657,4 +678,72 @@ function gh_round_price( float $value, string $mode ): float {
         'nearest_10'            => (float) ( round( $value / 10 ) * 10 ),
         default                 => round( $value, 2 ), // '2dec' e fallback sicuro.
     };
+}
+
+// ── DELETE HELPERS ────────────────────────────────────────────────────────────
+
+/**
+ * Elimina definitivamente un prodotto (con cascata varianti via WC).
+ * Se $with_media e true, raccoglie prima featured/gallery/thumbnail varianti
+ * e poi tenta di eliminarle tramite rp_mm_delete_attachment() che gia
+ * rispetta whitelist e controllo di uso puntuale — quindi immagini
+ * condivise con altri prodotti o esplicitamente whitelisted vengono
+ * preservate silenziosamente.
+ *
+ * @param WC_Product $product
+ * @param bool       $with_media
+ * @return true|string
+ */
+function gh_bulk_delete_product( WC_Product $product, bool $with_media ): true|string {
+
+    $pid = $product->get_id();
+
+    // Raccogli attachment IDs PRIMA di eliminare il prodotto: dopo il delete
+    // non sarebbero piu associati.
+    $attachment_ids = $with_media ? gh_collect_product_attachment_ids( $product ) : [];
+
+    $result = rp_delete_product( $pid, true ); // force delete (no trash)
+    if ( is_wp_error( $result ) ) {
+        return $result->get_error_message();
+    }
+
+    if ( $with_media && $attachment_ids ) {
+        foreach ( $attachment_ids as $att_id ) {
+            // Ignoriamo gli errori (whitelist / still in use): sono by-design.
+            rp_mm_delete_attachment( $att_id );
+        }
+    }
+
+    return true;
+}
+
+/**
+ * Raccoglie gli attachment IDs associati a un prodotto: featured image,
+ * gallery e featured image delle varianti (per prodotti variabili).
+ *
+ * @param WC_Product $product
+ * @return int[] Deduplicati, non-zero.
+ */
+function gh_collect_product_attachment_ids( WC_Product $product ): array {
+
+    $ids = [];
+
+    $featured = (int) $product->get_image_id();
+    if ( $featured ) $ids[] = $featured;
+
+    foreach ( (array) $product->get_gallery_image_ids() as $gid ) {
+        $gid = (int) $gid;
+        if ( $gid ) $ids[] = $gid;
+    }
+
+    if ( $product->is_type( 'variable' ) ) {
+        foreach ( $product->get_children() as $var_id ) {
+            $var = wc_get_product( $var_id );
+            if ( ! $var ) continue;
+            $var_img = (int) $var->get_image_id();
+            if ( $var_img ) $ids[] = $var_img;
+        }
+    }
+
+    return array_values( array_unique( array_filter( $ids ) ) );
 }

@@ -14,7 +14,7 @@
     </div>
 
     <!-- Template Editor View -->
-    <div id="em-tpl-editor-view" style="display:none;flex:1;display:none;flex-direction:column;overflow:hidden">
+    <div id="em-tpl-editor-view" class="em-tpl-editor-view" style="display:none">
         <div class="toolbar">
             <button class="btn btn-ghost" onclick="GH.emTplBackToList()">&larr; Lista</button>
             <div class="filter-sep"></div>

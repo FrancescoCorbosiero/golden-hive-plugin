@@ -48,8 +48,12 @@ golden-hive/
     │   ├── exporter.php         ← rp_cm_export_catalog, rp_cm_export_roundtrip
     │   ├── importer.php         ← rp_cm_import_preview, rp_cm_import_apply
     │   ├── taxonomy-manager.php ← rp_cm_get_taxonomy_tree, rp_cm_create_category, rp_cm_assign_product_categories, ...
+    │   ├── taxonomy-query.php   ← rp_cm_query_taxonomies (filter/sort/top-N), rp_cm_get_products_for_terms
     │   ├── bulk-creator.php     ← rp_cm_bulk_preview, rp_cm_bulk_apply
     │   └── ajax.php             ← AJAX bridge per catalogo/tassonomia
+    ├── navigation/              ← NUOVO (prefix: gh_nav_)
+    │   ├── manager.php          ← gh_nav_get_menus, _get_menu_items, _upsert_item, _populate_from_terms, _clear_managed_children
+    │   └── ajax.php             ← gh_ajax_taxonomy_query, gh_ajax_nav_{menus,items,populate,clear_managed,delete_item}
     ├── media/                   ← Da rp-media-cleaner (prefix: rp_mc_)
     │   ├── scanner.php           ← rp_mm_build_usage_map, _get_orphan_attachments, _build_attachment_data_batch
     │   ├── browser.php          ← gh_media_build_usage_index (cached), gh_media_query, _safe_cleanup_preview
@@ -76,10 +80,12 @@ golden-hive/
     │   ├── css.php              ← Design system completo (dark theme)
     │   ├── panels.php           ← Pannelli: taxonomy, media library, whitelist, feeds, import, tools
     │   ├── panels-operations.php← Pannelli: filtra & agisci, inline editor, ordinamento
+    │   ├── panels-navigation.php← Pannelli: tax-query, navigation (WP nav menus)
     │   ├── js.php               ← GH module IIFE (core functions, ajax, toast)
     │   ├── js2.php              ← GH module (whitelist, feeds, roundtrip, return public API)
     │   ├── js-operations.php    ← Filter/bulk JS (conditions builder, inline edit, selection, sorting)
     │   ├── js-inline.php        ← Inline Editor (search, form, JSON, variations, dirty save)
+    │   ├── js-navigation.php    ← Tax Query + Navigation Manager (GH.tq*, GH.nav*)
     │   └── js-media.php         ← Media Library (query, filters, bulk ops, Safe Cleanup)
     └── admin-page.php           ← add_menu_page + render con sidebar tab
 ```
@@ -108,6 +114,8 @@ views/*.php, admin-page.php        → "UI" (zero logica business)
 | | Inline Editor | Single-product: Form + JSON + Variations editing |
 | | Ordinamento | Sort preview + apply menu_order |
 | | Tassonomie | CRUD albero `product_cat` e `product_brand` |
+| | Tax Query | Lista filtrabile (search, parent, depth, count range, top-N) con selezione &rarr; Navigazione |
+| | Navigazione | Gestione WP nav menus + auto-populate di un item da un set di termini |
 | MEDIA | Media Library | Browser unificato con filtri, bulk ops, Safe Cleanup |
 | | Whitelist | Protezione immagini, inline add form |
 | IMPORT | GS Feed | Golden Sneakers feed |
@@ -249,6 +257,84 @@ if ( function_exists( 'rp_get_product' ) ) return;
 if ( defined( 'RP_EM_CAMPAIGNS_KEY' ) ) return;
 ```
 Questo permette di avere golden-hive + rp-product-manager attivi insieme senza fatal error.
+
+---
+
+## Taxonomy Query + Navigation — Architettura
+
+Due moduli strettamente accoppiati che condividono lo stesso query engine.
+
+### Tax Query (catalog/taxonomy-query.php)
+
+Una sola funzione parametrica:
+
+```php
+rp_cm_query_taxonomies([
+    'taxonomy'     => 'product_cat',   // product_cat | product_brand
+    'search'       => 'abbigl',         // substring su name/slug
+    'parent'       => -1,               // -1=root only, int=parent diretto, null=any
+    'ancestor'     => 123,              // tutti i discendenti di #123
+    'depth_min'    => 1, 'depth_max' => 2,
+    'min_count'    => 5, 'max_count' => 500,
+    'has_products' => true,             // shortcut per min_count>=1
+    'orderby'      => 'count',          // name|count|id|depth|path
+    'order'        => 'desc',
+    'limit'        => 15, 'offset' => 0,
+]);
+// => [ 'items' => Term[], 'total' => int ]
+```
+
+Ogni Term contiene `id, name, slug, parent, count, depth, path, permalink`.
+Compute `depth` e `path` sono memoizzati per singola chiamata.
+
+Helper complementare `rp_cm_get_products_for_terms($term_ids, $taxonomy, $extra)`
+restituisce gli ID prodotto assegnati a un set di termini — utile per bulk ops
+sui prodotti di una query tassonomica.
+
+### Navigation Manager (navigation/manager.php)
+
+Thin wrapper sulla Nav Menu API di WordPress con due garanzie in piu:
+
+1. **Marker `_gh_nav_managed`** — ogni item creato da
+   `gh_nav_populate_from_terms()` riceve post meta
+   `_gh_nav_managed=1` (costante `GH_NAV_MANAGED_META`).
+2. **Clear non distruttivo** — `gh_nav_clear_managed_children($menu_id,
+   $parent_item_id)` elimina SOLO gli item marker'ati. Gli item aggiunti a
+   mano dall'admin WP restano intatti anche se sono figli dello stesso parent.
+
+Flusso "Populate now":
+- L'UI mostra un preview dei termini (una query via `rp_cm_query_taxonomies`).
+- L'utente clicca *Populate now* → l'AJAX riceve `term_ids` espliciti.
+- Il layer PHP: (opz.) clear managed → insert con marker, `menu_order += 10`
+  partendo dall'item sibling con ordine piu alto.
+- Ritorna `{ created: int[], removed: int, skipped: int, errors: string[] }`.
+
+> Non esiste persistenza di "regole" (niente tabella salvata). E una azione
+> one-shot: esegui quando serve. Il preview mostra esattamente cosa verra
+> scritto prima del commit.
+
+### AJAX endpoints
+
+Tutti sotto prefix `gh_ajax_` con nonce `gh_nonce`:
+
+| Azione | Descrizione |
+|---|---|
+| `gh_ajax_taxonomy_query` | Query parametrica sulla tassonomia (ritorna items+total) |
+| `gh_ajax_nav_menus` | Lista menu WP registrati |
+| `gh_ajax_nav_items` | Item del menu (con flag `managed`) |
+| `gh_ajax_nav_populate` | Popola sotto `parent_item_id` da `term_ids` espliciti |
+| `gh_ajax_nav_clear_managed` | Elimina solo i figli managed di un parent |
+| `gh_ajax_nav_delete_item` | Elimina un singolo item (manuale o managed) |
+
+### UI
+
+- **Tab Tax Query** (`panel-tax-query`) — toolbar di filtri + preset "Top 15"
+  + tabella con checkbox. Bottone *Invia a Navigazione* cambia tab e
+  pre-compila il preview del populator con gli ID selezionati.
+- **Tab Navigazione** (`panel-navigation`) — selettore menu, selettore item
+  target (flat con indentazione), criteri tassonomici, preview, *Populate
+  now*, *Clear managed children*. Lato destro: lista completa item correnti
+  con badge `GH` sugli item managed.
 
 ---
 

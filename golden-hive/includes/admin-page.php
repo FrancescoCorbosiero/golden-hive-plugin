@@ -40,6 +40,8 @@ function gh_render_page(): void {
             <div class="tab-item" onclick="GH.switchTab('inline-editor',this)"><span class="tab-icon">&#9783;</span><span class="tab-label">Inline Editor</span></div>
             <div class="tab-item" onclick="GH.switchTab('sorting',this)"><span class="tab-icon">&#8693;</span><span class="tab-label">Ordinamento</span></div>
             <div class="tab-item" onclick="GH.switchTab('taxonomy',this);GH.loadTaxonomy()"><span class="tab-icon">&#9698;</span><span class="tab-label">Tassonomie</span></div>
+            <div class="tab-item" onclick="GH.switchTab('tax-query',this)"><span class="tab-icon">&#9906;</span><span class="tab-label">Tax Query</span></div>
+            <div class="tab-item" data-gh-tab="navigation" onclick="GH.switchTab('navigation',this);GH.navLoadMenus()"><span class="tab-icon">&#9881;</span><span class="tab-label">Navigazione</span></div>
             <div class="tab-section">MEDIA</div>
             <div class="tab-item" onclick="GH.switchTab('media-library',this)"><span class="tab-icon">&#9636;</span><span class="tab-label">Media Library</span></div>
             <div class="tab-item" onclick="GH.switchTab('whitelist',this);GH.loadWhitelist()"><span class="tab-icon">&#9737;</span><span class="tab-label">Whitelist</span></div>
@@ -68,6 +70,7 @@ function gh_render_page(): void {
         <div class="content">
             <?php include GH_DIR . 'includes/views/panels.php'; ?>
             <?php include GH_DIR . 'includes/views/panels-operations.php'; ?>
+            <?php include GH_DIR . 'includes/views/panels-navigation.php'; ?>
             <?php include GH_DIR . 'includes/views/panels-mapper.php'; ?>
             <?php include GH_DIR . 'includes/views/panels-jobs.php'; ?>
             <?php include GH_DIR . 'includes/views/panels-email.php'; ?>
@@ -82,6 +85,7 @@ function gh_render_page(): void {
 <?php include GH_DIR . 'includes/views/js-operations.php'; ?>
 <?php include GH_DIR . 'includes/views/js-inline.php'; ?>
 <?php include GH_DIR . 'includes/views/js-smart.php'; ?>
+<?php include GH_DIR . 'includes/views/js-navigation.php'; ?>
 <?php include GH_DIR . 'includes/views/js-media.php'; ?>
 <?php include GH_DIR . 'includes/views/js-mapper.php'; ?>
 <?php include GH_DIR . 'includes/views/js-jobs.php'; ?>

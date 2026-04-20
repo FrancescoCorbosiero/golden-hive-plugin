@@ -42,6 +42,27 @@
         <button class="btn btn-ghost" onclick="GH.tqPreset('top15')" title="Top 15 per numero prodotti">Top 15</button>
     </div>
 
+    <!--
+        Cross-taxonomy filter: restringi il risultato ai termini che hanno
+        almeno un prodotto anche in una delle categorie / brand indicati.
+        Esempio d'uso: target=product_brand + in_cat=[Abbigliamento] →
+        "brand dei prodotti sotto Abbigliamento" con conteggio filtrato.
+        Accetta term_id separati da virgola o spazio.
+    -->
+    <div class="toolbar" style="background:var(--s1);border-top:1px solid var(--b1);flex-wrap:wrap;gap:8px">
+        <span class="filter-label" title="Cross-filter: tieni solo i termini i cui prodotti sono anche in queste categorie/brand">Cross-filter</span>
+        <span class="filter-label">in product_cat</span>
+        <input class="filter-select" id="tq-in-cat" placeholder="term_id, term_id..." style="min-width:180px" />
+        <button class="btn btn-ghost" onclick="GH.tqPickTerms('in-cat','product_cat')" title="Pick da albero">pick...</button>
+        <div class="filter-sep"></div>
+        <span class="filter-label">in product_brand</span>
+        <input class="filter-select" id="tq-in-brand" placeholder="term_id, term_id..." style="min-width:180px" />
+        <button class="btn btn-ghost" onclick="GH.tqPickTerms('in-brand','product_brand')" title="Pick da albero">pick...</button>
+        <div class="filter-sep"></div>
+        <button class="btn btn-ghost" onclick="GH.tqPreset('brands-in-cat')" title="Brand dei prodotti nella categoria indicata (imposta target=product_brand)">Brand di &rarr; cat</button>
+        <button class="btn btn-ghost" onclick="GH.tqPreset('cats-in-brand')" title="Categorie dei prodotti del brand indicato (imposta target=product_cat)">Cat di &rarr; brand</button>
+    </div>
+
     <div class="stats-bar" id="tq-stats" style="display:none">
         <div class="stat"><span id="tq-total">0</span> risultati</div>
         <div class="stat" id="tq-sel-stat" style="display:none"><span class="green" id="tq-sel-n">0</span> selezionati</div>

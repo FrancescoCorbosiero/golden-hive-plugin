@@ -49,6 +49,11 @@ defined( 'ABSPATH' ) || exit;
  *     @type bool   $has_products     scorciatoia per min_count=1.
  *     @type int[]  $include          term_id da includere (se omesso: tutti).
  *     @type int[]  $exclude          term_id da escludere.
+ *     @type int[]  $in_product_cat   cross-filter: tieni solo i termini che hanno
+ *                                    almeno un prodotto in uno di questi product_cat.
+ *                                    Usato per "brand dei prodotti nella categoria X".
+ *                                    `count` viene sovrascritto col conteggio filtrato.
+ *     @type int[]  $in_product_brand cross-filter: come sopra ma su product_brand.
  *     @type string $orderby          name|count|id|depth|path (default: name).
  *     @type string $order            asc|desc (default: asc).
  *     @type int    $limit            numero massimo di risultati (-1 = illimitato).
@@ -59,21 +64,23 @@ defined( 'ABSPATH' ) || exit;
 function rp_cm_query_taxonomies( array $args = [] ): array {
 
     $defaults = [
-        'taxonomy'     => 'product_cat',
-        'search'       => '',
-        'parent'       => null,
-        'ancestor'     => 0,
-        'depth_min'    => null,
-        'depth_max'    => null,
-        'min_count'    => null,
-        'max_count'    => null,
-        'has_products' => false,
-        'include'      => [],
-        'exclude'      => [],
-        'orderby'      => 'name',
-        'order'        => 'asc',
-        'limit'        => 50,
-        'offset'       => 0,
+        'taxonomy'         => 'product_cat',
+        'search'           => '',
+        'parent'           => null,
+        'ancestor'         => 0,
+        'depth_min'        => null,
+        'depth_max'        => null,
+        'min_count'        => null,
+        'max_count'        => null,
+        'has_products'     => false,
+        'include'          => [],
+        'exclude'          => [],
+        'in_product_cat'   => [],
+        'in_product_brand' => [],
+        'orderby'          => 'name',
+        'order'            => 'asc',
+        'limit'            => 50,
+        'offset'           => 0,
     ];
     $args = array_merge( $defaults, $args );
 
@@ -126,6 +133,16 @@ function rp_cm_query_taxonomies( array $args = [] ): array {
 
     $min_count = $args['has_products'] ? max( 1, (int) ( $args['min_count'] ?? 1 ) ) : $args['min_count'];
 
+    // Cross-taxonomy filter: reduce the candidate set to the terms that share
+    // at least one product with the given product_cat / product_brand IDs, and
+    // override `count` with the filtered intersection count.
+    $cross_counts = null;
+    $cross_cats   = array_values( array_unique( array_map( 'intval', (array) $args['in_product_cat'] ) ) );
+    $cross_brands = array_values( array_unique( array_map( 'intval', (array) $args['in_product_brand'] ) ) );
+    if ( $cross_cats || $cross_brands ) {
+        $cross_counts = rp_cm_cross_taxonomy_counts( $taxonomy, $cross_cats, $cross_brands );
+    }
+
     $rows = [];
     foreach ( $terms as $t ) {
 
@@ -151,8 +168,16 @@ function rp_cm_query_taxonomies( array $args = [] ): array {
         if ( $args['depth_min'] !== null && $depth < (int) $args['depth_min'] ) continue;
         if ( $args['depth_max'] !== null && $depth > (int) $args['depth_max'] ) continue;
 
-        if ( $min_count !== null && (int) $t->count < (int) $min_count ) continue;
-        if ( $args['max_count'] !== null && (int) $t->count > (int) $args['max_count'] ) continue;
+        // When cross-filter is active, drop terms with zero intersection and
+        // use the filtered count for min/max checks downstream.
+        $effective_count = (int) $t->count;
+        if ( $cross_counts !== null ) {
+            if ( ! isset( $cross_counts[ $tid ] ) ) continue;
+            $effective_count = (int) $cross_counts[ $tid ];
+        }
+
+        if ( $min_count !== null && $effective_count < (int) $min_count ) continue;
+        if ( $args['max_count'] !== null && $effective_count > (int) $args['max_count'] ) continue;
 
         if ( $search !== '' ) {
             $hay = mb_strtolower( $t->name . ' ' . $t->slug );
@@ -165,7 +190,7 @@ function rp_cm_query_taxonomies( array $args = [] ): array {
             'name'      => $t->name,
             'slug'      => $t->slug,
             'parent'    => (int) $t->parent,
-            'count'     => (int) $t->count,
+            'count'     => $effective_count,
             'depth'     => $depth,
             'path'      => $compute_path( $tid ),
             'permalink' => is_string( $link ) ? $link : '',
@@ -192,6 +217,78 @@ function rp_cm_query_taxonomies( array $args = [] ): array {
     }
 
     return [ 'items' => $rows, 'total' => $total ];
+}
+
+/**
+ * Conteggio di prodotti per ciascun termine della `$target_taxonomy` che hanno
+ * almeno un'assegnazione in una delle `$product_cat_ids` e/o una delle
+ * `$product_brand_ids`. Se entrambi i set sono specificati, richiede AND
+ * (il prodotto deve appartenere ad almeno una di ogni set).
+ *
+ * Implementazione: SQL diretto con GROUP BY su term_taxonomy_id per evitare di
+ * hydratare centinaia di oggetti prodotto in memoria. Case d'uso principale:
+ *   "brand dei prodotti nella categoria X" → target=product_brand, cat=[X]
+ *
+ * @return array<int,int> [ term_id => filtered_count ]
+ */
+function rp_cm_cross_taxonomy_counts( string $target_taxonomy, array $product_cat_ids = [], array $product_brand_ids = [] ): array {
+    global $wpdb;
+
+    $target_taxonomy   = rp_cm_normalize_taxonomy( $target_taxonomy );
+    $product_cat_ids   = array_values( array_unique( array_map( 'intval', $product_cat_ids ) ) );
+    $product_brand_ids = array_values( array_unique( array_map( 'intval', $product_brand_ids ) ) );
+    if ( ! $product_cat_ids && ! $product_brand_ids ) return [];
+
+    // Subquery per ogni cross-filter: restituisce gli object_id (prodotti) che
+    // hanno almeno un termine in quel set. Se entrambi i set sono attivi,
+    // intersechiamo con INNER JOIN.
+    $joins  = [];
+    $params = [];
+
+    if ( $product_cat_ids ) {
+        $ph = implode( ',', array_fill( 0, count( $product_cat_ids ), '%d' ) );
+        $joins[] = "INNER JOIN (
+            SELECT DISTINCT tr.object_id
+            FROM {$wpdb->term_relationships} tr
+            INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+            WHERE tt.taxonomy = 'product_cat' AND tt.term_id IN ($ph)
+        ) f_cat ON f_cat.object_id = p.ID";
+        $params = array_merge( $params, $product_cat_ids );
+    }
+    if ( $product_brand_ids ) {
+        $ph = implode( ',', array_fill( 0, count( $product_brand_ids ), '%d' ) );
+        $joins[] = "INNER JOIN (
+            SELECT DISTINCT tr.object_id
+            FROM {$wpdb->term_relationships} tr
+            INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+            WHERE tt.taxonomy = 'product_brand' AND tt.term_id IN ($ph)
+        ) f_brand ON f_brand.object_id = p.ID";
+        $params = array_merge( $params, $product_brand_ids );
+    }
+
+    $join_sql = implode( "\n", $joins );
+
+    $sql = "
+        SELECT tt_tgt.term_id AS term_id, COUNT(DISTINCT p.ID) AS cnt
+        FROM {$wpdb->posts} p
+        INNER JOIN {$wpdb->term_relationships} tr_tgt ON tr_tgt.object_id = p.ID
+        INNER JOIN {$wpdb->term_taxonomy} tt_tgt ON tt_tgt.term_taxonomy_id = tr_tgt.term_taxonomy_id
+        $join_sql
+        WHERE p.post_type = 'product'
+          AND p.post_status NOT IN ('trash','auto-draft')
+          AND tt_tgt.taxonomy = %s
+        GROUP BY tt_tgt.term_id
+    ";
+    $params[] = $target_taxonomy;
+
+    $rows = $wpdb->get_results( $wpdb->prepare( $sql, $params ), ARRAY_A );
+    if ( ! is_array( $rows ) ) return [];
+
+    $out = [];
+    foreach ( $rows as $r ) {
+        $out[ (int) $r['term_id'] ] = (int) $r['cnt'];
+    }
+    return $out;
 }
 
 /**

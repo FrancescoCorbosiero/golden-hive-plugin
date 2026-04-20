@@ -48,6 +48,22 @@ add_action( 'wp_ajax_gh_ajax_taxonomy_query', function () {
         $args['max_count'] = (int) $_POST['max_count'];
     }
 
+    // Cross-taxonomy filters (accept CSV or JSON array of term IDs).
+    $parse_ids = static function ( $raw ): array {
+        if ( is_array( $raw ) ) return array_map( 'intval', $raw );
+        $raw = (string) $raw;
+        if ( $raw === '' ) return [];
+        $decoded = json_decode( stripslashes( $raw ), true );
+        if ( is_array( $decoded ) ) return array_map( 'intval', $decoded );
+        return array_filter( array_map( 'intval', preg_split( '/[\s,;]+/', $raw ) ) );
+    };
+    if ( ! empty( $_POST['in_product_cat'] ) ) {
+        $args['in_product_cat'] = $parse_ids( $_POST['in_product_cat'] );
+    }
+    if ( ! empty( $_POST['in_product_brand'] ) ) {
+        $args['in_product_brand'] = $parse_ids( $_POST['in_product_brand'] );
+    }
+
     $result = rp_cm_query_taxonomies( $args );
     wp_send_json_success( $result );
 } );

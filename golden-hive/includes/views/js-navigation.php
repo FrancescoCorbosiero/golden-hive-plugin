@@ -27,7 +27,7 @@
 
     function tqReadArgs() {
         const v = id => document.getElementById(id)?.value ?? '';
-        return {
+        const args = {
             taxonomy:  v('tq-taxonomy'),
             search:    v('tq-search'),
             parent:    v('tq-parent'),
@@ -39,6 +39,11 @@
             order:     v('tq-order'),
             limit:     v('tq-limit') || 50,
         };
+        const inCat = v('tq-in-cat').trim();
+        const inBrd = v('tq-in-brand').trim();
+        if (inCat) args.in_product_cat   = inCat;   // CSV handled server-side
+        if (inBrd) args.in_product_brand = inBrd;
+        return args;
     }
 
     async function tqRun() {
@@ -115,7 +120,60 @@
             document.getElementById('tq-limit').value   = '15';
             document.getElementById('tq-min-count').value = '1';
             tqRun();
+            return;
         }
+        // "Brand dei prodotti nella categoria X" — target product_brand + in_cat
+        if (name === 'brands-in-cat') {
+            const cat = document.getElementById('tq-in-cat').value.trim();
+            if (!cat) {
+                GH.toast('Imposta prima "in product_cat" (pick... o term_id a mano)', 'err');
+                return;
+            }
+            document.getElementById('tq-taxonomy').value = 'product_brand';
+            document.getElementById('tq-in-brand').value = '';
+            document.getElementById('tq-orderby').value = 'count';
+            document.getElementById('tq-order').value   = 'desc';
+            document.getElementById('tq-min-count').value = '1';
+            tqRun();
+            return;
+        }
+        // "Categorie dei prodotti del brand Y" — target product_cat + in_brand
+        if (name === 'cats-in-brand') {
+            const brd = document.getElementById('tq-in-brand').value.trim();
+            if (!brd) {
+                GH.toast('Imposta prima "in product_brand" (pick... o term_id a mano)', 'err');
+                return;
+            }
+            document.getElementById('tq-taxonomy').value = 'product_cat';
+            document.getElementById('tq-in-cat').value = '';
+            document.getElementById('tq-orderby').value = 'count';
+            document.getElementById('tq-order').value   = 'desc';
+            document.getElementById('tq-min-count').value = '1';
+            tqRun();
+            return;
+        }
+    }
+
+    // Minimal term picker: loads the tree of the requested taxonomy and shows
+    // a searchable prompt. Keeps the UI stateless — no new modal component.
+    async function tqPickTerms(field, taxonomy) {
+        const r = await GH.ajax('rp_cm_ajax_taxonomy_tree', { taxonomy });
+        if (!r.success) { GH.toast('Errore caricamento albero', 'err'); return; }
+        const flat = [];
+        const walk = (nodes, prefix) => {
+            for (const n of nodes) {
+                flat.push({ id: n.id, label: (prefix ? prefix + ' / ' : '') + n.name, count: n.count });
+                if (n.children?.length) walk(n.children, (prefix ? prefix + ' / ' : '') + n.name);
+            }
+        };
+        walk(r.data || [], '');
+        const listText = flat.map(t => '#' + t.id + '  ' + t.label + '  (' + t.count + ')').join('\n');
+        const answer = prompt(
+            'Incolla i term_id separati da virgola.\n\nElenco ' + taxonomy + ':\n\n' + listText,
+            document.getElementById('tq-' + field).value
+        );
+        if (answer == null) return;
+        document.getElementById('tq-' + field).value = answer.trim();
     }
 
     function tqSendToNav() {
@@ -300,7 +358,7 @@
 
     // ── Extend public API ───────────────────────────────────────
     Object.assign(GH, {
-        tqRun, tqToggle, tqSelectAll, tqSelectNone, tqPreset, tqSendToNav,
+        tqRun, tqToggle, tqSelectAll, tqSelectNone, tqPreset, tqPickTerms, tqSendToNav,
         navLoadMenus, navLoadItems, navDeleteItem, navPreview, navPopulate, navClearManaged,
     });
 })();

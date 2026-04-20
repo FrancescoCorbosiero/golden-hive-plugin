@@ -270,22 +270,43 @@ Una sola funzione parametrica:
 
 ```php
 rp_cm_query_taxonomies([
-    'taxonomy'     => 'product_cat',   // product_cat | product_brand
-    'search'       => 'abbigl',         // substring su name/slug
-    'parent'       => -1,               // -1=root only, int=parent diretto, null=any
-    'ancestor'     => 123,              // tutti i discendenti di #123
-    'depth_min'    => 1, 'depth_max' => 2,
-    'min_count'    => 5, 'max_count' => 500,
-    'has_products' => true,             // shortcut per min_count>=1
-    'orderby'      => 'count',          // name|count|id|depth|path
-    'order'        => 'desc',
-    'limit'        => 15, 'offset' => 0,
+    'taxonomy'         => 'product_cat',   // product_cat | product_brand
+    'search'           => 'abbigl',        // substring su name/slug
+    'parent'           => -1,              // -1=root only, int=parent diretto, null=any
+    'ancestor'         => 123,             // tutti i discendenti di #123
+    'depth_min'        => 1, 'depth_max' => 2,
+    'min_count'        => 5, 'max_count' => 500,
+    'has_products'     => true,            // shortcut per min_count>=1
+    'in_product_cat'   => [ 123 ],         // cross-filter: solo termini con prodotti in queste cat
+    'in_product_brand' => [ 77, 78 ],      // cross-filter: solo termini con prodotti in questi brand
+    'orderby'          => 'count',         // name|count|id|depth|path
+    'order'            => 'desc',
+    'limit'            => 15, 'offset' => 0,
 ]);
 // => [ 'items' => Term[], 'total' => int ]
 ```
 
 Ogni Term contiene `id, name, slug, parent, count, depth, path, permalink`.
 Compute `depth` e `path` sono memoizzati per singola chiamata.
+
+**Cross-taxonomy filter** (`in_product_cat` / `in_product_brand`) — risolve
+query tipo "dammi i brand dei prodotti che stanno sotto la categoria
+Abbigliamento":
+
+```php
+// "Brand presenti nella categoria #123"
+rp_cm_query_taxonomies([
+    'taxonomy'       => 'product_brand',
+    'in_product_cat' => [ 123 ],
+    'orderby'        => 'count', 'order' => 'desc',
+]);
+```
+
+Implementato via `rp_cm_cross_taxonomy_counts()` con SQL diretto (join su
+`term_relationships` e GROUP BY) — niente hydration di oggetti prodotto.
+Se il cross-filter e attivo, `count` di ciascun term viene sovrascritto
+col conteggio **filtrato** (solo i prodotti che matchano entrambi i set).
+I filtri `min_count`/`max_count` si applicano poi sul count filtrato.
 
 Helper complementare `rp_cm_get_products_for_terms($term_ids, $taxonomy, $extra)`
 restituisce gli ID prodotto assegnati a un set di termini — utile per bulk ops

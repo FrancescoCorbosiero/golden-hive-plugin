@@ -30,9 +30,14 @@ require_once GH_DIR . 'includes/catalog/tree-builder.php';
 require_once GH_DIR . 'includes/catalog/exporter.php';
 require_once GH_DIR . 'includes/catalog/importer.php';
 require_once GH_DIR . 'includes/catalog/taxonomy-manager.php';
+require_once GH_DIR . 'includes/catalog/taxonomy-query.php';
 require_once GH_DIR . 'includes/catalog/smart-taxonomy.php';
 require_once GH_DIR . 'includes/catalog/bulk-creator.php';
 require_once GH_DIR . 'includes/catalog/ajax.php';
+
+// Navigation — WP nav menus (read/write, auto-populate from taxonomy query)
+require_once GH_DIR . 'includes/navigation/manager.php';
+require_once GH_DIR . 'includes/navigation/ajax.php';
 
 // Media — browse, mapping, orphans, whitelist
 require_once GH_DIR . 'includes/media/scanner.php';

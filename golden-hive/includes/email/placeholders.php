@@ -31,10 +31,13 @@ if ( function_exists( 'rp_em_extract_namespace' ) ) return;
 /**
  * Namespace riconosciuti.
  *
+ * BRAND, CAMPAIGN, PRODUCT, RECIPIENT, META → marketing campaigns.
+ * ORDER                                     → transactional emails (per-order).
+ *
  * @return string[]
  */
 function rp_em_known_namespaces(): array {
-    return [ 'BRAND', 'CAMPAIGN', 'PRODUCT', 'RECIPIENT', 'META' ];
+    return [ 'BRAND', 'CAMPAIGN', 'PRODUCT', 'ORDER', 'RECIPIENT', 'META' ];
 }
 
 /**
@@ -117,10 +120,34 @@ function rp_em_is_recipient_placeholder( string $key ): bool {
  * @return array { 'BRAND' => string[], 'CAMPAIGN' => [...], ..., 'UNKNOWN' => [...] }
  */
 function rp_em_group_placeholders( array $keys ): array {
-    $out = [ 'BRAND' => [], 'CAMPAIGN' => [], 'PRODUCT' => [], 'RECIPIENT' => [], 'META' => [], 'UNKNOWN' => [] ];
+    $out = [ 'BRAND' => [], 'CAMPAIGN' => [], 'PRODUCT' => [], 'ORDER' => [], 'RECIPIENT' => [], 'META' => [], 'UNKNOWN' => [] ];
     foreach ( $keys as $k ) {
         $ns = rp_em_extract_namespace( $k );
         $out[ $ns ][] = $k;
     }
     return $out;
+}
+
+/**
+ * Estrae l'indice N da una chiave ORDER_ITEM_N_FIELD.
+ * Torna null se non e una chiave ORDER_ITEM valida.
+ *
+ * @param string $key
+ * @return int|null Indice 1-based, o null.
+ */
+function rp_em_order_item_index( string $key ): ?int {
+    if ( ! preg_match( '/^ORDER_ITEM_(\d+)_/', $key, $m ) ) return null;
+    $n = (int) $m[1];
+    return $n > 0 ? $n : null;
+}
+
+/**
+ * Estrae il nome del campo da una chiave ORDER_ITEM_N_FIELD.
+ *
+ * @param string $key
+ * @return string|null 'NAME', 'SIZE', 'PRICE', etc., o null.
+ */
+function rp_em_order_item_field( string $key ): ?string {
+    if ( ! preg_match( '/^ORDER_ITEM_\d+_(.+)$/', $key, $m ) ) return null;
+    return $m[1];
 }

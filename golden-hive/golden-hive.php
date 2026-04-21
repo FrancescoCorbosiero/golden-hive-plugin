@@ -87,22 +87,31 @@ require_once GH_DIR . 'includes/mapper/engine.php';
 require_once GH_DIR . 'includes/mapper/storage.php';
 require_once GH_DIR . 'includes/mapper/ajax.php';
 
-// Email — multi-layer template system.
+// Email — multi-layer template system + transactional (event-driven).
 // Ordine di load: placeholders → brand → templates → renderer → validator →
-//                 campaigns → contacts → mailer → log → seeder → ajax.
+//                 campaigns → contacts → mailer → log → order-resolver →
+//                 transactional → order-meta-box → seeder → ajax.
 // Dipendenze: renderer legge brand+templates, validator legge tutto, campaigns
-// usa renderer+validator, seeder usa brand+templates+campaigns, ajax usa tutto.
+// usa renderer+validator, transactional usa order-resolver+templates+mailer,
+// order-meta-box usa transactional, seeder usa brand+templates+campaigns,
+// ajax+transactional-ajax usano tutto.
+// templates.php carica order_shipped binding al primo admin_init: deve caricarsi
+// DOPO transactional.php (che definisce rp_em_save_transactional_binding).
 require_once GH_DIR . 'includes/email/placeholders.php';
 require_once GH_DIR . 'includes/email/brand.php';
-require_once GH_DIR . 'includes/email/templates.php';
 require_once GH_DIR . 'includes/email/renderer.php';
 require_once GH_DIR . 'includes/email/validator.php';
 require_once GH_DIR . 'includes/email/campaigns.php';
 require_once GH_DIR . 'includes/email/contacts.php';
 require_once GH_DIR . 'includes/email/mailer.php';
 require_once GH_DIR . 'includes/email/log.php';
+require_once GH_DIR . 'includes/email/order-resolver.php';
+require_once GH_DIR . 'includes/email/transactional.php';
+require_once GH_DIR . 'includes/email/templates.php';
+require_once GH_DIR . 'includes/email/order-meta-box.php';
 require_once GH_DIR . 'includes/email/_seed/seeder.php';
 require_once GH_DIR . 'includes/email/ajax.php';
+require_once GH_DIR . 'includes/email/transactional-ajax.php';
 
 // Tools
 require_once GH_DIR . 'includes/tools/nuclear-cleanup.php';

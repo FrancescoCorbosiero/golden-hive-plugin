@@ -143,6 +143,11 @@ function rp_em_validate_campaign( string $campaign_id ): array {
             }
             continue;
         }
+
+        if ( $ns === 'ORDER' ) {
+            $errors[] = rp_em_err( 'NAMESPACE_VIOLATION', $key, "Placeholder '{$key}' (ORDER_*) appartiene al sistema transazionale. Usalo in un template transazionale, non in una campagna marketing." );
+            continue;
+        }
     }
 
     // ── Step 3: NAMESPACE_VIOLATION — payload non puo contenere BRAND_*
@@ -153,6 +158,9 @@ function rp_em_validate_campaign( string $campaign_id ): array {
         }
         if ( $ns === 'PRODUCT' ) {
             $errors[] = rp_em_err( 'NAMESPACE_VIOLATION', (string) $k, "Chiave '{$k}' e del namespace PRODUCT: i product value si popolano dal product picker, non dal payload campagna." );
+        }
+        if ( $ns === 'ORDER' ) {
+            $errors[] = rp_em_err( 'NAMESPACE_VIOLATION', (string) $k, "Chiave '{$k}' e del namespace ORDER: appartiene al sistema transazionale, non al payload campagna." );
         }
         if ( $ns === 'RECIPIENT' ) {
             $errors[] = rp_em_err( 'NAMESPACE_VIOLATION', (string) $k, "Chiave '{$k}' e del namespace RECIPIENT: restano letterali per l'ESP, non vanno nel payload." );

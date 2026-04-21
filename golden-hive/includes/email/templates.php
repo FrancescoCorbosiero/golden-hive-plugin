@@ -197,12 +197,64 @@ function rp_em_install_weekend_2products_template(): ?string {
     ] );
 }
 
+/**
+ * Installa il template transazionale "Order · Spedito con Tracking" dai seed.
+ * Destinato all'evento transazionale order_shipped: renderizzato con ORDER_*
+ * risolti dall'ordine WooCommerce.
+ *
+ * Idempotente: match per nome.
+ *
+ * @return string|null ID del template installato, o null se non installabile.
+ */
+function rp_em_install_order_shipped_template(): ?string {
+    $seed_html = __DIR__ . '/_seed/order-shipped-template.html';
+    if ( ! is_readable( $seed_html ) ) return null;
+
+    $name = 'Order · Spedito con Tracking';
+    foreach ( rp_em_get_templates() as $t ) {
+        if ( ( $t['name'] ?? '' ) === $name ) return $t['id'];
+    }
+
+    $html = file_get_contents( $seed_html );
+    if ( ! $html ) return null;
+
+    return rp_em_save_template( [
+        'name'        => $name,
+        'description' => 'Email transazionale per evento order_shipped. Mostra step di spedizione, codice tracking, corriere e CTA al link del corriere. Usa {ORDER_*} risolti dall\'ordine WooCommerce.',
+        'html'        => $html,
+    ] );
+}
+
 // ── Auto-install dei seed template curati (one-shot per flag).
 // Se l'utente elimina il template a mano, non viene reinstallato.
 add_action( 'admin_init', function () {
-    if ( get_option( 'rp_em_seed_weekend_2p_installed' ) === '1' ) return;
     if ( ! function_exists( 'current_user_can' ) || ! current_user_can( 'manage_woocommerce' ) ) return;
 
-    $id = rp_em_install_weekend_2products_template();
-    if ( $id ) update_option( 'rp_em_seed_weekend_2p_installed', '1', false );
+    if ( get_option( 'rp_em_seed_weekend_2p_installed' ) !== '1' ) {
+        if ( rp_em_install_weekend_2products_template() ) {
+            update_option( 'rp_em_seed_weekend_2p_installed', '1', false );
+        }
+    }
+
+    if ( get_option( 'rp_em_seed_order_shipped_installed' ) !== '1' ) {
+        $id = rp_em_install_order_shipped_template();
+        if ( $id ) {
+            update_option( 'rp_em_seed_order_shipped_installed', '1', false );
+
+            // Pre-wire del binding order_shipped → questo template (subject/preheader
+            // di default). L'utente lo vedra gia compilato quando apre il tab, ma
+            // DISABILITATO di default (non si attiva senza conferma esplicita).
+            if ( function_exists( 'rp_em_save_transactional_binding' )
+                 && function_exists( 'rp_em_get_transactional_binding' ) ) {
+                $existing = rp_em_get_transactional_binding( 'order_shipped' );
+                if ( $existing['template_id'] === '' ) {
+                    rp_em_save_transactional_binding( 'order_shipped', [
+                        'template_id' => $id,
+                        'subject'     => 'Il tuo ordine {ORDER_NUMBER} e in viaggio',
+                        'preheader'   => 'Traccia la spedizione {ORDER_CARRIER} in tempo reale',
+                    ] );
+                }
+            }
+        }
+    }
 } );

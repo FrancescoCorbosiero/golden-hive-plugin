@@ -1,0 +1,444 @@
+<!-- ============================================================
+     Weekend · Coupon + 2 Prodotti
+     EMAIL-SAFE HTML · Max 600px · Inline CSS only
+
+     Placeholders:
+       BRAND_*     → tab Brand (global)
+       CAMPAIGN_*  → wizard campagna (payload)
+       PRODUCT_N_* → product picker (auto-resolved da WooCommerce)
+       META_*      → auto (YEAR/DATE/DATETIME)
+       RECIPIENT_* → letterali, sostituiti dall'ESP (SES) a send-time
+     ============================================================ -->
+
+<!-- PREHEADER (testo anteprima nascosto) -->
+<div
+    style="display:none;font-size:1px;color:#ffffff;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">
+    {CAMPAIGN_PREHEADER_TEXT}
+</div>
+
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#0d0d0d;margin:0;padding:0;">
+    <tr>
+        <td align="center" style="padding:40px 20px 48px 20px;">
+
+            <!-- OUTER WRAPPER -->
+            <table width="600" cellpadding="0" cellspacing="0" border="0"
+                style="max-width:600px;width:100%;background-color:#ffffff;">
+
+                <!-- TOP ACCENT BAR -->
+                <tr>
+                    <td style="background-color:{BRAND_COLOR_PRIMARY};height:4px;font-size:0;line-height:0;">&nbsp;</td>
+                </tr>
+
+                <!-- LOGO AREA -->
+                <tr>
+                    <td align="center" style="background-color:#0a0a0a;padding:32px 40px 28px 40px;">
+                        <a href="{BRAND_WEBSITE_URL}" target="_blank" style="text-decoration:none;">
+                            <img src="{BRAND_LOGO_URL}" alt="{BRAND_LOGO_ALT}" width="200"
+                                style="display:block;margin:0 auto;max-width:200px;width:100%;height:auto;border:0;" />
+                        </a>
+                        <p style="margin:14px 0 0 0;
+                           font-family:Georgia,'Times New Roman',serif;
+                           font-size:10px;
+                           color:#555555;
+                           letter-spacing:0.35em;
+                           text-transform:uppercase;">
+                            {BRAND_TAGLINE}
+                        </p>
+                    </td>
+                </tr>
+
+                <!-- HERO BAND -->
+                <tr>
+                    <td align="center" style="background-color:{BRAND_COLOR_PRIMARY};
+                         padding:44px 40px 40px 40px;">
+                        <!-- Eyebrow -->
+                        <p style="margin:0 0 10px 0;
+                           font-family:Georgia,'Times New Roman',serif;
+                           font-size:10px;
+                           color:#e8a0aa;
+                           letter-spacing:0.45em;
+                           text-transform:uppercase;">
+                            {CAMPAIGN_HERO_EYEBROW}
+                        </p>
+                        <!-- Headline -->
+                        <h1 style="margin:0 0 14px 0;
+                            font-family:Georgia,'Times New Roman',serif;
+                            font-size:36px;
+                            font-weight:400;
+                            color:#ffffff;
+                            letter-spacing:-0.02em;
+                            line-height:1.2;">
+                            {CAMPAIGN_HERO_HEADLINE_LINE1}<br>
+                            <em style="font-style:italic;color:#f5c0c8;">{CAMPAIGN_HERO_HEADLINE_LINE2}</em>
+                        </h1>
+                        <!-- Sub -->
+                        <p style="margin:0;
+                           font-family:Georgia,'Times New Roman',serif;
+                           font-size:14px;
+                           color:#ddaab2;
+                           line-height:1.7;">
+                            {CAMPAIGN_HERO_SUBTITLE_LINE1}<br>{CAMPAIGN_HERO_SUBTITLE_LINE2}
+                        </p>
+                    </td>
+                </tr>
+
+                <!-- ░░░░░░░░░░ COUPON SECTION ░░░░░░░░░░ -->
+                <tr>
+                    <td align="center" style="background-color:#fafafa;
+                         padding:44px 40px 40px 40px;
+                         border-bottom:1px solid #eeeeee;">
+
+                        <p style="margin:0 0 4px 0;
+                           font-family:Georgia,'Times New Roman',serif;
+                           font-size:10px;
+                           color:#aaaaaa;
+                           letter-spacing:0.35em;
+                           text-transform:uppercase;">
+                            {CAMPAIGN_COUPON_EYEBROW}
+                        </p>
+                        <p style="margin:0 0 24px 0;
+                           font-family:Georgia,'Times New Roman',serif;
+                           font-size:20px;
+                           font-weight:400;
+                           color:#1a1a1a;
+                           letter-spacing:-0.01em;">
+                            {CAMPAIGN_COUPON_TITLE}
+                        </p>
+
+                        <!-- COUPON BOX -->
+                        <table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
+                            <tr>
+                                <td align="center" style="background-color:#ffffff;
+                               border:2px solid {BRAND_COLOR_PRIMARY};
+                               border-radius:2px;
+                               padding:20px 48px;">
+                                    <p style="margin:0 0 10px 0;
+                                       font-family:Georgia,'Times New Roman',serif;
+                                       font-size:9px;
+                                       color:#cccccc;
+                                       letter-spacing:0.5em;">
+                                        &#10022; &nbsp; {CAMPAIGN_COUPON_LABEL} &nbsp; &#10022;
+                                    </p>
+                                    <p style="margin:0;
+                                       font-family:'Courier New',Courier,monospace;
+                                       font-size:32px;
+                                       font-weight:700;
+                                       color:{BRAND_COLOR_PRIMARY};
+                                       letter-spacing:0.14em;
+                                       line-height:1;">
+                                        {CAMPAIGN_COUPON_CODE}
+                                    </p>
+                                    <p style="margin:10px 0 0 0;
+                                       font-family:Georgia,'Times New Roman',serif;
+                                       font-size:13px;
+                                       color:#999999;
+                                       letter-spacing:0.05em;">
+                                        {CAMPAIGN_COUPON_DESCRIPTION}
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+
+                        <!-- Urgency note -->
+                        <p style="margin:18px 0 0 0;
+                           font-family:Georgia,'Times New Roman',serif;
+                           font-size:10px;
+                           color:#cccccc;
+                           letter-spacing:0.15em;
+                           text-transform:uppercase;">
+                            {CAMPAIGN_COUPON_VALIDITY} &nbsp;&middot;&nbsp; {CAMPAIGN_COUPON_URGENCY}
+                        </p>
+
+                    </td>
+                </tr>
+
+                <!-- ░░░░░░░░░░ SECTION HEADER ░░░░░░░░░░ -->
+                <tr>
+                    <td style="background-color:#0a0a0a;padding:22px 32px;">
+                        <div style="border-left:3px solid {BRAND_COLOR_PRIMARY};padding-left:16px;">
+                            <p style="margin:0 0 2px 0;
+                               font-family:Georgia,'Times New Roman',serif;
+                               font-size:9px;
+                               color:#555555;
+                               letter-spacing:0.4em;
+                               text-transform:uppercase;">
+                                {CAMPAIGN_PRODUCTS_SECTION_EYEBROW}</p>
+                            <p style="margin:0;
+                               font-family:Georgia,'Times New Roman',serif;
+                               font-size:19px;
+                               font-weight:400;
+                               color:#ffffff;
+                               letter-spacing:0.02em;">
+                                {CAMPAIGN_PRODUCTS_SECTION_TITLE}</p>
+                        </div>
+                    </td>
+                </tr>
+
+                <!-- ░░░░░░░░░░ 2 PRODUCT CARDS ░░░░░░░░░░ -->
+                <tr>
+                    <td style="background-color:#fafafa;padding:28px 20px 28px 20px;">
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <tr valign="top">
+
+                                <!-- PRODOTTO 1 -->
+                                <td width="50%" style="padding:0 10px 0 6px;border-right:1px solid #e8e8e8;">
+
+                                    <!-- Badge -->
+                                    <table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 10px auto;">
+                                        <tr>
+                                            <td align="center" style="background-color:{CAMPAIGN_P1_BADGE_BG};padding:4px 10px;">
+                                                <span
+                                                    style="font-family:Arial,Helvetica,sans-serif;font-size:9px;font-weight:700;color:{CAMPAIGN_P1_BADGE_COLOR};letter-spacing:0.2em;text-transform:uppercase;">
+                                                    {CAMPAIGN_P1_BADGE_TEXT}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    </table>
+
+                                    <!-- Image -->
+                                    <a href="{PRODUCT_1_URL}" style="display:block;">
+                                        <img src="{PRODUCT_1_IMAGE_URL}" alt="{PRODUCT_1_NAME_LINE1}" width="240"
+                                            style="display:block;width:100%;height:auto;border:1px solid #eeeeee;">
+                                    </a>
+
+                                    <!-- Label -->
+                                    <p style="margin:10px 0 2px 0;
+                                       font-family:Georgia,'Times New Roman',serif;
+                                       font-size:8px;
+                                       color:#aaaaaa;
+                                       letter-spacing:0.35em;
+                                       text-transform:uppercase;
+                                       text-align:center;">
+                                        {PRODUCT_1_CATEGORY}
+                                    </p>
+                                    <p style="margin:0 0 8px 0;
+                                       font-family:Georgia,'Times New Roman',serif;
+                                       font-size:12px;
+                                       color:#1a1a1a;
+                                       line-height:1.4;
+                                       text-align:center;">
+                                        {PRODUCT_1_NAME_LINE1}<br><strong>{PRODUCT_1_NAME_LINE2}</strong>
+                                    </p>
+                                    <p style="margin:0 0 12px 0;
+                                       font-family:Georgia,'Times New Roman',serif;
+                                       font-size:20px;
+                                       font-weight:700;
+                                       color:{BRAND_COLOR_PRIMARY};
+                                       text-align:center;">
+                                        {PRODUCT_1_PRICE}
+                                    </p>
+                                    <table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
+                                        <tr>
+                                            <td align="center" style="background-color:{BRAND_COLOR_PRIMARY};">
+                                                <a href="{PRODUCT_1_URL}"
+                                                    style="display:inline-block;font-family:Arial,Helvetica,sans-serif;font-size:9px;font-weight:700;color:#ffffff;text-decoration:none;letter-spacing:0.2em;text-transform:uppercase;padding:10px 18px;">
+                                                    {CAMPAIGN_P1_CTA_TEXT} &rarr;
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    </table>
+
+                                </td>
+
+                                <!-- PRODOTTO 2 -->
+                                <td width="50%" style="padding:0 6px 0 10px;">
+
+                                    <!-- Badge -->
+                                    <table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 10px auto;">
+                                        <tr>
+                                            <td align="center" style="background-color:{CAMPAIGN_P2_BADGE_BG};padding:4px 10px;">
+                                                <span
+                                                    style="font-family:Arial,Helvetica,sans-serif;font-size:9px;font-weight:700;color:{CAMPAIGN_P2_BADGE_COLOR};letter-spacing:0.2em;text-transform:uppercase;">
+                                                    {CAMPAIGN_P2_BADGE_TEXT}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    </table>
+
+                                    <!-- Image -->
+                                    <a href="{PRODUCT_2_URL}" style="display:block;">
+                                        <img src="{PRODUCT_2_IMAGE_URL}" alt="{PRODUCT_2_NAME_LINE1}" width="240"
+                                            style="display:block;width:100%;height:auto;border:1px solid #f0e0e2;">
+                                    </a>
+
+                                    <!-- Label -->
+                                    <p style="margin:10px 0 2px 0;
+                                       font-family:Georgia,'Times New Roman',serif;
+                                       font-size:8px;
+                                       color:#aaaaaa;
+                                       letter-spacing:0.35em;
+                                       text-transform:uppercase;
+                                       text-align:center;">
+                                        {PRODUCT_2_CATEGORY}
+                                    </p>
+                                    <p style="margin:0 0 8px 0;
+                                       font-family:Georgia,'Times New Roman',serif;
+                                       font-size:12px;
+                                       color:#1a1a1a;
+                                       line-height:1.4;
+                                       text-align:center;">
+                                        {PRODUCT_2_NAME_LINE1}<br><strong>{PRODUCT_2_NAME_LINE2}</strong>
+                                    </p>
+                                    <p style="margin:0 0 12px 0;
+                                       font-family:Georgia,'Times New Roman',serif;
+                                       font-size:20px;
+                                       font-weight:700;
+                                       color:{BRAND_COLOR_PRIMARY};
+                                       text-align:center;">
+                                        {PRODUCT_2_PRICE}
+                                    </p>
+                                    <table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
+                                        <tr>
+                                            <td align="center" style="background-color:{BRAND_COLOR_PRIMARY};">
+                                                <a href="{PRODUCT_2_URL}"
+                                                    style="display:inline-block;font-family:Arial,Helvetica,sans-serif;font-size:9px;font-weight:700;color:#ffffff;text-decoration:none;letter-spacing:0.2em;text-transform:uppercase;padding:10px 18px;">
+                                                    {CAMPAIGN_P2_CTA_TEXT} &rarr;
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    </table>
+
+                                </td>
+
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <!-- ░░░░░░░░░░ 3-PILLAR STRIP ░░░░░░░░░░ -->
+                <tr>
+                    <td style="background-color:#0a0a0a;padding:28px 40px;">
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                                <td align="center" width="33%" style="padding:0 8px;border-right:1px solid #2a2a2a;">
+                                    <p
+                                        style="margin:0 0 5px 0;font-family:Georgia,'Times New Roman',serif;font-size:16px;color:{BRAND_COLOR_PRIMARY};">
+                                        &#10022;</p>
+                                    <p
+                                        style="margin:0 0 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:700;color:#ffffff;letter-spacing:0.1em;text-transform:uppercase;">
+                                        {BRAND_PILLAR_1_TITLE}</p>
+                                    <p
+                                        style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:10px;color:#555555;">
+                                        {BRAND_PILLAR_1_DESC}</p>
+                                </td>
+                                <td align="center" width="33%" style="padding:0 8px;border-right:1px solid #2a2a2a;">
+                                    <p
+                                        style="margin:0 0 5px 0;font-family:Georgia,'Times New Roman',serif;font-size:16px;color:{BRAND_COLOR_PRIMARY};">
+                                        &#10022;</p>
+                                    <p
+                                        style="margin:0 0 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:700;color:#ffffff;letter-spacing:0.1em;text-transform:uppercase;">
+                                        {BRAND_PILLAR_2_TITLE}</p>
+                                    <p
+                                        style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:10px;color:#555555;">
+                                        {BRAND_PILLAR_2_DESC}</p>
+                                </td>
+                                <td align="center" width="33%" style="padding:0 8px;">
+                                    <p
+                                        style="margin:0 0 5px 0;font-family:Georgia,'Times New Roman',serif;font-size:16px;color:{BRAND_COLOR_PRIMARY};">
+                                        &#10022;</p>
+                                    <p
+                                        style="margin:0 0 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:700;color:#ffffff;letter-spacing:0.1em;text-transform:uppercase;">
+                                        {BRAND_PILLAR_3_TITLE}</p>
+                                    <p
+                                        style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:10px;color:#555555;">
+                                        {BRAND_PILLAR_3_DESC}</p>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <!-- ░░░░░░░░░░ CTA BUTTON ░░░░░░░░░░ -->
+                <tr>
+                    <td align="center" style="background-color:#ffffff;padding:44px 40px 44px 40px;">
+                        <p style="margin:0 0 22px 0;
+                           font-family:Georgia,'Times New Roman',serif;
+                           font-size:15px;
+                           color:#444444;
+                           line-height:1.75;
+                           text-align:center;">
+                            {CAMPAIGN_CTA_TAGLINE_LINE1}<br>
+                            {CAMPAIGN_CTA_TAGLINE_LINE2}
+                        </p>
+                        <table cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                                <td align="center" style="background-color:{BRAND_COLOR_PRIMARY};">
+                                    <a href="{CAMPAIGN_CTA_BUTTON_URL}" style="display:inline-block;
+                                               font-family:Georgia,'Times New Roman',serif;
+                                               font-size:11px;
+                                               font-weight:700;
+                                               color:#ffffff;
+                                               text-decoration:none;
+                                               letter-spacing:0.25em;
+                                               text-transform:uppercase;
+                                               padding:17px 52px;">
+                                        {CAMPAIGN_CTA_BUTTON_TEXT} &nbsp;&rarr;
+                                    </a>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <!-- DIVIDER -->
+                <tr>
+                    <td style="padding:0 40px;">
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                                <td style="border-top:1px solid #eeeeee;font-size:0;line-height:0;">&nbsp;</td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <!-- FOOTER -->
+                <tr>
+                    <td align="center" style="background-color:#ffffff;padding:26px 40px 34px 40px;">
+                        <p style="margin:0 0 12px 0;
+                           font-family:Georgia,'Times New Roman',serif;
+                           font-size:11px;
+                           color:#bbbbbb;
+                           letter-spacing:0.15em;
+                           text-transform:uppercase;">
+                            <a href="{BRAND_INSTAGRAM}"
+                                style="color:{BRAND_COLOR_PRIMARY};text-decoration:none;">Instagram</a>
+                            &nbsp;&nbsp;&middot;&nbsp;&nbsp;
+                            <a href="{BRAND_WEBSITE_URL}" style="color:{BRAND_COLOR_PRIMARY};text-decoration:none;">Shop
+                                Online</a>
+                        </p>
+                        <p style="margin:0;
+                           font-family:Georgia,'Times New Roman',serif;
+                           font-size:11px;
+                           color:#cccccc;
+                           line-height:1.8;">
+                            Questa email &egrave; stata inviata a
+                            <a href="mailto:{RECIPIENT_EMAIL}" style="color:#999999;text-decoration:none;">{RECIPIENT_EMAIL}</a><br>
+                            {BRAND_LEGAL_ADDRESS}<br>
+                            <a href="{BRAND_UNSUBSCRIBE_URL}"
+                                style="color:#cccccc;text-decoration:underline;font-size:10px;letter-spacing:0.05em;">
+                                Disiscriviti dalla newsletter
+                            </a>
+                        </p>
+                    </td>
+                </tr>
+
+                <!-- BOTTOM ACCENT BAR -->
+                <tr>
+                    <td style="background-color:{BRAND_COLOR_PRIMARY};height:4px;font-size:0;line-height:0;">&nbsp;</td>
+                </tr>
+
+            </table>
+            <!-- /outer wrapper -->
+
+            <p style="margin:20px 0 0 0;
+                 font-family:Georgia,'Times New Roman',serif;
+                 font-size:10px;
+                 color:#444444;
+                 letter-spacing:0.1em;
+                 text-align:center;">
+                &copy; {META_YEAR} {BRAND_NAME} &middot; Tutti i diritti riservati
+            </p>
+
+        </td>
+    </tr>
+</table>

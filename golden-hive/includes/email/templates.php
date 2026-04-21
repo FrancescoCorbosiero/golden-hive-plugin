@@ -168,3 +168,41 @@ function rp_em_install_demo_template(): ?string {
         'html'        => $html,
     ] );
 }
+
+/**
+ * Installa il template "Weekend · Coupon + 2 Prodotti" dai seed se non esiste.
+ * Layout editoriale dark-themed con accent bar, hero, coupon box, 2 product
+ * card (uomo/donna), 3-pillar strip brand e CTA finale.
+ *
+ * Idempotente: match per nome.
+ *
+ * @return string|null ID del template installato, o null se non installabile.
+ */
+function rp_em_install_weekend_2products_template(): ?string {
+    $seed_html = __DIR__ . '/_seed/weekend-2products-template.html';
+    if ( ! is_readable( $seed_html ) ) return null;
+
+    $name = 'Weekend · Coupon + 2 Prodotti';
+    foreach ( rp_em_get_templates() as $t ) {
+        if ( ( $t['name'] ?? '' ) === $name ) return $t['id'];
+    }
+
+    $html = file_get_contents( $seed_html );
+    if ( ! $html ) return null;
+
+    return rp_em_save_template( [
+        'name'        => $name,
+        'description' => 'Newsletter weekend: codice sconto + 2 prodotti in evidenza (uomo/donna). Design editoriale serif, accent dal BRAND_COLOR_PRIMARY, 3-pillar strip dal tab Brand.',
+        'html'        => $html,
+    ] );
+}
+
+// ── Auto-install dei seed template curati (one-shot per flag).
+// Se l'utente elimina il template a mano, non viene reinstallato.
+add_action( 'admin_init', function () {
+    if ( get_option( 'rp_em_seed_weekend_2p_installed' ) === '1' ) return;
+    if ( ! function_exists( 'current_user_can' ) || ! current_user_can( 'manage_woocommerce' ) ) return;
+
+    $id = rp_em_install_weekend_2products_template();
+    if ( $id ) update_option( 'rp_em_seed_weekend_2p_installed', '1', false );
+} );

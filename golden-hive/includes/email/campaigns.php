@@ -85,12 +85,12 @@ function rp_em_save_campaign( array $data ): string {
 
     $data['id']         = $id;
     $data['updated_at'] = $now;
-    if ( empty( $data['status'] ) )  $data['status']  = RP_EM_STATUS_DRAFT;
-    if ( ! isset( $data['stats'] ) ) $data['stats']   = [ 'sent' => 0, 'failed' => 0, 'errors' => [] ];
 
     $found = false;
     foreach ( $all as $i => $existing ) {
         if ( ( $existing['id'] ?? '' ) === $id ) {
+            // Update selettivo: mergia i campi passati sopra quelli esistenti.
+            // Non forzare default status/stats qui — solo in creazione.
             $data['created_at'] = $existing['created_at'] ?? $now;
             $all[ $i ] = array_merge( $existing, $data );
             $found = true;
@@ -98,7 +98,10 @@ function rp_em_save_campaign( array $data ): string {
         }
     }
     if ( ! $found ) {
+        // Creazione: applica i default mancanti.
         $data['created_at'] = $now;
+        if ( empty( $data['status'] ) )  $data['status']  = RP_EM_STATUS_DRAFT;
+        if ( ! isset( $data['stats'] ) ) $data['stats']   = [ 'sent' => 0, 'failed' => 0, 'errors' => [] ];
         $all[] = $data;
     }
 

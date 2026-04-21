@@ -11,14 +11,22 @@
 
 defined( 'ABSPATH' ) || exit;
 
-if ( function_exists( 'rp_em_extract_placeholders' ) ) return;
+// Const indipendente dal guard delle funzioni: renderer/validator ne dipendono
+// e non devono mai beccarla undefined anche se qualcun altro ha definito
+// rp_em_extract_placeholders con una firma diversa (legacy lowercase).
+if ( ! defined( 'RP_EM_PLACEHOLDER_REGEX' ) ) {
+    /**
+     * Regex unica per token multi-layer.
+     * Match: {BRAND_NAME}, {CAMPAIGN_HERO_TITLE}, {PRODUCT_1_PRICE}, {RECIPIENT_FIRST_NAME}, {META_YEAR}.
+     * Non match: {first_name}, { BRAND_NAME }, {{double}}.
+     */
+    define( 'RP_EM_PLACEHOLDER_REGEX', '/\{([A-Z][A-Z0-9_]*)\}/' );
+}
 
-/**
- * Regex unica per token multi-layer.
- * Match: {BRAND_NAME}, {CAMPAIGN_HERO_TITLE}, {PRODUCT_1_PRICE}, {RECIPIENT_FIRST_NAME}, {META_YEAR}.
- * Non match: {first_name}, { BRAND_NAME }, {{double}}.
- */
-const RP_EM_PLACEHOLDER_REGEX = '/\{([A-Z][A-Z0-9_]*)\}/';
+// Guard sulle funzioni: rp_em_extract_namespace e una funzione NUOVA esclusiva
+// del multi-layer system. Evita la collisione col legacy rp_em_extract_placeholders
+// (lowercase) che il vecchio plugin standalone poteva definire.
+if ( function_exists( 'rp_em_extract_namespace' ) ) return;
 
 /**
  * Namespace riconosciuti.

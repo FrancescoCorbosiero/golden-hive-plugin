@@ -1,825 +1,312 @@
-// ═══ EMAIL MARKETING ════════════════════════════════════════════════════════
-// Tab handlers per: Test, Campagne, Contatti, Storico.
-// Si appoggia a GH.ajax / GH.toast / GH.esc gia esposti dal core.
+// ═══ EMAIL — Brand + Templates + Contacts + Test + History + Seed ══════════
+// Wizard campagne in js-email-campaigns.php. IIFE che attacca a GH.
 
 (function(){
-    const ajax  = GH.ajax;
-    const toast = GH.toast;
-    const esc   = GH.esc;
+    const ajax = GH.ajax, toast = GH.toast, esc = GH.esc;
+    const $ = id => document.getElementById(id);
 
-    // ── STATE ───────────────────────────────────────────────────
-    let campaigns = [];
-    let editingCampaign = null;       // null = nuova, altrimenti id
-    let contacts = [];
-    let csvRaw = '';                  // CSV crudo per upload manuale
-    let historyDebounceTimer = null;
+    // ── BRAND ───────────────────────────────────────────────────
+    let brandSchema = [], brandData = {};
 
-    // ────────────────────────────────────────────────────────────
-    // TEST EMAIL
-    // ────────────────────────────────────────────────────────────
-    GH.emSendTest = async function() {
-        const to      = (document.getElementById('em-test-to').value || '').trim();
-        const subject = (document.getElementById('em-test-subject').value || '').trim();
-        const body    = (document.getElementById('em-test-body').value || '').trim();
-
-        if (!to) { toast('Inserisci un destinatario', 'err'); return; }
-
-        const btn = document.getElementById('btn-em-send-test');
-        const sp  = document.getElementById('em-test-spin');
-        btn.disabled = true; sp.style.display = '';
-        try {
-            const r = await ajax('rp_em_ajax_send_test', { to, subject, body });
-            if (r.success) {
-                toast(r.data.message || 'Email inviata', 'ok');
-            } else {
-                toast('Errore: ' + (r.data || 'invio fallito'), 'err');
-            }
-        } catch (e) {
-            toast('Errore di rete', 'err');
-        } finally {
-            btn.disabled = false; sp.style.display = 'none';
-        }
+    GH.emBrandLoad = async function() {
+        const r = await ajax('rp_em_ajax_brand_get');
+        if (!r.success) { toast('Errore brand', 'err'); return; }
+        brandSchema = r.data.schema || [];
+        brandData   = r.data.brand || {};
+        renderBrandForm();
     };
 
-    // ────────────────────────────────────────────────────────────
-    // CAMPAIGNS — list + editor
-    // ────────────────────────────────────────────────────────────
-    GH.emCampaignsLoad = async function() {
-        const sp = document.getElementById('em-camp-spin');
-        if (sp) sp.style.display = '';
-        try {
-            const r = await ajax('rp_em_ajax_get_campaigns');
-            if (!r.success) { toast('Errore caricamento campagne', 'err'); return; }
-            campaigns = Array.isArray(r.data) ? r.data : [];
-            renderCampaignsList();
-        } finally {
-            if (sp) sp.style.display = 'none';
-        }
-    };
-
-    function renderCampaignsList() {
-        document.getElementById('em-camp-list').style.display = '';
-        document.getElementById('em-camp-editor').style.display = 'none';
-        const a = document.getElementById('em-camp-list');
-        if (!campaigns.length) {
-            a.innerHTML = '<div class="empty-state"><div class="empty-icon">&#9758;</div><div class="empty-text">Nessuna campagna salvata</div></div>';
-            return;
-        }
-        let h = '';
-        for (const c of campaigns) {
-            const st = c.status || 'draft';
-            const stats = c.stats || { sent:0, failed:0 };
-            h += '<div class="em-camp-card" onclick="GH.emCampaignEdit(\'' + esc(c.id) + '\')">';
-            h += '  <div class="em-camp-card-head"><span class="em-camp-card-name">' + esc(c.name || '(senza nome)') + '</span><span class="em-st em-st-' + esc(st) + '">' + esc(st) + '</span></div>';
-            h += '  <div class="em-camp-card-subj">' + esc(c.subject || '') + '</div>';
-            h += '  <div class="em-camp-card-meta">';
-            h += '    <span>ID ' + esc(c.id || '') + '</span>';
-            h += '    <span>Sorgente: ' + esc(c.source_type || 'hustle') + '</span>';
-            h += '    <span>Inviate: ' + (stats.sent || 0) + '</span>';
-            if (stats.failed) h += '    <span style="color:var(--red)">Fallite: ' + stats.failed + '</span>';
-            if (c.scheduled_at) h += '    <span>Schedulata: ' + esc(c.scheduled_at) + '</span>';
-            h += '  </div>';
-            h += '</div>';
-        }
-        a.innerHTML = h;
-    }
-
-    GH.emCampaignNew = function() {
-        editingCampaign = null;
-        document.getElementById('em-c-name').value = '';
-        document.getElementById('em-c-subject').value = '';
-        document.getElementById('em-c-body').value = '';
-        document.getElementById('em-c-source').value = 'hustle';
-        document.getElementById('em-c-rate').value = '200000';
-        document.getElementById('em-c-csv').value = '';
-        document.getElementById('em-c-sched').value = '';
-        document.getElementById('em-c-status').textContent = 'Nuova bozza';
-        GH.emToggleSource();
-        showEditor();
-    };
-
-    GH.emCampaignEdit = function(id) {
-        const c = campaigns.find(x => x.id === id);
+    function renderBrandForm() {
+        const c = $('em-brand-form');
         if (!c) return;
-        editingCampaign = id;
-        document.getElementById('em-c-name').value = c.name || '';
-        document.getElementById('em-c-subject').value = c.subject || '';
-        document.getElementById('em-c-body').value = c.body || '';
-        document.getElementById('em-c-source').value = c.source_type || 'hustle';
-        document.getElementById('em-c-rate').value = String(c.rate_limit || 200000);
-        document.getElementById('em-c-csv').value = c.csv_contacts || '';
-        document.getElementById('em-c-sched').value = (c.scheduled_at || '').replace(' ', 'T').slice(0,16);
-        document.getElementById('em-c-status').textContent = 'Stato: ' + (c.status || 'draft');
-        GH.emToggleSource();
-        showEditor();
-    };
-
-    function showEditor() {
-        document.getElementById('em-camp-list').style.display = 'none';
-        document.getElementById('em-camp-editor').style.display = 'flex';
-    }
-
-    GH.emCampaignBackToList = function() {
-        renderCampaignsList();
-    };
-
-    GH.emToggleSource = function() {
-        const v = document.getElementById('em-c-source').value;
-        document.getElementById('em-c-csv-row').style.display = (v === 'csv' || v === 'mixed') ? 'flex' : 'none';
-    };
-
-    function collectCampaignPayload() {
-        const payload = {
-            name:         document.getElementById('em-c-name').value.trim(),
-            subject:      document.getElementById('em-c-subject').value.trim(),
-            body:         document.getElementById('em-c-body').value,
-            source_type:  document.getElementById('em-c-source').value,
-            module_ids:   [],
-            csv_contacts: document.getElementById('em-c-csv').value,
-            rate_limit:   parseInt(document.getElementById('em-c-rate').value, 10) || 200000,
-            scheduled_at: document.getElementById('em-c-sched').value.replace('T', ' '),
-        };
-        if (editingCampaign) payload.id = editingCampaign;
-        return payload;
-    }
-
-    GH.emCampaignSave = async function() {
-        const payload = collectCampaignPayload();
-        if (!payload.name || !payload.subject || !payload.body) {
-            toast('Nome, oggetto e corpo sono obbligatori', 'err');
-            return;
-        }
-        const r = await ajax('rp_em_ajax_save_campaign', { campaign: JSON.stringify(payload) });
-        if (!r.success) { toast('Errore: ' + (r.data || 'salvataggio fallito'), 'err'); return; }
-        editingCampaign = r.data.id;
-        toast('Campagna salvata', 'ok');
-        await GH.emCampaignsLoad();
-        // Torna a editor sulla campagna salvata
-        GH.emCampaignEdit(editingCampaign);
-    };
-
-    GH.emCampaignDelete = async function() {
-        if (!editingCampaign) { toast('Nessuna campagna selezionata', 'err'); return; }
-        if (!confirm('Eliminare definitivamente questa campagna?')) return;
-        const r = await ajax('rp_em_ajax_delete_campaign', { campaign_id: editingCampaign });
-        if (!r.success) { toast('Errore eliminazione', 'err'); return; }
-        toast('Campagna eliminata', 'ok');
-        editingCampaign = null;
-        GH.emCampaignsLoad();
-    };
-
-    GH.emCampaignSend = async function() {
-        if (!editingCampaign) {
-            toast('Salva prima la campagna', 'err'); return;
-        }
-        if (!confirm('Inviare la campagna ORA a tutti i contatti?')) return;
-        const r = await ajax('rp_em_ajax_send_campaign', { campaign_id: editingCampaign });
-        if (!r.success) { toast('Errore: ' + (r.data || 'invio fallito'), 'err'); return; }
-        const d = r.data || {};
-        toast('Inviate: ' + (d.sent || 0) + ' • Fallite: ' + (d.failed || 0), d.failed ? 'inf' : 'ok');
-        GH.emCampaignsLoad();
-    };
-
-    GH.emCampaignSchedule = async function() {
-        if (!editingCampaign) { toast('Salva prima la campagna', 'err'); return; }
-        const dt = document.getElementById('em-c-sched').value.replace('T', ' ');
-        if (!dt) { toast('Imposta data/ora di schedulazione', 'err'); return; }
-        const r = await ajax('rp_em_ajax_schedule_campaign', { campaign_id: editingCampaign, scheduled_at: dt });
-        if (!r.success) { toast('Errore: ' + (r.data || 'schedulazione fallita'), 'err'); return; }
-        toast(r.data.message || 'Campagna schedulata', 'ok');
-        GH.emCampaignsLoad();
-    };
-
-    // ────────────────────────────────────────────────────────────
-    // CONTACTS
-    // ────────────────────────────────────────────────────────────
-    GH.emContactsInit = function() {
-        // Carica una volta all'apertura del tab.
-        if (!contacts.length) GH.emContactsLoad();
-    };
-
-    GH.emContactsLoad = async function() {
-        const source = document.getElementById('em-ct-source').value;
-        document.getElementById('em-ct-upload').style.display = (source === 'csv') ? 'flex' : 'none';
-
-        const sp = document.getElementById('em-ct-spin');
-        sp.style.display = '';
-        try {
-            const body = { source_type: source };
-            if (source === 'csv' && csvRaw) body.csv_raw = csvRaw;
-            const r = await ajax('rp_em_ajax_get_contacts', body);
-            if (!r.success) { toast('Errore caricamento contatti', 'err'); return; }
-            contacts = r.data.contacts || [];
-            const counts = r.data.counts || { total:0, hustle:0, csv:0 };
-            document.getElementById('em-ct-stats').style.display = 'flex';
-            document.getElementById('em-ct-total').textContent = counts.total || 0;
-            document.getElementById('em-ct-hustle').textContent = counts.hustle || 0;
-            document.getElementById('em-ct-csv').textContent = counts.csv || 0;
-            renderContactsList();
-        } finally {
-            sp.style.display = 'none';
-        }
-    };
-
-    GH.emContactsUploadFile = async function(input) {
-        const file = input.files && input.files[0];
-        if (!file) return;
-        const fd = new FormData();
-        fd.append('action', 'rp_em_ajax_upload_csv');
-        fd.append('nonce', '<?php echo esc_js( $nonce ); ?>');
-        fd.append('csv_file', file);
-        try {
-            const res = await fetch('<?php echo esc_js( $ajax ); ?>', { method:'POST', body: fd });
-            const r = await res.json();
-            if (!r.success) { toast('Errore upload: ' + (r.data || ''), 'err'); return; }
-            // r.data.contacts è già parsato lato server. Salviamo come "csv raw"
-            // ricostruito per riusare la pipeline get_contacts.
-            csvRaw = (r.data.contacts || []).map(c => (c.email || '') + ',' + (c.display_name || '')).join('\n');
-            csvRaw = 'email,display_name\n' + csvRaw;
-            toast(file.name + ': ' + (r.data.count || 0) + ' contatti', 'ok');
-            GH.emContactsLoad();
-        } catch (e) {
-            toast('Errore di rete', 'err');
-        }
-    };
-
-    function renderContactsList() {
-        const a = document.getElementById('em-ct-list');
-        if (!contacts.length) {
-            a.innerHTML = '<div class="empty-state"><div class="empty-icon">&#9786;</div><div class="empty-text">Nessun contatto trovato</div></div>';
-            return;
-        }
         let h = '';
-        for (const c of contacts.slice(0, 500)) {
-            h += '<div class="em-row">';
-            h += '  <span class="em-time">' + esc(c.source || c.module_id || '') + '</span>';
-            h += '  <span class="em-to">' + esc(c.email || '') + '</span>';
-            h += '  <span class="em-subj">' + esc(c.display_name || '') + '</span>';
-            h += '  <span class="em-type"></span>';
-            h += '  <span class="em-status"></span>';
-            h += '</div>';
-        }
-        if (contacts.length > 500) {
-            h += '<div class="em-row"><span class="em-subj" style="grid-column:1/-1;text-align:center;color:var(--dim)">... ' + (contacts.length - 500) + ' altri (mostriamo solo i primi 500)</span></div>';
-        }
-        a.innerHTML = h;
-    }
-
-    // ────────────────────────────────────────────────────────────
-    // HISTORY (Storico email — lightweight)
-    // ────────────────────────────────────────────────────────────
-    GH.emHistoryDebounce = function() {
-        clearTimeout(historyDebounceTimer);
-        historyDebounceTimer = setTimeout(GH.emHistoryLoad, 300);
-    };
-
-    GH.emHistoryLoad = async function() {
-        const sp = document.getElementById('em-h-spin');
-        sp.style.display = '';
-        try {
-            const body = {
-                limit:  200,
-                type:   document.getElementById('em-h-type').value,
-                status: document.getElementById('em-h-status').value,
-                search: document.getElementById('em-h-search').value,
-            };
-            const r = await ajax('rp_em_ajax_get_log', body);
-            if (!r.success) { toast('Errore caricamento storico', 'err'); return; }
-            renderHistory(r.data.entries || [], r.data.stats || {});
-        } finally {
-            sp.style.display = 'none';
-        }
-    };
-
-    function renderHistory(entries, stats) {
-        const sb = document.getElementById('em-h-stats');
-        sb.style.display = 'flex';
-        document.getElementById('em-h-total').textContent  = stats.total  || 0;
-        document.getElementById('em-h-sent').textContent   = stats.sent   || 0;
-        document.getElementById('em-h-failed').textContent = stats.failed || 0;
-
-        const a = document.getElementById('em-h-list');
-        if (!entries.length) {
-            a.innerHTML = '<div class="empty-state"><div class="empty-icon">&#9202;</div><div class="empty-text">Nessuna email nello storico</div></div>';
-            return;
-        }
-        let h = '';
-        for (const e of entries) {
-            const ok = e.status === 'sent';
-            const subjLine = e.type === 'campaign' && e.campaign_name
-                ? esc(e.subject || '') + ' \u2014 ' + esc(e.campaign_name)
-                : esc(e.subject || '');
-            h += '<div class="em-row">';
-            h += '  <span class="em-time">' + esc(e.sent_at || '') + '</span>';
-            h += '  <span class="em-to">' + esc(e.to || '') + '</span>';
-            h += '  <span class="em-subj">' + subjLine + '</span>';
-            h += '  <span class="em-type">' + esc(e.type || '') + '</span>';
-            h += '  <span class="em-status ' + (ok ? 'ok' : 'err') + '">' + esc(e.status || '') + '</span>';
-            if (!ok && e.error) {
-                h += '  <span class="em-err-detail">' + esc(e.error) + '</span>';
+        for (const sec of brandSchema) {
+            h += '<div class="rpem-brand-section"><h3>' + esc(sec.section) + '</h3>';
+            for (const f of sec.fields) {
+                const v = brandData[f.key] || '';
+                const req = f.required ? ' <span class="rpem-req">*</span>' : '';
+                h += '<div class="cfg-row"><span class="cfg-label">' + esc(f.label) + req + '</span>';
+                if (f.type === 'textarea') {
+                    h += '<textarea class="cfg-input em-textarea-sm" data-brand-key="' + esc(f.key) + '">' + esc(v) + '</textarea>';
+                } else if (f.type === 'color') {
+                    h += '<input class="cfg-input rpem-color" type="color" data-brand-key="' + esc(f.key) + '" value="' + esc(v || '#000000') + '" />';
+                    h += '<input class="cfg-input rpem-color-hex" type="text" data-brand-key-mirror="' + esc(f.key) + '" value="' + esc(v) + '" placeholder="#000000" />';
+                } else {
+                    const t = f.type === 'email' ? 'email' : (f.type === 'url' ? 'url' : 'text');
+                    h += '<input class="cfg-input" type="' + t + '" data-brand-key="' + esc(f.key) + '" value="' + esc(v) + '" />';
+                }
+                h += '<code class="rpem-brand-key">{' + esc(f.key) + '}</code></div>';
             }
             h += '</div>';
         }
-        a.innerHTML = h;
+        c.innerHTML = h;
+        c.querySelectorAll('.rpem-color').forEach(el => {
+            const key = el.dataset.brandKey;
+            const mirror = c.querySelector('[data-brand-key-mirror="' + key + '"]');
+            if (!mirror) return;
+            el.addEventListener('input',     () => { mirror.value = el.value; });
+            mirror.addEventListener('input', () => { if (/^#[0-9a-fA-F]{6}$/.test(mirror.value)) el.value = mirror.value; });
+        });
     }
 
-    GH.emHistoryClear = async function() {
-        if (!confirm('Svuotare tutto lo storico email? Operazione non reversibile.')) return;
-        const r = await ajax('rp_em_ajax_clear_log');
-        if (!r.success) { toast('Errore svuotamento', 'err'); return; }
-        toast('Storico svuotato', 'ok');
-        GH.emHistoryLoad();
+    GH.emBrandSave = async function() {
+        const sp = $('em-brand-save-spin'); sp.style.display = '';
+        const data = {};
+        document.querySelectorAll('#em-brand-form [data-brand-key]').forEach(el => {
+            if (el.type === 'color') return;
+            data[el.dataset.brandKey] = el.value;
+        });
+        document.querySelectorAll('#em-brand-form [data-brand-key-mirror]').forEach(el => {
+            data[el.dataset.brandKeyMirror] = el.value;
+        });
+        try {
+            const r = await ajax('rp_em_ajax_brand_save', { brand: JSON.stringify(data) });
+            if (!r.success) { toast('Errore: ' + r.data, 'err'); return; }
+            brandData = r.data.brand || {};
+            toast('Brand salvato', 'ok');
+        } finally { sp.style.display = 'none'; }
     };
 
-    // ═══ TEMPLATES ═══════════════════════════════════════════════
+    GH.emBrandReset = async function() {
+        if (!confirm('Ripristinare il brand ai valori di default?')) return;
+        const r = await ajax('rp_em_ajax_brand_reset');
+        if (!r.success) { toast('Errore', 'err'); return; }
+        brandData = r.data.brand || {};
+        renderBrandForm();
+        toast('Brand ripristinato', 'ok');
+    };
 
-    let tplList = [];
-    let tplEditing = null;
-    let tplCtx = {};                  // { order_id, customer_id, customer_name, ... }
-    let tplOrderInfo = null;          // last resolved order: { id, number, customer, email, total }
-    let tplCustomerInfo = null;       // last resolved customer: { id, name, email }
-    let tplRMode = 'custom';          // 'custom' | 'customer'
-    let tplPreviewTimer = null;       // debounce handle for live preview
-    let tplPreviewToken = 0;          // race guard: discard stale responses
-    const TPL_PH_LS_KEY      = 'gh_em_tpl_ph_open';
-    const TPL_PREVIEW_LS_KEY = 'gh_em_tpl_preview_open';
-    const TPL_PREVIEW_DEVICE_KEY = 'gh_em_tpl_preview_device';
+    // ── TEMPLATES ────────────────────────────────────────────────
+    let templates = [], editingTpl = null;
 
     GH.emTplLoad = async function() {
-        const r = await ajax('rp_em_ajax_get_templates');
-        if (!r.success) { toast('Errore', 'err'); return; }
-        tplList = r.data || [];
-        tplRenderList();
+        const r = await ajax('rp_em_ajax_template_list');
+        if (!r.success) { toast('Errore templates', 'err'); return; }
+        templates = r.data || [];
+        renderTplList();
     };
 
-    function tplRenderList() {
-        const area = document.getElementById('em-tpl-list');
-        if (!tplList.length) {
-            area.innerHTML = '<div class="empty-state"><div class="empty-icon">&#9881;</div><div class="empty-text">Nessun template. Crea il primo per iniziare.</div></div>';
+    function renderTplList() {
+        $('em-tpl-list-view').style.display = '';
+        $('em-tpl-editor-view').style.display = 'none';
+        const c = $('em-tpl-list');
+        if (!templates.length) {
+            c.innerHTML = '<div class="empty-state"><div class="empty-icon">&#9881;</div><div class="empty-text">Nessun template.</div></div>';
             return;
         }
-        const catLabels = { general: 'Generale', order: 'Ordine', marketing: 'Marketing', support: 'Supporto' };
-        let h = '<table class="ptable"><thead><tr><th>Nome</th><th>Categoria</th><th>Oggetto</th><th>Modificato</th></tr></thead><tbody>';
-        for (const t of tplList) {
-            h += '<tr style="cursor:pointer" onclick="GH.emTplEdit(\'' + esc(t.id) + '\')">';
-            h += '<td><strong>' + esc(t.name) + '</strong></td>';
-            h += '<td style="font-size:10px">' + esc(catLabels[t.category] || t.category || '') + '</td>';
-            h += '<td style="font-size:10px;color:var(--dim);max-width:300px;overflow:hidden;text-overflow:ellipsis">' + esc(t.subject || '') + '</td>';
-            h += '<td style="font-size:10px;color:var(--dim)">' + esc((t.updated_at || '').substring(0, 10)) + '</td>';
-            h += '</tr>';
-        }
-        h += '</tbody></table>';
-        area.innerHTML = h;
+        c.innerHTML = templates.map(t =>
+            '<div class="rpem-tpl-card" onclick="GH.emTplEdit(\'' + esc(t.id) + '\')">' +
+            '<div class="rpem-tpl-card-name">' + esc(t.name || '(senza nome)') + '</div>' +
+            '<div class="rpem-tpl-card-desc">' + esc(t.description || '') + '</div>' +
+            '<div class="rpem-tpl-card-meta"><span>ID ' + esc(t.id) + '</span><span>' + (t.placeholder_count|0) + ' placeholder</span></div>' +
+            '</div>'
+        ).join('');
     }
 
     GH.emTplNew = function() {
-        tplEditing = null; tplResetContext();
-        document.getElementById('em-tpl-editor-title').textContent = 'Nuovo Template';
-        document.getElementById('em-tpl-name').value = '';
-        document.getElementById('em-tpl-subject').value = '';
-        document.getElementById('em-tpl-body').value = '';
-        document.getElementById('em-tpl-category').value = 'general';
-        document.getElementById('em-tpl-list-view').style.display = 'none';
-        document.getElementById('em-tpl-editor-view').style.display = 'flex';
-        document.getElementById('btn-em-tpl-delete').style.display = 'none';
-        tplResetEditorUI();
-        tplLoadPlaceholders();
-        tplApplyPlaceholderToggleFromLS();
-        tplApplyPreviewPrefs();
-        tplRenderPreview();
+        editingTpl = null;
+        $('em-tpl-editor-title').textContent = 'Nuovo template';
+        $('em-tpl-delete-btn').style.display = 'none';
+        $('em-tpl-name').value = '';
+        $('em-tpl-desc').value = '';
+        $('em-tpl-html').value = '';
+        $('em-tpl-list-view').style.display = 'none';
+        $('em-tpl-editor-view').style.display = 'flex';
+        GH.emTplExtractPlaceholders();
     };
 
-    GH.emTplEdit = function(id) {
-        const t = tplList.find(x => x.id === id);
-        if (!t) return;
-        tplEditing = id; tplResetContext();
-        document.getElementById('em-tpl-editor-title').textContent = t.name;
-        document.getElementById('em-tpl-name').value = t.name || '';
-        document.getElementById('em-tpl-subject').value = t.subject || '';
-        document.getElementById('em-tpl-body').value = t.body || '';
-        document.getElementById('em-tpl-category').value = t.category || 'general';
-        document.getElementById('em-tpl-list-view').style.display = 'none';
-        document.getElementById('em-tpl-editor-view').style.display = 'flex';
-        document.getElementById('btn-em-tpl-delete').style.display = '';
-        tplResetEditorUI();
-        tplLoadPlaceholders();
-        tplApplyPlaceholderToggleFromLS();
-        tplApplyPreviewPrefs();
-        tplRenderPreview();
+    GH.emTplEdit = async function(id) {
+        const r = await ajax('rp_em_ajax_template_get', { id });
+        if (!r.success) { toast('Errore', 'err'); return; }
+        editingTpl = r.data;
+        $('em-tpl-editor-title').textContent = editingTpl.name || 'Template';
+        $('em-tpl-delete-btn').style.display = '';
+        $('em-tpl-name').value = editingTpl.name || '';
+        $('em-tpl-desc').value = editingTpl.description || '';
+        $('em-tpl-html').value = editingTpl.html || '';
+        $('em-tpl-list-view').style.display = 'none';
+        $('em-tpl-editor-view').style.display = 'flex';
+        GH.emTplExtractPlaceholders();
     };
 
-    function tplResetContext() {
-        tplCtx = {};
-        tplOrderInfo = null;
-        tplCustomerInfo = null;
-        tplRMode = 'custom';
-    }
-
-    function tplResetEditorUI() {
-        const sendTo    = document.getElementById('em-tpl-send-to');
-        const ctxOrder  = document.getElementById('em-tpl-ctx-order');
-        const ctxCust   = document.getElementById('em-tpl-ctx-customer');
-        const results   = document.getElementById('em-tpl-search-results');
-        if (sendTo)   sendTo.value = '';
-        if (ctxOrder) ctxOrder.value = '';
-        if (ctxCust)  ctxCust.value = '';
-        if (results)  results.innerHTML = '';
-        const rCustom = document.querySelector('input[name="em-tpl-rmode"][value="custom"]');
-        if (rCustom) rCustom.checked = true;
-        tplRenderChips();
-        tplUpdateRecipientUI();
-    }
-
-    GH.emTplBackToList = function() {
-        document.getElementById('em-tpl-editor-view').style.display = 'none';
-        document.getElementById('em-tpl-list-view').style.display = '';
-        GH.emTplLoad();
-    };
+    GH.emTplBackToList = function() { renderTplList(); };
 
     GH.emTplSave = async function() {
-        const data = {
-            id:       tplEditing || '',
-            name:     document.getElementById('em-tpl-name').value,
-            subject:  document.getElementById('em-tpl-subject').value,
-            body:     document.getElementById('em-tpl-body').value,
-            category: document.getElementById('em-tpl-category').value,
+        const sp = $('em-tpl-save-spin'); sp.style.display = '';
+        const payload = {
+            id: editingTpl?.id || '',
+            name: $('em-tpl-name').value.trim(),
+            description: $('em-tpl-desc').value.trim(),
+            html: $('em-tpl-html').value,
         };
-        if (!data.name) { toast('Nome obbligatorio', 'err'); return; }
-        const sp = document.getElementById('em-tpl-save-spin'); sp.style.display = '';
+        if (!payload.name) { toast('Nome obbligatorio', 'err'); sp.style.display = 'none'; return; }
         try {
-            const r = await ajax('rp_em_ajax_save_template', { template: JSON.stringify(data) });
-            if (!r.success) { toast('Errore: ' + (r.data || ''), 'err'); return; }
-            tplEditing = r.data.id;
-            document.getElementById('em-tpl-editor-title').textContent = data.name;
-            document.getElementById('btn-em-tpl-delete').style.display = '';
+            const r = await ajax('rp_em_ajax_template_save', { template: JSON.stringify(payload) });
+            if (!r.success) { toast('Errore: ' + r.data, 'err'); return; }
+            editingTpl = r.data;
+            $('em-tpl-editor-title').textContent = editingTpl.name;
+            $('em-tpl-delete-btn').style.display = '';
             toast('Template salvato', 'ok');
-        } catch (e) { toast('Errore', 'err'); }
-        finally { sp.style.display = 'none'; }
+        } finally { sp.style.display = 'none'; }
     };
 
     GH.emTplDelete = async function() {
-        if (!tplEditing || !confirm('Eliminare questo template?')) return;
-        const r = await ajax('rp_em_ajax_delete_template', { template_id: tplEditing });
+        if (!editingTpl?.id) return;
+        if (!confirm('Eliminare "' + (editingTpl.name || editingTpl.id) + '"?')) return;
+        const r = await ajax('rp_em_ajax_template_delete', { id: editingTpl.id });
         if (!r.success) { toast('Errore', 'err'); return; }
-        toast('Eliminato', 'ok');
-        GH.emTplBackToList();
+        toast('Template eliminato', 'ok');
+        editingTpl = null;
+        GH.emTplLoad();
     };
 
-    async function tplLoadPlaceholders() {
-        const r = await ajax('rp_em_ajax_get_placeholders');
-        if (!r.success) return;
-        const area = document.getElementById('em-tpl-placeholders');
-        let h = '';
-        for (const [group, info] of Object.entries(r.data)) {
-            h += '<div class="em-tpl-ph-group">' + esc(info.label) + '</div>';
-            for (const [key, desc] of Object.entries(info.placeholders)) {
-                h += '<button type="button" class="em-tpl-ph-tag" onclick="GH.emTplInsertPlaceholder(\'' + key + '\')" title="' + esc(desc) + '">{' + key + '}</button>';
-            }
-        }
-        area.innerHTML = h;
-    }
-
-    function tplApplyPlaceholderToggleFromLS() {
-        const open = localStorage.getItem(TPL_PH_LS_KEY) === '1';
-        tplSetPlaceholdersOpen(open);
-    }
-
-    function tplSetPlaceholdersOpen(open) {
-        const body  = document.getElementById('em-tpl-placeholders');
-        const caret = document.getElementById('em-tpl-ph-caret');
-        const head  = document.querySelector('#em-tpl-ph-box .em-tpl-box-head');
-        if (!body || !caret) return;
-        body.style.display = open ? 'flex' : 'none';
-        caret.innerHTML = open ? '&#9662;' : '&#9656;';
-        if (head) head.setAttribute('aria-expanded', open ? 'true' : 'false');
-    }
-
-    GH.emTplTogglePlaceholders = function() {
-        const body = document.getElementById('em-tpl-placeholders');
-        const open = body.style.display === 'none';
-        tplSetPlaceholdersOpen(open);
-        localStorage.setItem(TPL_PH_LS_KEY, open ? '1' : '0');
-    };
-
-    GH.emTplInsertPlaceholder = function(key) {
-        const ta = document.getElementById('em-tpl-body');
-        const start = ta.selectionStart, end = ta.selectionEnd;
-        const text = '{' + key + '}';
-        ta.value = ta.value.substring(0, start) + text + ta.value.substring(end);
-        ta.focus();
-        ta.selectionStart = ta.selectionEnd = start + text.length;
-    };
-
-    // ── Context chips / recipient resolution ────────────────────
-
-    function tplRenderChips() {
-        const box = document.getElementById('em-tpl-ctx-chips');
-        if (!box) return;
-        let h = '';
-        if (tplOrderInfo) {
-            h += '<span class="em-tpl-chip">'
-              +    '<span class="em-tpl-chip-icon">#</span>'
-              +    '<span class="em-tpl-chip-main">Ordine ' + esc(String(tplOrderInfo.number || tplOrderInfo.id)) + '</span>'
-              +    (tplOrderInfo.customer ? '<span class="em-tpl-chip-sub">' + esc(tplOrderInfo.customer) + '</span>' : '')
-              +    (tplOrderInfo.total    ? '<span class="em-tpl-chip-sub">' + esc(tplOrderInfo.total)    + '</span>' : '')
-              +    (tplOrderInfo.email    ? '<span class="em-tpl-chip-sub">' + esc(tplOrderInfo.email)    + '</span>' : '')
-              +    '<button type="button" class="em-tpl-chip-x" title="Rimuovi" onclick="GH.emTplClearOrder()">&times;</button>'
-              +  '</span>';
-        }
-        if (tplCustomerInfo) {
-            h += '<span class="em-tpl-chip">'
-              +    '<span class="em-tpl-chip-icon">@</span>'
-              +    '<span class="em-tpl-chip-main">' + esc(tplCustomerInfo.name || ('Cliente #' + tplCustomerInfo.id)) + '</span>'
-              +    (tplCustomerInfo.email ? '<span class="em-tpl-chip-sub">' + esc(tplCustomerInfo.email) + '</span>' : '')
-              +    '<button type="button" class="em-tpl-chip-x" title="Rimuovi" onclick="GH.emTplClearCustomer()">&times;</button>'
-              +  '</span>';
-        }
-        box.innerHTML = h;
-        box.style.display = h ? 'flex' : 'none';
-    }
-
-    function tplResolveCustomerEmail() {
-        if (tplCustomerInfo && tplCustomerInfo.email) return tplCustomerInfo.email;
-        if (tplOrderInfo && tplOrderInfo.email)       return tplOrderInfo.email;
-        return '';
-    }
-
-    function tplUpdateRecipientUI() {
-        const customerWrap = document.getElementById('em-tpl-rmode-customer');
-        const customerRadio = customerWrap.querySelector('input[type="radio"]');
-        const resolved = document.getElementById('em-tpl-rmode-resolved');
-        const sendLabel = document.getElementById('em-tpl-send-label');
-        const customEmail = tplResolveCustomerEmail();
-
-        if (customEmail) {
-            customerWrap.classList.remove('em-tpl-rmode-disabled');
-            customerRadio.disabled = false;
-            resolved.innerHTML = '<strong>&rarr; ' + esc(customEmail) + '</strong>'
-                + (tplOrderInfo ? '<span class="em-tpl-hint-inline"> (cliente di ordine ' + esc(String(tplOrderInfo.number || tplOrderInfo.id)) + ')</span>' : '');
-        } else {
-            customerWrap.classList.add('em-tpl-rmode-disabled');
-            customerRadio.disabled = true;
-            if (tplRMode === 'customer') {
-                tplRMode = 'custom';
-                const rCustom = document.querySelector('input[name="em-tpl-rmode"][value="custom"]');
-                if (rCustom) rCustom.checked = true;
-            }
-            resolved.textContent = 'seleziona prima un ordine o un cliente al punto 1';
-        }
-
-        if (sendLabel) {
-            sendLabel.textContent = (tplRMode === 'customer' && customEmail)
-                ? 'Invia al cliente'
-                : 'Invia email';
-        }
-
-        document.getElementById('em-tpl-rmode-custom').classList.toggle('is-active', tplRMode === 'custom');
-        customerWrap.classList.toggle('is-active', tplRMode === 'customer' && !!customEmail);
-    }
-
-    GH.emTplSetRecipientMode = function(mode) {
-        tplRMode = (mode === 'customer') ? 'customer' : 'custom';
-        tplUpdateRecipientUI();
-    };
-
-    GH.emTplClearOrder = function() {
-        tplOrderInfo = null;
-        delete tplCtx.order_id;
-        document.getElementById('em-tpl-ctx-order').value = '';
-        tplRenderChips();
-        tplUpdateRecipientUI();
-        GH.emTplSchedulePreview();
-    };
-
-    GH.emTplClearCustomer = function() {
-        tplCustomerInfo = null;
-        delete tplCtx.customer_id;
-        delete tplCtx.customer_name;
-        document.getElementById('em-tpl-ctx-customer').value = '';
-        tplRenderChips();
-        tplUpdateRecipientUI();
-        GH.emTplSchedulePreview();
-    };
-
-    function tplBuildContext() {
-        const ctx = { ...tplCtx };
-        const recipientEmail = tplGetRecipientEmail();
-        ctx.email = recipientEmail || 'test@example.com';
-        ctx.first_name = ctx.customer_name
-            || (tplOrderInfo && tplOrderInfo.customer)
-            || 'Test';
-        return ctx;
-    }
-
-    function tplGetRecipientEmail() {
-        if (tplRMode === 'customer') return tplResolveCustomerEmail();
-        return (document.getElementById('em-tpl-send-to').value || '').trim();
-    }
-
-    // ── Live preview ────────────────────────────────────────────
-
-    GH.emTplSchedulePreview = function() {
-        clearTimeout(tplPreviewTimer);
-        tplPreviewTimer = setTimeout(tplRenderPreview, 250);
-        tplSetPreviewState('Aggiornamento…', 'pending');
-    };
-
-    function tplSetPreviewState(label, cls) {
-        const el = document.getElementById('em-tpl-preview-state');
-        if (!el) return;
-        el.textContent = label;
-        el.className = 'em-tpl-preview-state' + (cls ? ' em-tpl-preview-state-' + cls : '');
-    }
-
-    async function tplRenderPreview() {
-        const wrap  = document.getElementById('em-tpl-preview');
-        if (!wrap || wrap.classList.contains('is-hidden')) return;
-
-        const subjRaw = document.getElementById('em-tpl-subject').value || '';
-        const bodyRaw = document.getElementById('em-tpl-body').value || '';
-
-        if (!subjRaw && !bodyRaw) {
-            writePreview('(nessun contenuto)', '<div style="padding:24px;color:#999;font:13px system-ui">Inizia a scrivere oggetto e body per vedere l\'anteprima.</div>');
-            tplSetPreviewState('Vuoto', 'idle');
-            return;
-        }
-
-        const token = ++tplPreviewToken;
-        try {
-            const r = await ajax('rp_em_ajax_render_template', {
-                template_id: tplEditing || '',
-                subject_raw: subjRaw,
-                body_raw:    bodyRaw,
-                context:     JSON.stringify(tplBuildContext()),
-            });
-            if (token !== tplPreviewToken) return; // stale response, discard
-            if (!r.success) {
-                tplSetPreviewState('Errore: ' + (r.data || ''), 'err');
-                return;
-            }
-            writePreview(r.data.subject || '(oggetto vuoto)', r.data.body || '<div style="padding:24px;color:#999;font:13px system-ui">(body vuoto)</div>');
-            tplSetPreviewState(tplOrderInfo || tplCustomerInfo ? 'Con dati reali' : 'Dati di test', 'ok');
-        } catch (e) {
-            if (token !== tplPreviewToken) return;
-            tplSetPreviewState('Errore di rete', 'err');
-        }
-    }
-
-    function writePreview(subject, bodyHTML) {
-        const subjEl = document.getElementById('em-tpl-preview-subject');
-        const iframe = document.getElementById('em-tpl-preview-frame');
-        if (subjEl) subjEl.textContent = subject;
-        if (!iframe) return;
-        const doc = '<!doctype html><html><head><meta charset="utf-8"><base target="_blank">'
-            + '<style>html,body{margin:0;padding:0;background:#fff;color:#222;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}'
-            + 'body{padding:20px}img{max-width:100%;height:auto}a{color:#0066cc}</style></head>'
-            + '<body>' + bodyHTML + '</body></html>';
-        iframe.srcdoc = doc;
-    }
-
-    GH.emTplTogglePreview = function() {
-        const wrap = document.getElementById('em-tpl-preview');
-        const show = document.getElementById('em-tpl-preview-show');
-        if (!wrap || !show) return;
-        const hide = !wrap.classList.contains('is-hidden');
-        wrap.classList.toggle('is-hidden', hide);
-        show.style.display = hide ? '' : 'none';
-        localStorage.setItem(TPL_PREVIEW_LS_KEY, hide ? '0' : '1');
-        if (!hide) tplRenderPreview();
-    };
-
-    GH.emTplSetPreviewMode = function(mode) {
-        const wrap = document.getElementById('em-tpl-preview-frame-wrap');
-        if (!wrap) return;
-        wrap.classList.toggle('is-mobile', mode === 'mobile');
-        document.getElementById('em-tpl-preview-mode-desktop').classList.toggle('is-active', mode !== 'mobile');
-        document.getElementById('em-tpl-preview-mode-mobile').classList.toggle('is-active', mode === 'mobile');
-        localStorage.setItem(TPL_PREVIEW_DEVICE_KEY, mode);
-    };
-
-    function tplApplyPreviewPrefs() {
-        const wrap = document.getElementById('em-tpl-preview');
-        const show = document.getElementById('em-tpl-preview-show');
-        if (!wrap || !show) return;
-        const hidden = localStorage.getItem(TPL_PREVIEW_LS_KEY) === '0';
-        wrap.classList.toggle('is-hidden', hidden);
-        show.style.display = hidden ? '' : 'none';
-        const device = localStorage.getItem(TPL_PREVIEW_DEVICE_KEY) === 'mobile' ? 'mobile' : 'desktop';
-        GH.emTplSetPreviewMode(device);
-    }
-
-    GH.emTplSend = async function() {
-        const to = tplGetRecipientEmail();
-        if (!to) {
-            toast(tplRMode === 'customer' ? 'Nessun cliente selezionato' : 'Inserisci email destinatario', 'err');
-            return;
-        }
-        if (!tplEditing) { await GH.emTplSave(); if (!tplEditing) return; }
-        const label = (tplRMode === 'customer')
-            ? 'Inviare al CLIENTE REALE ' + to + '?'
-            : 'Inviare email di test a ' + to + '?';
-        if (!confirm(label)) return;
-        const sp = document.getElementById('em-tpl-send-spin'); sp.style.display = '';
-        try {
-            const r = await ajax('rp_em_ajax_send_template', {
-                template_id: tplEditing,
-                to: to,
-                context: JSON.stringify(tplBuildContext()),
-            });
-            if (!r.success) { toast('Errore: ' + (r.data || ''), 'err'); return; }
-            toast(r.data.success ? 'Email inviata a ' + to : 'Invio fallito: ' + (r.data.message || ''), r.data.success ? 'ok' : 'err', 5000);
-        } catch (e) { toast('Errore', 'err'); }
-        finally { sp.style.display = 'none'; }
-    };
-
-    GH.emTplSearchOrder = async function() {
-        const q = document.getElementById('em-tpl-ctx-order').value;
-        if (!q) return;
-        const r = await ajax('rp_em_ajax_search_orders', { query: q });
-        const area = document.getElementById('em-tpl-search-results');
-        if (!r.success || !r.data.length) { area.innerHTML = '<span class="em-tpl-res-empty">Nessun ordine trovato</span>'; return; }
-        let h = '<div class="em-tpl-res-title">Ordini trovati</div>';
-        for (const o of r.data) {
-            const payload = JSON.stringify(o).replace(/"/g, '&quot;');
-            h += '<a href="#" class="em-tpl-res-row" onclick="GH.emTplSelectOrderObj(&quot;' + encodeURIComponent(JSON.stringify(o)) + '&quot;);return false">'
-              +    '<span class="em-tpl-res-key">#' + esc(String(o.number)) + '</span>'
-              +    '<span class="em-tpl-res-val">' + esc(o.customer || '—') + '</span>'
-              +    '<span class="em-tpl-res-meta">' + esc(o.email || '') + '</span>'
-              +    '<span class="em-tpl-res-meta">' + esc(o.total || '') + '</span>'
-              +    '<span class="em-tpl-res-meta">' + esc(o.date || '') + '</span>'
-              +  '</a>';
-        }
-        area.innerHTML = h;
-    };
-
-    GH.emTplSelectOrderObj = function(encoded) {
-        const o = JSON.parse(decodeURIComponent(encoded));
-        tplOrderInfo = {
-            id:       o.id,
-            number:   o.number || o.id,
-            customer: o.customer || '',
-            email:    o.email || '',
-            total:    o.total || '',
-        };
-        tplCtx.order_id = o.id;
-        if (o.customer) tplCtx.customer_name = o.customer;
-        document.getElementById('em-tpl-ctx-order').value = '';
-        document.getElementById('em-tpl-search-results').innerHTML = '';
-        tplRenderChips();
-        tplUpdateRecipientUI();
-        GH.emTplSchedulePreview();
-    };
-
-    GH.emTplSearchCustomer = async function() {
-        const q = document.getElementById('em-tpl-ctx-customer').value;
-        if (!q) return;
-        const r = await ajax('rp_em_ajax_search_customers', { query: q });
-        const area = document.getElementById('em-tpl-search-results');
-        if (!r.success || !r.data.length) { area.innerHTML = '<span class="em-tpl-res-empty">Nessun cliente trovato</span>'; return; }
-        let h = '<div class="em-tpl-res-title">Clienti trovati</div>';
-        for (const c of r.data) {
-            h += '<a href="#" class="em-tpl-res-row" onclick="GH.emTplSelectCustomerObj(&quot;' + encodeURIComponent(JSON.stringify(c)) + '&quot;);return false">'
-              +    '<span class="em-tpl-res-key">' + esc(c.name || ('#' + c.id)) + '</span>'
-              +    '<span class="em-tpl-res-val">' + esc(c.email || '') + '</span>'
-              +    '<span class="em-tpl-res-meta">' + esc(String(c.orders || 0)) + ' ordini</span>'
-              +    '<span class="em-tpl-res-meta">' + esc(c.spent || '') + '</span>'
-              +  '</a>';
-        }
-        area.innerHTML = h;
-    };
-
-    GH.emTplSelectCustomerObj = function(encoded) {
-        const c = JSON.parse(decodeURIComponent(encoded));
-        tplCustomerInfo = { id: c.id, name: c.name || '', email: c.email || '' };
-        tplCtx.customer_id = c.id;
-        if (c.name) tplCtx.customer_name = c.name;
-        document.getElementById('em-tpl-ctx-customer').value = '';
-        document.getElementById('em-tpl-search-results').innerHTML = '';
-        tplRenderChips();
-        tplUpdateRecipientUI();
-        GH.emTplSchedulePreview();
-    };
-
-    // Legacy aliases kept in case older panels invoke them.
-    GH.emTplSelectOrder = function(id) {
-        GH.emTplSelectOrderObj(encodeURIComponent(JSON.stringify({ id: id, number: id })));
-    };
-    GH.emTplSelectCustomer = function(id, name) {
-        GH.emTplSelectCustomerObj(encodeURIComponent(JSON.stringify({ id: id, name: name, email: '' })));
-    };
-
-    GH.emTplUseInCampaign = function() {
-        const subject = document.getElementById('em-tpl-subject').value;
-        const body = document.getElementById('em-tpl-body').value;
-        if (!body) { toast('Template vuoto', 'err'); return; }
-        GH.switchTab('email-campaigns', document.querySelector('[onclick*="email-campaigns"]'));
-        GH.emCampaignsLoad();
-        setTimeout(function() {
-            GH.emCampaignNew();
-            document.getElementById('em-c-subject').value = subject;
-            document.getElementById('em-c-body').value = body;
-            toast('Template caricato nella campagna', 'ok');
+    let tplTimer = null;
+    GH.emTplExtractPlaceholders = function() {
+        clearTimeout(tplTimer);
+        tplTimer = setTimeout(async () => {
+            const html = $('em-tpl-html').value || '';
+            const r = await ajax('rp_em_ajax_template_extract_placeholders', { html });
+            if (!r.success) return;
+            renderTplPlaceholders(r.data.grouped || {});
         }, 300);
     };
 
+    function renderTplPlaceholders(grouped) {
+        const c = $('em-tpl-ph-body');
+        if (!c) return;
+        const order = ['BRAND', 'CAMPAIGN', 'PRODUCT', 'RECIPIENT', 'META', 'UNKNOWN'];
+        const hasAny = order.some(ns => (grouped[ns] || []).length > 0);
+        if (!hasAny) { c.innerHTML = '<div class="em-hint">Nessun placeholder trovato.</div>'; return; }
+        let h = '';
+        for (const ns of order) {
+            const keys = grouped[ns] || [];
+            if (!keys.length) continue;
+            const cls = ns === 'UNKNOWN' ? 'rpem-ns-unknown' : 'rpem-ns-' + ns.toLowerCase();
+            h += '<div class="rpem-ph-group ' + cls + '"><div class="rpem-ph-head">' + ns + ' <span>' + keys.length + '</span></div><div class="rpem-ph-list">';
+            h += keys.map(k => '<code>{' + esc(k) + '}</code>').join('');
+            h += '</div></div>';
+        }
+        c.innerHTML = h;
+    }
+
+    // ── TEST + SEED ─────────────────────────────────────────────
+    GH.emSendTest = async function() {
+        const to = $('em-test-to').value.trim();
+        const subject = $('em-test-subject').value.trim();
+        const body = $('em-test-body').value.trim();
+        if (!to) { toast('Destinatario?', 'err'); return; }
+        const sp = $('em-test-spin'); sp.style.display = '';
+        try {
+            const r = await ajax('rp_em_ajax_send_test', { to, subject, body });
+            if (r.success) toast(r.data.message || 'Inviata', 'ok');
+            else toast('Errore: ' + (r.data || 'invio fallito'), 'err');
+        } finally { sp.style.display = 'none'; }
+    };
+
+    GH.emSeedDemo = async function() {
+        const reset_brand = $('em-seed-reset-brand').checked ? '1' : '';
+        const sp = $('em-seed-spin'); sp.style.display = '';
+        try {
+            const r = await ajax('rp_em_ajax_seed_demo', { reset_brand });
+            if (!r.success) { toast('Errore seed', 'err'); return; }
+            const d = r.data;
+            let h = '<div class="rpem-seed-ok">';
+            h += '<div>Template: <code>' + esc(d.template_id || '—') + '</code></div>';
+            h += '<div>Campaign: <code>' + esc(d.campaign_id || '—') + '</code></div>';
+            h += '<div>Prodotti: ' + (d.product_ids || []).join(', ') + '</div>';
+            h += '<ul>' + (d.messages || []).map(m => '<li>' + esc(m) + '</li>').join('') + '</ul>';
+            h += '</div>';
+            $('em-seed-result').innerHTML = h;
+            toast('Seed completato', 'ok');
+        } finally { sp.style.display = 'none'; }
+    };
+
+    // ── CONTACTS ────────────────────────────────────────────────
+    GH.emContactsInit = function() { GH.emContactsLoad(); };
+
+    GH.emContactsLoad = async function() {
+        const source = $('em-ct-source').value;
+        $('em-ct-upload').style.display = source === 'csv' ? '' : 'none';
+        if (source === 'csv') return;
+        const sp = $('em-ct-spin'); sp.style.display = '';
+        try {
+            const r = await ajax('rp_em_ajax_get_contacts', { source_type: source });
+            if (!r.success) { toast('Errore contatti', 'err'); return; }
+            renderContacts(r.data.contacts || [], r.data.counts || {});
+        } finally { sp.style.display = 'none'; }
+    };
+
+    GH.emContactsUploadFile = function() {
+        toast('CSV upload via file: usa la textarea CSV nella campagna (wizard step 5).', 'inf', 5000);
+    };
+
+    function renderContacts(contacts, counts) {
+        const s = $('em-ct-stats');
+        if (counts && counts.total > 0) {
+            s.style.display = '';
+            $('em-ct-total').textContent  = counts.total;
+            $('em-ct-hustle').textContent = counts.hustle || 0;
+            $('em-ct-csv').textContent    = counts.csv || 0;
+        } else { s.style.display = 'none'; }
+        const c = $('em-ct-list');
+        if (!contacts.length) {
+            c.innerHTML = '<div class="empty-state"><div class="empty-icon">&#9786;</div><div class="empty-text">Nessun contatto.</div></div>';
+            return;
+        }
+        c.innerHTML = contacts.slice(0, 500).map(ct =>
+            '<div class="rpem-ct-row"><span class="rpem-ct-email">' + esc(ct.email || '') + '</span>' +
+            '<span class="rpem-ct-name">' + esc(ct.display_name || '—') + '</span>' +
+            '<span class="rpem-ct-src">' + esc(ct.source || 'hustle') + '</span></div>'
+        ).join('');
+    }
+
+    // ── HISTORY ─────────────────────────────────────────────────
+    let historyTimer = null;
+    GH.emHistoryDebounce = function() { clearTimeout(historyTimer); historyTimer = setTimeout(GH.emHistoryLoad, 300); };
+
+    GH.emHistoryLoad = async function() {
+        const sp = $('em-h-spin'); sp.style.display = '';
+        try {
+            const r = await ajax('rp_em_ajax_get_log', {
+                type: $('em-h-type').value,
+                status: $('em-h-status').value,
+                search: $('em-h-search').value,
+                limit: 200,
+            });
+            if (!r.success) { toast('Errore storico', 'err'); return; }
+            renderHistory(r.data.entries || [], r.data.stats || {});
+        } finally { sp.style.display = 'none'; }
+    };
+
+    function renderHistory(entries, stats) {
+        const s = $('em-h-stats');
+        if (stats.total > 0) {
+            s.style.display = '';
+            $('em-h-total').textContent  = stats.total;
+            $('em-h-sent').textContent   = stats.sent || 0;
+            $('em-h-failed').textContent = stats.failed || 0;
+        } else { s.style.display = 'none'; }
+        const c = $('em-h-list');
+        if (!entries.length) {
+            c.innerHTML = '<div class="empty-state"><div class="empty-icon">&#9202;</div><div class="empty-text">Nessuna email nel log.</div></div>';
+            return;
+        }
+        c.innerHTML = entries.map(e =>
+            '<div class="rpem-h-row rpem-h-' + esc(e.status || '') + '">' +
+            '<span class="rpem-h-status">' + esc(e.status || '') + '</span>' +
+            '<span class="rpem-h-to">' + esc(e.to || '') + '</span>' +
+            '<span class="rpem-h-subject">' + esc(e.subject || '') + '</span>' +
+            '<span class="rpem-h-type">' + esc(e.type || '') + '</span>' +
+            '<span class="rpem-h-date">' + esc(e.sent_at || '') + '</span>' +
+            '</div>'
+        ).join('');
+    }
+
+    GH.emHistoryClear = async function() {
+        if (!confirm('Svuotare completamente lo storico email?')) return;
+        const r = await ajax('rp_em_ajax_clear_log');
+        if (!r.success) { toast('Errore', 'err'); return; }
+        toast('Storico svuotato', 'ok');
+        GH.emHistoryLoad();
+    };
 })();

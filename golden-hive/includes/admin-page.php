@@ -57,10 +57,11 @@ function gh_render_page(): void {
             <div class="tab-section">JOBS</div>
             <div class="tab-item" onclick="GH.switchTab('jobs',this)"><span class="tab-icon">&#9202;</span><span class="tab-label">Jobs</span></div>
             <div class="tab-section">EMAIL</div>
+            <div class="tab-item" onclick="GH.switchTab('email-brand',this);GH.emBrandLoad()"><span class="tab-icon">&#9733;</span><span class="tab-label">Brand</span></div>
             <div class="tab-item" onclick="GH.switchTab('email-templates',this);GH.emTplLoad()"><span class="tab-icon">&#9881;</span><span class="tab-label">Templates</span></div>
-            <div class="tab-item" onclick="GH.switchTab('email-test',this)"><span class="tab-icon">&#9993;</span><span class="tab-label">Test Email</span></div>
             <div class="tab-item" onclick="GH.switchTab('email-campaigns',this);GH.emCampaignsLoad()"><span class="tab-icon">&#9758;</span><span class="tab-label">Campagne</span></div>
             <div class="tab-item" onclick="GH.switchTab('email-contacts',this);GH.emContactsInit()"><span class="tab-icon">&#9786;</span><span class="tab-label">Contatti</span></div>
+            <div class="tab-item" onclick="GH.switchTab('email-test',this)"><span class="tab-icon">&#9993;</span><span class="tab-label">Test Email</span></div>
             <div class="tab-item" onclick="GH.switchTab('email-history',this);GH.emHistoryLoad()"><span class="tab-icon">&#9202;</span><span class="tab-label">Storico</span></div>
             <div class="tab-section">TOOLS</div>
             <div class="tab-item" onclick="GH.switchTab('httpclient',this)"><span class="tab-icon">&#8680;</span><span class="tab-label">HTTP Client</span></div>
@@ -90,6 +91,7 @@ function gh_render_page(): void {
 <?php include GH_DIR . 'includes/views/js-mapper.php'; ?>
 <?php include GH_DIR . 'includes/views/js-jobs.php'; ?>
 <?php include GH_DIR . 'includes/views/js-email.php'; ?>
+<?php include GH_DIR . 'includes/views/js-email-campaigns.php'; ?>
 </script>
 <?php
 }

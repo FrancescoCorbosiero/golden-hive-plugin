@@ -71,10 +71,17 @@ golden-hive/
     │   ├── actions.php          ← gh_execute_bulk_action (13 azioni: taxonomy, status, price, stock, SEO, order)
     │   ├── sorter.php           ← gh_sort_products, gh_sort_preview (11 regole di ordinamento)
     │   └── ajax.php             ← gh_ajax_bulk_*, gh_ajax_sort_*
-    ├── email/                   ← Da rp-email-marketing (prefix: rp_em_)
+    ├── email/                   ← Multi-layer template system (prefix: rp_em_)
+    │   ├── placeholders.php     ← rp_em_extract_placeholders, _extract_namespace (BRAND|CAMPAIGN|PRODUCT|RECIPIENT|META)
+    │   ├── brand.php            ← rp_em_get_brand, _save_brand (single-row wp_option), _get_brand_schema
+    │   ├── templates.php        ← rp_em_get_templates, _save_template, _list_templates, _install_demo_template
+    │   ├── renderer.php         ← rp_em_render_campaign, _render_raw, _merge_layers, _resolve_product_fields
+    │   ├── validator.php        ← rp_em_validate_campaign (MISSING_VALUE, NAMESPACE_VIOLATION, UNSUBSTITUTED, INVALID_HEX, EMPTY_URL)
+    │   ├── campaigns.php        ← rp_em_get_campaigns, _save_campaign, _schedule_campaign, _execute_campaign, _build_campaign_payload
     │   ├── contacts.php         ← rp_em_get_hustle_subscribers, rp_em_parse_csv_contacts, rp_em_merge_contacts
-    │   ├── mailer.php           ← rp_em_send_test_email, rp_em_send_campaign, rp_em_personalize
-    │   ├── campaigns.php        ← rp_em_get_campaigns, rp_em_save_campaign, rp_em_schedule_campaign, rp_em_execute_campaign
+    │   ├── mailer.php           ← rp_em_send_test_email, rp_em_send_campaign_rendered (riceve HTML gia renderizzato)
+    │   ├── log.php              ← rp_em_log_email, _get_email_log, _email_log_stats
+    │   ├── _seed/               ← Demo template + brand defaults + campaign payload + seeder
     │   └── ajax.php             ← rp_em_ajax_*
     ├── views/
     │   ├── css.php              ← Design system completo (dark theme)
@@ -356,6 +363,67 @@ Tutti sotto prefix `gh_ajax_` con nonce `gh_nonce`:
   target (flat con indentazione), criteri tassonomici, preview, *Populate
   now*, *Clear managed children*. Lato destro: lista completa item correnti
   con badge `GH` sugli item managed.
+
+---
+
+## Email — Multi-Layer Template System
+
+Sistema di template email con placeholder namespaced in 5 layer. Il brand e
+globale (il plugin gira dentro un sito brandizzato — una sola config per sito,
+non multi-tenant).
+
+### 5 namespace di placeholder
+
+Regex unica: `/\{([A-Z][A-Z0-9_]*)\}/`. Tutto UPPERCASE.
+
+| Namespace   | Sorgente                         | Esempio                    |
+|-------------|----------------------------------|----------------------------|
+| `BRAND_*`   | `wp_option['rp_em_brand']`       | `{BRAND_LOGO_URL}`         |
+| `CAMPAIGN_*`| payload della campagna           | `{CAMPAIGN_HERO_TITLE}`    |
+| `PRODUCT_N_*`| `product_ids` in ordine → WC    | `{PRODUCT_1_PRICE}`        |
+| `RECIPIENT_*`| ESP merge-tag (letterale nell'HTML) | `{RECIPIENT_FIRST_NAME}` |
+| `META_*`    | auto: YEAR, DATE, DATETIME        | `{META_YEAR}`              |
+
+I `{RECIPIENT_*}` NON vengono sostituiti dal renderer: restano letterali e
+l'ESP (WP Mail SMTP → SES) li sostituisce per destinatario al send-time.
+
+### Flusso render
+
+```
+render_campaign(id):
+  brand    = rp_em_get_brand()                 → {BRAND_*}
+  payload  = rp_em_build_campaign_payload(id)  → {CAMPAIGN_*} + {PRODUCT_N_*}
+  meta     = rp_em_auto_meta()                 → {META_*}
+  merged   = rp_em_merge_layers(brand, payload, meta)
+  return rp_em_render_raw(template.html, merged, preserve_recipient=true)
+```
+
+### Validator
+
+`rp_em_validate_campaign(id)` ritorna `{errors[], warnings[], ok}`.
+
+**Errori bloccanti:** `MISSING_VALUE`, `NAMESPACE_VIOLATION`,
+`UNSUBSTITUTED`, `TEMPLATE_NOT_FOUND`, `INVALID_HEX`, `EMPTY_URL`.
+
+**Warnings:** `ORPHAN_KEY`, `SUBJECT_TOO_LONG` (>60), `PREHEADER_TOO_LONG`
+(>110), `LAYER_COLLISION`.
+
+### Schema dati (tutto su wp_options, zero CPT)
+
+- `rp_em_brand`      — single-row associative array con chiavi BRAND_*
+- `rp_em_templates`  — array di `{id, name, description, html, placeholders_cache, created_at, updated_at}`
+- `rp_em_campaigns`  — array di `{id, name, subject, preheader, template_id, payload, product_ids[], source_type, module_ids, csv_contacts, rate_limit, scheduled_at, status, stats, last_render, last_validation}`
+- `rp_em_email_log`  — history capped a 500 entries
+
+### Tab UI in sidebar
+
+EMAIL: Brand / Templates / Campagne (wizard 6-step) / Contatti / Test Email / Storico.
+
+### Smoke test
+
+Tab Test Email → bottone "Popola demo": seeder crea template "Demo Weekend
+Coupon", campagna "Weekend Coupon Demo", pesca 2 prodotti WooCommerce reali.
+Poi tab Campagne → apri la campagna demo → Valida → Preview → Invia test.
 
 ---
 

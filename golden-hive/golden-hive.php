@@ -87,13 +87,21 @@ require_once GH_DIR . 'includes/mapper/engine.php';
 require_once GH_DIR . 'includes/mapper/storage.php';
 require_once GH_DIR . 'includes/mapper/ajax.php';
 
-// Email — log (history) loaded first con guard indipendente,
-// poi contacts, mailer, campaigns, ajax.
-require_once GH_DIR . 'includes/email/log.php';
+// Email — multi-layer template system.
+// Ordine di load: placeholders → brand → templates → renderer → validator →
+//                 campaigns → contacts → mailer → log → seeder → ajax.
+// Dipendenze: renderer legge brand+templates, validator legge tutto, campaigns
+// usa renderer+validator, seeder usa brand+templates+campaigns, ajax usa tutto.
+require_once GH_DIR . 'includes/email/placeholders.php';
+require_once GH_DIR . 'includes/email/brand.php';
+require_once GH_DIR . 'includes/email/templates.php';
+require_once GH_DIR . 'includes/email/renderer.php';
+require_once GH_DIR . 'includes/email/validator.php';
+require_once GH_DIR . 'includes/email/campaigns.php';
 require_once GH_DIR . 'includes/email/contacts.php';
 require_once GH_DIR . 'includes/email/mailer.php';
-require_once GH_DIR . 'includes/email/campaigns.php';
-require_once GH_DIR . 'includes/email/templates.php';
+require_once GH_DIR . 'includes/email/log.php';
+require_once GH_DIR . 'includes/email/_seed/seeder.php';
 require_once GH_DIR . 'includes/email/ajax.php';
 
 // Tools

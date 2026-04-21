@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{BRAND_NAME} — {CAMPAIGN_HERO_TITLE}</title>
+</head>
+<body style="margin:0;padding:0;background:{BRAND_COLOR_BG};font-family:{BRAND_FONT_BODY};color:{BRAND_COLOR_TEXT};">
+
+<!-- Preheader (nascosto, visibile solo nelle preview dei client) -->
+<div style="display:none;font-size:1px;color:{BRAND_COLOR_BG};line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">
+    Ciao {RECIPIENT_FIRST_NAME}, c'e una sorpresa per te.
+</div>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:{BRAND_COLOR_BG};">
+<tr><td align="center">
+    <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;">
+
+        <!-- HEADER: logo + tagline -->
+        <tr>
+            <td align="center" style="padding:32px 24px 16px 24px;">
+                <a href="{BRAND_WEBSITE_URL}" target="_blank" style="text-decoration:none;">
+                    <img src="{BRAND_LOGO_URL}" alt="{BRAND_LOGO_ALT}" width="140" style="display:block;max-width:140px;height:auto;border:0;" />
+                </a>
+                <p style="margin:12px 0 0 0;font-family:{BRAND_FONT_BODY};font-size:12px;color:{BRAND_COLOR_TEXT};opacity:0.6;letter-spacing:1px;text-transform:uppercase;">
+                    {BRAND_TAGLINE}
+                </p>
+            </td>
+        </tr>
+
+        <!-- HERO: greeting personalizzato + titolo campagna -->
+        <tr>
+            <td style="padding:24px 24px 8px 24px;">
+                <p style="margin:0 0 16px 0;font-family:{BRAND_FONT_BODY};font-size:15px;color:{BRAND_COLOR_TEXT};">
+                    Ciao <strong>{RECIPIENT_FIRST_NAME}</strong>,
+                </p>
+                <h1 style="margin:0 0 12px 0;font-family:{BRAND_FONT_HEADING};font-size:32px;line-height:1.15;color:{BRAND_COLOR_PRIMARY};">
+                    {CAMPAIGN_HERO_TITLE}
+                </h1>
+                <p style="margin:0;font-family:{BRAND_FONT_BODY};font-size:16px;line-height:1.5;color:{BRAND_COLOR_TEXT};">
+                    {CAMPAIGN_HERO_SUBTITLE}
+                </p>
+            </td>
+        </tr>
+
+        <!-- COUPON BOX -->
+        <tr>
+            <td style="padding:24px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:{BRAND_COLOR_PRIMARY};border-radius:8px;">
+                <tr><td align="center" style="padding:24px;">
+                    <p style="margin:0 0 8px 0;font-family:{BRAND_FONT_BODY};font-size:12px;letter-spacing:2px;text-transform:uppercase;color:{BRAND_COLOR_BG};opacity:0.7;">
+                        {CAMPAIGN_COUPON_LABEL}
+                    </p>
+                    <p style="margin:0;font-family:{BRAND_FONT_HEADING};font-size:28px;letter-spacing:3px;font-weight:700;color:{BRAND_COLOR_BG};">
+                        {CAMPAIGN_COUPON_CODE}
+                    </p>
+                </td></tr>
+                </table>
+            </td>
+        </tr>
+
+        <!-- PRODUCT GRID: 2 slot -->
+        <tr>
+            <td style="padding:0 12px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                    <!-- PRODUCT 1 -->
+                    <td width="50%" valign="top" style="padding:12px;">
+                        <a href="{PRODUCT_1_URL}" target="_blank" style="text-decoration:none;color:{BRAND_COLOR_TEXT};">
+                            <img src="{PRODUCT_1_IMAGE_URL}" alt="{PRODUCT_1_NAME_LINE1}" width="260" style="display:block;width:100%;max-width:260px;height:auto;border:0;border-radius:6px;" />
+                            <p style="margin:12px 0 2px 0;font-family:{BRAND_FONT_HEADING};font-size:16px;font-weight:600;color:{BRAND_COLOR_TEXT};">
+                                {PRODUCT_1_NAME_LINE1}
+                            </p>
+                            <p style="margin:0 0 8px 0;font-family:{BRAND_FONT_BODY};font-size:13px;color:{BRAND_COLOR_TEXT};opacity:0.7;">
+                                {PRODUCT_1_NAME_LINE2}
+                            </p>
+                            <p style="margin:0;font-family:{BRAND_FONT_BODY};font-size:15px;">
+                                <span style="color:{BRAND_COLOR_ACCENT};font-weight:700;">{PRODUCT_1_PRICE}</span>
+                                <span style="color:{BRAND_COLOR_TEXT};opacity:0.5;text-decoration:line-through;margin-left:6px;">{PRODUCT_1_PRICE_ORIGINAL}</span>
+                            </p>
+                        </a>
+                    </td>
+                    <!-- PRODUCT 2 -->
+                    <td width="50%" valign="top" style="padding:12px;">
+                        <a href="{PRODUCT_2_URL}" target="_blank" style="text-decoration:none;color:{BRAND_COLOR_TEXT};">
+                            <img src="{PRODUCT_2_IMAGE_URL}" alt="{PRODUCT_2_NAME_LINE1}" width="260" style="display:block;width:100%;max-width:260px;height:auto;border:0;border-radius:6px;" />
+                            <p style="margin:12px 0 2px 0;font-family:{BRAND_FONT_HEADING};font-size:16px;font-weight:600;color:{BRAND_COLOR_TEXT};">
+                                {PRODUCT_2_NAME_LINE1}
+                            </p>
+                            <p style="margin:0 0 8px 0;font-family:{BRAND_FONT_BODY};font-size:13px;color:{BRAND_COLOR_TEXT};opacity:0.7;">
+                                {PRODUCT_2_NAME_LINE2}
+                            </p>
+                            <p style="margin:0;font-family:{BRAND_FONT_BODY};font-size:15px;">
+                                <span style="color:{BRAND_COLOR_ACCENT};font-weight:700;">{PRODUCT_2_PRICE}</span>
+                                <span style="color:{BRAND_COLOR_TEXT};opacity:0.5;text-decoration:line-through;margin-left:6px;">{PRODUCT_2_PRICE_ORIGINAL}</span>
+                            </p>
+                        </a>
+                    </td>
+                </tr>
+                </table>
+            </td>
+        </tr>
+
+        <!-- CTA BUTTON -->
+        <tr>
+            <td align="center" style="padding:24px;">
+                <a href="{CAMPAIGN_CTA_URL}" target="_blank"
+                   style="display:inline-block;background:{BRAND_COLOR_SECONDARY};color:{BRAND_COLOR_BG};font-family:{BRAND_FONT_HEADING};font-size:15px;font-weight:600;letter-spacing:0.5px;text-decoration:none;padding:14px 32px;border-radius:6px;">
+                    {CAMPAIGN_CTA_LABEL}
+                </a>
+            </td>
+        </tr>
+
+        <!-- PILLARS: value proposition brand -->
+        <tr>
+            <td style="padding:24px 12px;border-top:1px solid rgba(0,0,0,0.08);">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                    <td width="33%" valign="top" align="center" style="padding:12px;">
+                        <p style="margin:0 0 4px 0;font-family:{BRAND_FONT_HEADING};font-size:13px;font-weight:600;color:{BRAND_COLOR_PRIMARY};">{BRAND_PILLAR_1_TITLE}</p>
+                        <p style="margin:0;font-family:{BRAND_FONT_BODY};font-size:12px;color:{BRAND_COLOR_TEXT};opacity:0.7;">{BRAND_PILLAR_1_DESC}</p>
+                    </td>
+                    <td width="33%" valign="top" align="center" style="padding:12px;">
+                        <p style="margin:0 0 4px 0;font-family:{BRAND_FONT_HEADING};font-size:13px;font-weight:600;color:{BRAND_COLOR_PRIMARY};">{BRAND_PILLAR_2_TITLE}</p>
+                        <p style="margin:0;font-family:{BRAND_FONT_BODY};font-size:12px;color:{BRAND_COLOR_TEXT};opacity:0.7;">{BRAND_PILLAR_2_DESC}</p>
+                    </td>
+                    <td width="33%" valign="top" align="center" style="padding:12px;">
+                        <p style="margin:0 0 4px 0;font-family:{BRAND_FONT_HEADING};font-size:13px;font-weight:600;color:{BRAND_COLOR_PRIMARY};">{BRAND_PILLAR_3_TITLE}</p>
+                        <p style="margin:0;font-family:{BRAND_FONT_BODY};font-size:12px;color:{BRAND_COLOR_TEXT};opacity:0.7;">{BRAND_PILLAR_3_DESC}</p>
+                    </td>
+                </tr>
+                </table>
+            </td>
+        </tr>
+
+        <!-- FOOTER: social, legal, unsubscribe -->
+        <tr>
+            <td align="center" style="padding:24px;border-top:1px solid rgba(0,0,0,0.08);">
+                <p style="margin:0 0 12px 0;font-family:{BRAND_FONT_BODY};font-size:12px;color:{BRAND_COLOR_TEXT};opacity:0.7;">
+                    <a href="{BRAND_INSTAGRAM}" style="color:{BRAND_COLOR_SECONDARY};text-decoration:none;margin:0 8px;">Instagram</a>
+                    <a href="{BRAND_FACEBOOK}"  style="color:{BRAND_COLOR_SECONDARY};text-decoration:none;margin:0 8px;">Facebook</a>
+                    <a href="{BRAND_TIKTOK}"    style="color:{BRAND_COLOR_SECONDARY};text-decoration:none;margin:0 8px;">TikTok</a>
+                </p>
+                <p style="margin:0 0 8px 0;font-family:{BRAND_FONT_BODY};font-size:11px;color:{BRAND_COLOR_TEXT};opacity:0.55;line-height:1.5;">
+                    {CAMPAIGN_FOOTER_NOTE}
+                </p>
+                <p style="margin:0 0 8px 0;font-family:{BRAND_FONT_BODY};font-size:11px;color:{BRAND_COLOR_TEXT};opacity:0.55;">
+                    {BRAND_LEGAL_ADDRESS} &middot; P.IVA {BRAND_LEGAL_VAT}
+                </p>
+                <p style="margin:0;font-family:{BRAND_FONT_BODY};font-size:11px;color:{BRAND_COLOR_TEXT};opacity:0.55;">
+                    &copy; {META_YEAR} {BRAND_NAME} &middot;
+                    <a href="{BRAND_UNSUBSCRIBE_URL}" style="color:{BRAND_COLOR_TEXT};text-decoration:underline;">Annulla iscrizione</a>
+                </p>
+            </td>
+        </tr>
+    </table>
+</td></tr>
+</table>
+
+</body>
+</html>

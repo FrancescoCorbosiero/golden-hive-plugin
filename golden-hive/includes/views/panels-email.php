@@ -1,203 +1,196 @@
+<!-- ═══ EMAIL — BRAND ═══ -->
+<div class="panel" id="panel-email-brand">
+    <div class="toolbar">
+        <span class="filter-label">Brand del sito</span>
+        <div class="filter-sep"></div>
+        <button class="btn btn-primary" onclick="GH.emBrandSave()"><span class="spin" id="em-brand-save-spin" style="display:none"></span> Salva</button>
+        <button class="btn btn-ghost" onclick="GH.emBrandLoad()">Ricarica</button>
+        <button class="btn btn-danger" onclick="GH.emBrandReset()" title="Ripristina ai valori di default">Reset defaults</button>
+    </div>
+    <div class="rpem-brand-form" id="em-brand-form">
+        <div class="empty-state"><div class="empty-icon">&#9733;</div><div class="empty-text">Caricamento brand...</div></div>
+    </div>
+    <div class="em-hint" style="padding:8px 16px">
+        Questi valori popolano i placeholder <code>{BRAND_*}</code> in tutti i template email.
+        Il brand e globale: un solo set di impostazioni per il sito.
+    </div>
+</div>
+
 <!-- ═══ EMAIL — TEMPLATES ═══ -->
 <div class="panel" id="panel-email-templates">
-    <!-- Template List View -->
+    <!-- List view -->
     <div id="em-tpl-list-view">
         <div class="toolbar">
-            <span class="filter-label">Email Templates</span>
+            <span class="filter-label">Template HTML</span>
             <div class="filter-sep"></div>
-            <button class="btn btn-primary" onclick="GH.emTplNew()">+ Nuovo Template</button>
-            <button class="btn btn-ghost" onclick="GH.emTplLoad()">Aggiorna</button>
+            <button class="btn btn-primary" onclick="GH.emTplNew()">+ Nuovo template</button>
+            <button class="btn btn-ghost" onclick="GH.emTplLoad()">Ricarica</button>
         </div>
-        <div class="preview-wrap" id="em-tpl-list">
+        <div class="rpem-tpl-list" id="em-tpl-list">
             <div class="empty-state"><div class="empty-icon">&#9881;</div><div class="empty-text">Nessun template. Crea il primo per iniziare.</div></div>
         </div>
     </div>
 
-    <!-- Template Editor View -->
-    <div id="em-tpl-editor-view" class="em-tpl-editor-view" style="display:none">
+    <!-- Editor view -->
+    <div id="em-tpl-editor-view" class="rpem-tpl-editor" style="display:none">
         <div class="toolbar">
             <button class="btn btn-ghost" onclick="GH.emTplBackToList()">&larr; Lista</button>
             <div class="filter-sep"></div>
-            <span class="filter-label" id="em-tpl-editor-title">Nuovo Template</span>
+            <span class="filter-label" id="em-tpl-editor-title">Nuovo template</span>
             <div style="flex:1"></div>
-            <button class="btn btn-ghost" id="btn-em-tpl-delete" onclick="GH.emTplDelete()" style="color:var(--red);display:none">Elimina</button>
-            <button class="btn btn-primary" id="btn-em-tpl-save" onclick="GH.emTplSave()"><span class="spin" id="em-tpl-save-spin" style="display:none"></span> Salva</button>
+            <button class="btn btn-ghost" id="em-tpl-delete-btn" onclick="GH.emTplDelete()" style="color:var(--red);display:none">Elimina</button>
+            <button class="btn btn-primary" onclick="GH.emTplSave()"><span class="spin" id="em-tpl-save-spin" style="display:none"></span> Salva</button>
         </div>
-        <div class="em-tpl-editor-body">
-          <div class="em-tpl-editor-left">
-            <div class="cfg-row"><span class="cfg-label">Nome</span><input class="cfg-input" id="em-tpl-name" placeholder="Es: Conferma spedizione" /></div>
-            <div class="cfg-row"><span class="cfg-label">Categoria</span>
-                <select class="cfg-select" id="em-tpl-category">
-                    <option value="general">Generale</option>
-                    <option value="order">Ordine</option>
-                    <option value="marketing">Marketing</option>
-                    <option value="support">Supporto</option>
-                </select>
-            </div>
-            <div class="cfg-row"><span class="cfg-label">Oggetto</span><input class="cfg-input" id="em-tpl-subject" placeholder="Es: Il tuo ordine #{order_id} è stato spedito" oninput="GH.emTplSchedulePreview()" /></div>
-            <div class="cfg-row em-row-stretch" style="flex:1">
-                <span class="cfg-label">HTML Body</span>
-                <textarea class="cfg-input em-textarea" id="em-tpl-body" style="min-height:250px" placeholder="<h1>Ciao {first_name}!</h1>&#10;&#10;<p>Il tuo ordine #{order_id} è stato spedito.</p>" oninput="GH.emTplSchedulePreview()"></textarea>
-            </div>
-
-            <!-- Placeholder Picker (collapsible) -->
-            <div class="em-tpl-box em-tpl-ph-box" id="em-tpl-ph-box">
-                <button type="button" class="em-tpl-box-head" onclick="GH.emTplTogglePlaceholders()" aria-expanded="false">
-                    <span class="em-tpl-caret" id="em-tpl-ph-caret">&#9656;</span>
-                    <span class="em-tpl-box-title">Placeholder disponibili</span>
-                    <span class="em-tpl-box-hint">clicca un tag per inserirlo nel body</span>
-                </button>
-                <div id="em-tpl-placeholders" class="em-tpl-ph-body" style="display:none"></div>
-            </div>
-
-            <!-- Send Section -->
-            <div class="em-tpl-box em-tpl-send-box">
-                <div class="em-tpl-box-title-strong">Invia con dati reali</div>
-
-                <!-- Step 1: Context -->
-                <div class="em-tpl-step">
-                    <div class="em-tpl-step-label">
-                        <span class="em-tpl-step-num">1</span>
-                        Dati contesto
-                        <span class="em-tpl-step-hint">popola i placeholder (es. <code>{order_id}</code>, <code>{first_name}</code>)</span>
-                    </div>
-                    <div id="em-tpl-ctx-chips" class="em-tpl-chips"></div>
-                    <div class="em-tpl-ctx-pickers">
-                        <div class="em-tpl-picker">
-                            <span class="em-tpl-picker-label">Ordine</span>
-                            <input class="cfg-input" id="em-tpl-ctx-order" type="text" placeholder="ID o email" onkeydown="if(event.key==='Enter'){event.preventDefault();GH.emTplSearchOrder();}" />
-                            <button class="btn btn-ghost em-tpl-picker-btn" onclick="GH.emTplSearchOrder()">Cerca</button>
-                        </div>
-                        <div class="em-tpl-picker">
-                            <span class="em-tpl-picker-label">Cliente</span>
-                            <input class="cfg-input" id="em-tpl-ctx-customer" type="text" placeholder="ID o email" onkeydown="if(event.key==='Enter'){event.preventDefault();GH.emTplSearchCustomer();}" />
-                            <button class="btn btn-ghost em-tpl-picker-btn" onclick="GH.emTplSearchCustomer()">Cerca</button>
-                        </div>
-                    </div>
-                    <div id="em-tpl-search-results" class="em-tpl-search-results"></div>
+        <div class="rpem-tpl-editor-body">
+            <div class="rpem-tpl-editor-left">
+                <div class="cfg-row"><span class="cfg-label">Nome</span>
+                    <input class="cfg-input" id="em-tpl-name" placeholder="Es: Weekend Coupon 2 prodotti" />
                 </div>
-
-                <!-- Step 2: Recipient -->
-                <div class="em-tpl-step">
-                    <div class="em-tpl-step-label">
-                        <span class="em-tpl-step-num">2</span>
-                        Destinatario
-                        <span class="em-tpl-step-hint">dove arriverà realmente l'email</span>
-                    </div>
-                    <div class="em-tpl-rmode" id="em-tpl-rmode-custom">
-                        <label class="em-tpl-rmode-head">
-                            <input type="radio" name="em-tpl-rmode" value="custom" checked onchange="GH.emTplSetRecipientMode('custom')" />
-                            <span class="em-tpl-rmode-title">Email di test</span>
-                            <span class="em-tpl-rmode-desc">invia a un indirizzo qualsiasi (i dati di contesto popolano comunque i placeholder)</span>
-                        </label>
-                        <input class="cfg-input em-tpl-rmode-input" id="em-tpl-send-to" type="email" placeholder="me@example.com" />
-                    </div>
-                    <div class="em-tpl-rmode em-tpl-rmode-disabled" id="em-tpl-rmode-customer">
-                        <label class="em-tpl-rmode-head">
-                            <input type="radio" name="em-tpl-rmode" value="customer" onchange="GH.emTplSetRecipientMode('customer')" disabled />
-                            <span class="em-tpl-rmode-title">Cliente reale</span>
-                            <span class="em-tpl-rmode-desc">invia direttamente al cliente associato a ordine/cliente selezionato</span>
-                        </label>
-                        <div class="em-tpl-rmode-resolved" id="em-tpl-rmode-resolved">seleziona prima un ordine o un cliente al punto 1</div>
-                    </div>
+                <div class="cfg-row"><span class="cfg-label">Descrizione</span>
+                    <input class="cfg-input" id="em-tpl-desc" placeholder="Use case / quando usarlo" />
                 </div>
-
-                <!-- Actions -->
-                <div class="em-tpl-actions">
-                    <button class="btn btn-warn em-tpl-send-btn" onclick="GH.emTplSend()">
-                        <span class="spin" id="em-tpl-send-spin" style="display:none"></span>
-                        <span id="em-tpl-send-label">Invia email</span>
-                    </button>
-                    <button class="btn btn-ghost" onclick="GH.emTplUseInCampaign()" title="Usa questo template come corpo campagna">Usa in campagna</button>
+                <div class="cfg-row em-row-stretch" style="flex:1">
+                    <span class="cfg-label">HTML</span>
+                    <textarea class="cfg-input rpem-code" id="em-tpl-html" spellcheck="false" placeholder="<!DOCTYPE html>&#10;<html>&#10;  <body>&#10;    <h1>Ciao {RECIPIENT_FIRST_NAME}</h1>&#10;    <p>{CAMPAIGN_HERO_SUBTITLE}</p>&#10;  </body>&#10;</html>" oninput="GH.emTplExtractPlaceholders()"></textarea>
                 </div>
             </div>
-          </div>
-
-          <!-- Live Preview (right pane) -->
-          <aside class="em-tpl-editor-preview" id="em-tpl-preview">
-            <div class="em-tpl-preview-head">
-                <span class="em-tpl-preview-title">Anteprima</span>
-                <span class="em-tpl-preview-state" id="em-tpl-preview-state">—</span>
-                <div class="em-tpl-preview-modes">
-                    <button type="button" class="em-tpl-preview-mode is-active" id="em-tpl-preview-mode-desktop" onclick="GH.emTplSetPreviewMode('desktop')" title="Desktop">&#9633;</button>
-                    <button type="button" class="em-tpl-preview-mode" id="em-tpl-preview-mode-mobile" onclick="GH.emTplSetPreviewMode('mobile')" title="Mobile">&#9744;</button>
+            <aside class="rpem-tpl-ph-panel">
+                <div class="rpem-tpl-ph-head">Placeholder estratti</div>
+                <div class="rpem-tpl-ph-body" id="em-tpl-ph-body">
+                    <div class="em-hint">Scrivi HTML con placeholder <code>{BRAND_*}</code>, <code>{CAMPAIGN_*}</code>, <code>{PRODUCT_N_*}</code>, <code>{RECIPIENT_*}</code>, <code>{META_*}</code>.</div>
                 </div>
-                <button type="button" class="em-tpl-preview-collapse" onclick="GH.emTplTogglePreview()" title="Nascondi anteprima" id="em-tpl-preview-collapse">&times;</button>
-            </div>
-            <div class="em-tpl-preview-subjectbar">
-                <span class="em-tpl-preview-subj-label">Oggetto</span>
-                <span class="em-tpl-preview-subj" id="em-tpl-preview-subject">—</span>
-            </div>
-            <div class="em-tpl-preview-frame-wrap" id="em-tpl-preview-frame-wrap">
-                <iframe id="em-tpl-preview-frame" class="em-tpl-preview-frame" sandbox="allow-same-origin" title="Anteprima email"></iframe>
-            </div>
-          </aside>
-
-          <button type="button" class="em-tpl-preview-show" id="em-tpl-preview-show" onclick="GH.emTplTogglePreview()" style="display:none" title="Mostra anteprima">&laquo;</button>
+            </aside>
         </div>
-    </div>
-</div>
-
-<!-- ═══ EMAIL — TEST ═══ -->
-<div class="panel" id="panel-email-test">
-    <div class="toolbar">
-        <span class="filter-label">Test Email</span>
-        <div class="filter-sep"></div>
-        <button class="btn btn-primary" id="btn-em-send-test" onclick="GH.emSendTest()"><span class="spin" id="em-test-spin" style="display:none"></span> Invia test</button>
-    </div>
-    <div class="em-form">
-        <div class="cfg-row"><span class="cfg-label">A</span><input class="cfg-input" id="em-test-to" type="email" placeholder="destinatario@example.com" /></div>
-        <div class="cfg-row"><span class="cfg-label">Oggetto</span><input class="cfg-input" id="em-test-subject" placeholder="(opzionale: usa template di default)" /></div>
-        <div class="cfg-row em-row-stretch"><span class="cfg-label">HTML</span><textarea class="cfg-input em-textarea" id="em-test-body" placeholder="(opzionale: usa template di default)"></textarea></div>
-        <div class="em-hint">Questo invia tramite <strong>wp_mail()</strong> instradato su WP Mail SMTP / AWS SES. Lascia vuoti oggetto e corpo per usare il template di default.</div>
     </div>
 </div>
 
 <!-- ═══ EMAIL — CAMPAIGNS ═══ -->
 <div class="panel" id="panel-email-campaigns">
-    <div class="toolbar">
-        <span class="filter-label">Campagne</span>
-        <div class="filter-sep"></div>
-        <button class="btn btn-primary" onclick="GH.emCampaignNew()">+ Nuova campagna</button>
-        <button class="btn btn-ghost" onclick="GH.emCampaignsLoad()"><span class="spin" id="em-camp-spin" style="display:none"></span> Aggiorna</button>
-    </div>
-    <!-- list view -->
-    <div class="em-camp-list" id="em-camp-list">
-        <div class="empty-state"><div class="empty-icon">&#9758;</div><div class="empty-text">Carica per visualizzare le campagne</div></div>
-    </div>
-    <!-- editor view (hidden by default) -->
-    <div class="em-camp-editor" id="em-camp-editor" style="display:none">
-        <div class="em-form">
-            <div class="cfg-row"><span class="cfg-label">Nome</span><input class="cfg-input" id="em-c-name" placeholder="Nome interno della campagna" /></div>
-            <div class="cfg-row"><span class="cfg-label">Oggetto</span><input class="cfg-input" id="em-c-subject" placeholder="Oggetto email" /></div>
-            <div class="cfg-row em-row-stretch"><span class="cfg-label">HTML</span><textarea class="cfg-input em-textarea" id="em-c-body" placeholder="Corpo HTML. Placeholder: {{first_name}}, {{email}}, {{site_name}}"></textarea></div>
-            <div class="cfg-row">
-                <span class="cfg-label">Sorgente</span>
-                <select class="cfg-select" id="em-c-source" onchange="GH.emToggleSource()">
-                    <option value="hustle">Hustle</option>
-                    <option value="csv">CSV raw</option>
-                    <option value="mixed">Mixed</option>
-                </select>
-                <span class="cfg-label">Rate</span>
-                <select class="cfg-select" id="em-c-rate">
-                    <option value="200000">Normale (~5/s)</option>
-                    <option value="50000">Veloce (~20/s)</option>
-                    <option value="1000000">Lento (1/s)</option>
-                </select>
-            </div>
-            <div class="cfg-row em-row-csv" id="em-c-csv-row" style="display:none">
-                <span class="cfg-label">CSV</span>
-                <textarea class="cfg-input em-textarea-sm" id="em-c-csv" placeholder="email,display_name&#10;john@x.com,John"></textarea>
-            </div>
-            <div class="cfg-row"><span class="cfg-label">Schedule</span><input class="cfg-input" id="em-c-sched" type="datetime-local" /><span class="em-hint-inline">(vuoto = invio immediato manuale)</span></div>
+    <!-- List view -->
+    <div id="em-camp-list-view">
+        <div class="toolbar">
+            <span class="filter-label">Campagne</span>
+            <div class="filter-sep"></div>
+            <button class="btn btn-primary" onclick="GH.emCampaignNew()">+ Nuova campagna</button>
+            <button class="btn btn-ghost" onclick="GH.emCampaignsLoad()"><span class="spin" id="em-camp-spin" style="display:none"></span> Ricarica</button>
         </div>
-        <div class="confirm-bar">
-            <span class="summary-text" id="em-c-status">Bozza</span>
-            <button class="btn btn-ghost" onclick="GH.emCampaignBackToList()">Annulla</button>
-            <button class="btn btn-ghost" onclick="GH.emCampaignSave()">Salva</button>
-            <button class="btn btn-ghost" onclick="GH.emCampaignSchedule()">Schedula</button>
-            <button class="btn btn-warn" onclick="GH.emCampaignSend()">Invia ora</button>
-            <button class="btn btn-danger" onclick="GH.emCampaignDelete()">Elimina</button>
+        <div class="rpem-camp-list" id="em-camp-list">
+            <div class="empty-state"><div class="empty-icon">&#9758;</div><div class="empty-text">Nessuna campagna. Crea la prima per iniziare.</div></div>
+        </div>
+    </div>
+
+    <!-- Wizard view -->
+    <div id="em-camp-wizard-view" class="rpem-wizard" style="display:none">
+        <div class="toolbar">
+            <button class="btn btn-ghost" onclick="GH.emCampaignBackToList()">&larr; Lista</button>
+            <div class="filter-sep"></div>
+            <span class="filter-label" id="em-camp-wizard-title">Nuova campagna</span>
+            <div style="flex:1"></div>
+            <button class="btn btn-ghost" id="em-camp-delete-btn" onclick="GH.emCampaignDelete()" style="color:var(--red);display:none">Elimina</button>
+            <button class="btn btn-ghost" onclick="GH.emCampaignValidate()"><span class="spin" id="em-camp-validate-spin" style="display:none"></span> Valida</button>
+            <button class="btn btn-primary" onclick="GH.emCampaignSave()"><span class="spin" id="em-camp-save-spin" style="display:none"></span> Salva</button>
+        </div>
+
+        <div class="rpem-wizard-body">
+            <div class="rpem-wizard-left">
+                <!-- Step 1 — template + name -->
+                <div class="rpem-step">
+                    <div class="rpem-step-head"><span class="rpem-step-num">1</span> Base</div>
+                    <div class="cfg-row"><span class="cfg-label">Nome campagna</span>
+                        <input class="cfg-input" id="em-camp-name" placeholder="Nome interno" />
+                    </div>
+                    <div class="cfg-row"><span class="cfg-label">Template</span>
+                        <select class="cfg-select" id="em-camp-template" onchange="GH.emCampaignOnTemplateChange()">
+                            <option value="">— seleziona —</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Step 2 — subject + preheader -->
+                <div class="rpem-step">
+                    <div class="rpem-step-head"><span class="rpem-step-num">2</span> Oggetto</div>
+                    <div class="cfg-row"><span class="cfg-label">Subject</span>
+                        <input class="cfg-input" id="em-camp-subject" placeholder="Oggetto email" maxlength="120" />
+                    </div>
+                    <div class="cfg-row"><span class="cfg-label">Preheader</span>
+                        <input class="cfg-input" id="em-camp-preheader" placeholder="Prima riga di preview nel client" maxlength="200" />
+                    </div>
+                </div>
+
+                <!-- Step 3 — payload CAMPAIGN_* -->
+                <div class="rpem-step">
+                    <div class="rpem-step-head"><span class="rpem-step-num">3</span> Payload campagna</div>
+                    <div id="em-camp-payload" class="rpem-payload-form">
+                        <div class="em-hint">Seleziona un template per vedere i campi da compilare.</div>
+                    </div>
+                </div>
+
+                <!-- Step 4 — product picker -->
+                <div class="rpem-step">
+                    <div class="rpem-step-head"><span class="rpem-step-num">4</span> Prodotti
+                        <span class="em-hint-inline">ordinati &rarr; PRODUCT_1_*, PRODUCT_2_*, ...</span>
+                    </div>
+                    <div class="rpem-product-slots" id="em-camp-products">
+                        <div class="em-hint">Nessun prodotto selezionato.</div>
+                    </div>
+                    <div class="rpem-product-search">
+                        <input class="cfg-input" id="em-camp-product-query" placeholder="Cerca per nome, SKU o ID" onkeydown="if(event.key==='Enter'){event.preventDefault();GH.emCampaignProductSearch();}" />
+                        <button class="btn btn-ghost" onclick="GH.emCampaignProductSearch()">Cerca</button>
+                    </div>
+                    <div class="rpem-product-results" id="em-camp-product-results"></div>
+                </div>
+
+                <!-- Step 5 — sorgente contatti -->
+                <div class="rpem-step">
+                    <div class="rpem-step-head"><span class="rpem-step-num">5</span> Destinatari</div>
+                    <div class="cfg-row">
+                        <span class="cfg-label">Sorgente</span>
+                        <select class="cfg-select" id="em-camp-source" onchange="GH.emCampaignOnSourceChange()">
+                            <option value="hustle">Hustle</option>
+                            <option value="csv">CSV raw</option>
+                            <option value="mixed">Mixed</option>
+                        </select>
+                        <span class="cfg-label">Rate</span>
+                        <select class="cfg-select" id="em-camp-rate">
+                            <option value="200000">Normale (~5/s)</option>
+                            <option value="50000">Veloce (~20/s)</option>
+                            <option value="1000000">Lento (1/s)</option>
+                        </select>
+                    </div>
+                    <div class="cfg-row em-row-stretch" id="em-camp-csv-row" style="display:none">
+                        <span class="cfg-label">CSV</span>
+                        <textarea class="cfg-input em-textarea-sm" id="em-camp-csv" placeholder="email,display_name&#10;john@x.com,John"></textarea>
+                    </div>
+                </div>
+
+                <!-- Step 6 — validate + send -->
+                <div class="rpem-step">
+                    <div class="rpem-step-head"><span class="rpem-step-num">6</span> Invio</div>
+                    <div id="em-camp-validation" class="rpem-validation"></div>
+                    <div class="cfg-row">
+                        <span class="cfg-label">Schedule</span>
+                        <input class="cfg-input" id="em-camp-scheduled" type="datetime-local" />
+                        <button class="btn btn-ghost" onclick="GH.emCampaignSchedule()">Schedula</button>
+                        <button class="btn btn-warn" onclick="GH.emCampaignSend()"><span class="spin" id="em-camp-send-spin" style="display:none"></span> Invia ora</button>
+                    </div>
+                    <div class="cfg-row">
+                        <span class="cfg-label">Test a</span>
+                        <input class="cfg-input" id="em-camp-test-to" type="email" placeholder="me@example.com" />
+                        <button class="btn btn-ghost" onclick="GH.emCampaignSendTest()">Invia test</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Preview iframe -->
+            <aside class="rpem-wizard-preview">
+                <div class="rpem-preview-head">
+                    <span>Anteprima</span>
+                    <span id="em-camp-preview-subject" class="rpem-preview-subject"></span>
+                    <div style="flex:1"></div>
+                    <button class="btn btn-ghost" onclick="GH.emCampaignPreview()"><span class="spin" id="em-camp-preview-spin" style="display:none"></span> Refresh</button>
+                </div>
+                <iframe id="em-camp-preview-frame" class="rpem-preview-frame" sandbox="allow-same-origin" title="Preview campagna"></iframe>
+            </aside>
         </div>
     </div>
 </div>
@@ -211,7 +204,7 @@
             <option value="csv">CSV upload</option>
         </select>
         <div class="filter-sep"></div>
-        <button class="btn btn-ghost" onclick="GH.emContactsLoad()"><span class="spin" id="em-ct-spin" style="display:none"></span> Aggiorna</button>
+        <button class="btn btn-ghost" onclick="GH.emContactsLoad()"><span class="spin" id="em-ct-spin" style="display:none"></span> Ricarica</button>
     </div>
     <div class="stats-bar" id="em-ct-stats" style="display:none">
         <div class="stat">Totale: <span class="blue" id="em-ct-total">0</span></div>
@@ -224,6 +217,33 @@
     </div>
     <div class="em-list" id="em-ct-list">
         <div class="empty-state"><div class="empty-icon">&#9786;</div><div class="empty-text">Seleziona una sorgente</div></div>
+    </div>
+</div>
+
+<!-- ═══ EMAIL — TEST (mailer smoke + seeder) ═══ -->
+<div class="panel" id="panel-email-test">
+    <div class="toolbar">
+        <span class="filter-label">Test mailer</span>
+        <div class="filter-sep"></div>
+        <button class="btn btn-primary" id="em-test-btn" onclick="GH.emSendTest()"><span class="spin" id="em-test-spin" style="display:none"></span> Invia test</button>
+    </div>
+    <div class="em-form">
+        <div class="cfg-row"><span class="cfg-label">A</span><input class="cfg-input" id="em-test-to" type="email" placeholder="destinatario@example.com" /></div>
+        <div class="cfg-row"><span class="cfg-label">Oggetto</span><input class="cfg-input" id="em-test-subject" placeholder="(opzionale)" /></div>
+        <div class="cfg-row em-row-stretch"><span class="cfg-label">HTML</span><textarea class="cfg-input em-textarea" id="em-test-body" placeholder="(opzionale: usa template di default)"></textarea></div>
+        <div class="em-hint">Invio diretto via <strong>wp_mail()</strong> &rarr; WP Mail SMTP &rarr; AWS SES. Nessun placeholder, nessun rendering.</div>
+    </div>
+
+    <div class="toolbar" style="margin-top:24px">
+        <span class="filter-label">Seed demo data</span>
+        <div class="filter-sep"></div>
+        <label class="em-hint-inline"><input type="checkbox" id="em-seed-reset-brand" /> Reset anche il brand ai defaults</label>
+        <button class="btn btn-ghost" onclick="GH.emSeedDemo()"><span class="spin" id="em-seed-spin" style="display:none"></span> Popola demo</button>
+    </div>
+    <div id="em-seed-result" class="rpem-seed-result"></div>
+    <div class="em-hint">
+        Crea (o aggiorna) un template &laquo;Demo Weekend Coupon&raquo; + una campagna &laquo;Weekend Coupon Demo&raquo; con 2 prodotti WooCommerce reali.
+        Idempotente.
     </div>
 </div>
 
@@ -244,7 +264,7 @@
         </select>
         <input class="search-input" id="em-h-search" placeholder="Cerca email, oggetto, campagna..." oninput="GH.emHistoryDebounce()" />
         <div class="filter-sep"></div>
-        <button class="btn btn-ghost" onclick="GH.emHistoryLoad()"><span class="spin" id="em-h-spin" style="display:none"></span> Aggiorna</button>
+        <button class="btn btn-ghost" onclick="GH.emHistoryLoad()"><span class="spin" id="em-h-spin" style="display:none"></span> Ricarica</button>
         <button class="btn btn-danger" onclick="GH.emHistoryClear()">Svuota log</button>
     </div>
     <div class="stats-bar" id="em-h-stats" style="display:none">

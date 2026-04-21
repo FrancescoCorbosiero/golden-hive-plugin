@@ -56,7 +56,27 @@
         if (!editing.product_ids) editing.product_ids = [];
         productCache = {};
         openWizard(editing.name || 'Campagna', true);
+        // Pre-popola la cache dei prodotti gia associati alla campagna,
+        // cosi lo step 4 mostra subito nome/SKU/prezzo/thumb invece di "(caricamento)".
+        if (editing.product_ids.length) hydrateProductCache(editing.product_ids);
     };
+
+    async function hydrateProductCache(ids) {
+        const r = await ajax('rp_em_ajax_product_resolve', { product_ids: JSON.stringify(ids) });
+        if (!r.success || !Array.isArray(r.data)) return;
+        for (const row of r.data) {
+            const rs = row.resolved || {};
+            const slot = row.slot;
+            productCache[row.product_id] = {
+                id:        row.product_id,
+                name:      rs['PRODUCT_' + slot + '_NAME']      || '(ID ' + row.product_id + ')',
+                sku:       rs['PRODUCT_' + slot + '_SKU']       || '',
+                price:     rs['PRODUCT_' + slot + '_PRICE']     || '',
+                image_url: rs['PRODUCT_' + slot + '_IMAGE_URL'] || '',
+            };
+        }
+        renderProductSlots();
+    }
 
     GH.emCampaignBackToList = function() { renderList(); };
 

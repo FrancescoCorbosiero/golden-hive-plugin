@@ -192,6 +192,7 @@
     }
 
     async function sfLoadCached() {
+        const ov = document.getElementById('sf-overlay'), ot = document.getElementById('sf-overlay-text');
         try {
             const r = await ajax('gh_ajax_fc_load_cached', { config_id: 'stockfirmati' });
             if (!r.success || !r.data || !r.data.products?.length) return;
@@ -199,9 +200,15 @@
             document.getElementById('sf-csv-rows').textContent = r.data.csv_rows || '?';
             const age = r.data.fetched_at || '';
             toast(r.data.products.length + ' prodotti (cache' + (age ? ' ' + age : '') + ')', 'inf', 3000);
+            // The preview (diff vs WooCommerce) can take several seconds on
+            // big catalogs — show the overlay so the table is never "empty
+            // while silently working" on tab-open.
+            ot.textContent = 'Confronto WooCommerce...';
+            ov.classList.add('visible');
             const dr = await ajax('gh_ajax_fc_preview', { products: JSON.stringify(sfProducts), config_id: 'stockfirmati', markup: 1 });
             if (dr.success) sfRenderPreview(dr.data);
         } catch (e) { /* silent — no cached data is fine */ }
+        finally { ov?.classList.remove('visible'); }
     }
 
     async function sfFetch() {

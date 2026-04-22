@@ -78,13 +78,32 @@
         renderProductSlots();
     }
 
-    GH.emCampaignBackToList = function() { renderList(); };
+    GH.emCampaignBackToList = function() {
+        GH.clearShortcuts();
+        GH.clearDirty();
+        GH.updateHash('email-campaigns');
+        renderList();
+    };
+
+    GH.emCampaignCopyJSON = function() {
+        if (!editing) { toast('Nessuna campagna aperta', 'err'); return; }
+        GH.copyJSON(editing, 'Campagna');
+    };
+
+    GH.registerDeepOpener('email-campaigns', (id) => {
+        if (id === 'new') return GH.emCampaignNew();
+        GH.emCampaignEdit(id);
+    });
 
     function openWizard(title, isExisting) {
         $('em-camp-list-view').style.display   = 'none';
         $('em-camp-wizard-view').style.display = 'flex';
         $('em-camp-wizard-title').textContent  = title;
         $('em-camp-delete-btn').style.display  = isExisting ? '' : 'none';
+        GH.wireDirtyInputs('em-camp-wizard-view');
+        GH.clearDirty();
+        GH.registerShortcuts({ close: () => GH.emCampaignBackToList(), save: () => GH.emCampaignSave() });
+        GH.updateHash('email-campaigns', editing && editing.id ? editing.id : 'new');
 
         // populate template select
         const sel = $('em-camp-template');
@@ -215,6 +234,8 @@
             editing = r.data || editing;
             $('em-camp-delete-btn').style.display = '';
             $('em-camp-wizard-title').textContent = editing.name || 'Campagna';
+            GH.clearDirty();
+            GH.updateHash('email-campaigns', editing.id);
             toast('Campagna salvata', 'ok');
         } finally { sp.style.display = 'none'; }
     };

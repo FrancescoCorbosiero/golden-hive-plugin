@@ -5,6 +5,7 @@
         <div class="filter-sep"></div>
         <button class="btn btn-primary" onclick="GH.emBrandSave()"><span class="spin" id="em-brand-save-spin" style="display:none"></span> Salva</button>
         <button class="btn btn-ghost" onclick="GH.emBrandLoad()">Ricarica</button>
+        <button class="btn btn-ghost" onclick="GH.emBrandCopyJSON()" title="Copia la config brand come JSON">Copia JSON</button>
         <button class="btn btn-danger" onclick="GH.emBrandReset()" title="Ripristina ai valori di default">Reset defaults</button>
     </div>
     <div class="rpem-brand-form" id="em-brand-form">
@@ -38,6 +39,7 @@
             <div class="filter-sep"></div>
             <span class="filter-label" id="em-tpl-editor-title">Nuovo template</span>
             <div style="flex:1"></div>
+            <button class="btn btn-ghost" onclick="GH.emTplCopyJSON()" title="Copia il template come JSON (debug / backup)">Copia JSON</button>
             <button class="btn btn-ghost" onclick="GH.emTplDownloadRaw()" title="Scarica HTML grezzo con placeholder">Scarica grezzo</button>
             <button class="btn btn-ghost" onclick="GH.emTplDownloadDemo()" title="Scarica HTML renderizzato con dati demo"><span class="spin" id="em-tpl-demo-spin" style="display:none"></span> Scarica demo</button>
             <button class="btn btn-ghost" id="em-tpl-delete-btn" onclick="GH.emTplDelete()" style="color:var(--red);display:none">Elimina</button>
@@ -88,6 +90,7 @@
             <div class="filter-sep"></div>
             <span class="filter-label" id="em-camp-wizard-title">Nuova campagna</span>
             <div style="flex:1"></div>
+            <button class="btn btn-ghost" onclick="GH.emCampaignCopyJSON()" title="Copia la campagna come JSON (debug / backup)">Copia JSON</button>
             <button class="btn btn-ghost" id="em-camp-delete-btn" onclick="GH.emCampaignDelete()" style="color:var(--red);display:none">Elimina</button>
             <button class="btn btn-ghost" onclick="GH.emCampaignValidate()"><span class="spin" id="em-camp-validate-spin" style="display:none"></span> Valida</button>
             <button class="btn btn-primary" onclick="GH.emCampaignSave()"><span class="spin" id="em-camp-save-spin" style="display:none"></span> Salva</button>

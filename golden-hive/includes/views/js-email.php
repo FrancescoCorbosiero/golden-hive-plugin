@@ -14,6 +14,13 @@
         brandSchema = r.data.schema || [];
         brandData   = r.data.brand || {};
         renderBrandForm();
+        GH.wireDirtyInputs('em-brand-form');
+        GH.clearDirty();
+        GH.registerShortcuts({ save: () => GH.emBrandSave() });
+    };
+
+    GH.emBrandCopyJSON = function() {
+        GH.copyJSON(brandData || {}, 'Brand');
     };
 
     function renderBrandForm() {
@@ -63,6 +70,7 @@
             const r = await ajax('rp_em_ajax_brand_save', { brand: JSON.stringify(data) });
             if (!r.success) { toast('Errore: ' + r.data, 'err'); return; }
             brandData = r.data.brand || {};
+            GH.clearDirty();
             toast('Brand salvato', 'ok');
         } finally { sp.style.display = 'none'; }
     };
@@ -115,6 +123,10 @@
         $('em-tpl-list-view').style.display = 'none';
         $('em-tpl-editor-view').style.display = 'flex';
         GH.emTplExtractPlaceholders();
+        GH.wireDirtyInputs('em-tpl-editor-view');
+        GH.clearDirty();
+        GH.registerShortcuts({ close: () => GH.emTplBackToList(), save: () => GH.emTplSave() });
+        GH.updateHash('email-templates', 'new');
     };
 
     GH.emTplEdit = async function(id) {
@@ -129,9 +141,29 @@
         $('em-tpl-list-view').style.display = 'none';
         $('em-tpl-editor-view').style.display = 'flex';
         GH.emTplExtractPlaceholders();
+        GH.wireDirtyInputs('em-tpl-editor-view');
+        GH.clearDirty();
+        GH.registerShortcuts({ close: () => GH.emTplBackToList(), save: () => GH.emTplSave() });
+        GH.updateHash('email-templates', id);
     };
 
-    GH.emTplBackToList = function() { renderTplList(); };
+    GH.emTplBackToList = function() {
+        GH.clearShortcuts();
+        GH.clearDirty();
+        GH.updateHash('email-templates');
+        renderTplList();
+    };
+
+    GH.emTplCopyJSON = function() {
+        if (!editingTpl) { toast('Salva prima', 'err'); return; }
+        GH.copyJSON(editingTpl, 'Template');
+    };
+
+    // Deep-link opener: apri l'editor se l'URL e #/email-templates/<id>
+    GH.registerDeepOpener('email-templates', (id) => {
+        if (id === 'new') return GH.emTplNew();
+        GH.emTplEdit(id);
+    });
 
     GH.emTplSave = async function() {
         const sp = $('em-tpl-save-spin'); sp.style.display = '';
@@ -148,6 +180,8 @@
             editingTpl = r.data;
             $('em-tpl-editor-title').textContent = editingTpl.name;
             $('em-tpl-delete-btn').style.display = '';
+            GH.clearDirty();
+            GH.updateHash('email-templates', editingTpl.id);
             toast('Template salvato', 'ok');
         } finally { sp.style.display = 'none'; }
     };

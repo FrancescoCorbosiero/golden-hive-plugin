@@ -11,9 +11,51 @@ const GH = (function() {
     }
     function toast(msg,type='ok',ms=3000) {
         const t=document.createElement('div'); t.className='toast '+type; t.textContent=msg;
+        // Errori persistenti con bottone di dismiss se ms<=0.
+        if (ms<=0) {
+            t.classList.add('toast-sticky');
+            const x=document.createElement('button'); x.className='toast-x'; x.textContent='×';
+            x.onclick=()=>t.remove(); t.appendChild(x);
+            document.getElementById('gh-toasts').appendChild(t); return t;
+        }
         document.getElementById('gh-toasts').appendChild(t); setTimeout(()=>t.remove(),ms);
+        return t;
     }
     function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+
+    // ajaxWithToast: wrapper che collassa ~100 pattern "if !r.success toast err".
+    // opts: { okMsg?: string, errPrefix?: string, stickyErr?: bool }
+    // Ritorna il response originale {success, data}.
+    async function ajaxWithToast(action, body={}, opts={}) {
+        const { okMsg='', errPrefix='Errore', stickyErr=false } = opts;
+        try {
+            const r = await ajax(action, body);
+            if (!r || !r.success) {
+                const msg = errPrefix + (r && r.data ? ': ' + r.data : '');
+                toast(msg, 'err', stickyErr ? 0 : 3000);
+                return r || { success:false, data:'no response' };
+            }
+            if (okMsg) toast(okMsg, 'ok');
+            return r;
+        } catch (e) {
+            toast(errPrefix + ': ' + (e.message || 'network'), 'err', stickyErr ? 0 : 3000);
+            return { success:false, data:e.message || 'network' };
+        }
+    }
+
+    // emptyState: genera markup standard per liste vuote. Icona letterale
+    // (HTML entity), testo escapato.
+    function emptyState(icon, text, extraClass='') {
+        const cls = ('empty-state ' + (extraClass||'')).trim();
+        return '<div class="'+esc(cls)+'"><div class="empty-icon">'+(icon||'&#9898;')+'</div><div class="empty-text">'+esc(text||'')+'</div></div>';
+    }
+
+    // statusChip: <span class="gh-status gh-status--{variant}">{label}</span>
+    function statusChip(label, variant='dim') {
+        const allowed = ['ok','err','warn','info','dim'];
+        const v = allowed.indexOf(variant) >= 0 ? variant : 'dim';
+        return '<span class="gh-status gh-status--'+v+'">'+esc(label||'')+'</span>';
+    }
 
     let _wakeLock = null;
     async function acquireWakeLock() {

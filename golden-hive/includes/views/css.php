@@ -2,7 +2,7 @@
 #gh{all:initial}#gh *,#gh *::before,#gh *::after{box-sizing:border-box;margin:0;padding:0;font-family:'DM Sans',system-ui,sans-serif}
 /* Root: calc the exact remaining space after WP admin bar (32px desktop, 46px mobile).
    Negative margins cancel the padding WP Admin wraps around .wrap / #wpbody-content. */
-#gh{--bg:#0c0d10;--s1:#111317;--s2:#16181d;--s3:#1c1f26;--b1:#232630;--b2:#2e3240;--acc:#3d7fff;--grn:#22c78b;--red:#e85d5d;--amb:#e8a824;--pur:#9b72f5;--txt:#d8dce8;--dim:#5f6480;--mut:#2a2d3a;--mono:'JetBrains Mono','Courier New',monospace;--sans:'DM Sans',system-ui,sans-serif;display:flex;flex-direction:column;height:calc(100vh - 32px);background:var(--bg);color:var(--txt);font-size:13px;margin:-10px -20px -20px -20px;overflow:hidden;box-sizing:border-box}
+#gh{--bg:#0c0d10;--s1:#111317;--s2:#16181d;--s3:#1c1f26;--b1:#232630;--b2:#2e3240;--acc:#3d7fff;--grn:#22c78b;--red:#e85d5d;--amb:#e8a824;--pur:#9b72f5;--txt:#d8dce8;--dim:#5f6480;--mut:#2a2d3a;--acc-10:rgba(61,127,255,.1);--acc-15:rgba(61,127,255,.15);--acc-30:rgba(61,127,255,.3);--grn-10:rgba(34,199,139,.1);--grn-15:rgba(34,199,139,.15);--grn-30:rgba(34,199,139,.3);--red-10:rgba(232,93,93,.1);--red-15:rgba(232,93,93,.15);--red-30:rgba(232,93,93,.3);--amb-15:rgba(232,168,36,.15);--amb-30:rgba(232,168,36,.3);--pur-15:rgba(155,114,245,.15);--pur-30:rgba(155,114,245,.3);--mono:'JetBrains Mono','Courier New',monospace;--sans:'DM Sans',system-ui,sans-serif;display:flex;flex-direction:column;height:calc(100vh - 32px);background:var(--bg);color:var(--txt);font-size:13px;margin:-10px -20px -20px -20px;overflow:hidden;box-sizing:border-box}
 #gh *,#gh *::before,#gh *::after{box-sizing:inherit}
 @media screen and (max-width:782px){#gh{height:calc(100vh - 46px)}}
 
@@ -780,6 +780,32 @@
 #gh .rpem-h-sent .rpem-h-status{color:var(--grn)}
 #gh .rpem-h-failed .rpem-h-status{color:var(--red)}
 #gh .rpem-h-type,#gh .rpem-h-date,#gh .rpem-ct-src{color:var(--dim)}
+
+/* ═══ UNIFIED COMPONENTS ══════════════════════════════════════════════════
+   Base classes per nuovi componenti (card, status chip). Le classi legacy
+   (.rpem-tpl-card, .gh-job-card, .em-st-*) possono migrare progressivamente. */
+
+/* Card base — sostituisce .rpem-tpl-card / .rpem-camp-card / .rpem-trx-card /
+   .gh-job-card che duplicavano tutti la stessa struttura. */
+#gh .gh-card{background:var(--s2);border:1px solid var(--b1);border-radius:6px;padding:12px;transition:border-color .15s,transform .15s}
+#gh .gh-card:hover{border-color:var(--b2)}
+#gh .gh-card--clickable{cursor:pointer}
+#gh .gh-card--clickable:hover{border-color:var(--acc)}
+#gh .gh-card--compact{padding:8px 10px;border-radius:4px}
+
+/* Status chip — sostituisce .em-st-* / .st-* / .gh-job-chip-*. 5 varianti. */
+#gh .gh-status{display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;padding:2px 7px;border-radius:3px;border:1px solid transparent;white-space:nowrap}
+#gh .gh-status--ok{background:var(--grn-15);color:var(--grn);border-color:var(--grn-30)}
+#gh .gh-status--err{background:var(--red-15);color:var(--red);border-color:var(--red-30)}
+#gh .gh-status--warn{background:var(--amb-15);color:var(--amb);border-color:var(--amb-30)}
+#gh .gh-status--info{background:var(--acc-15);color:var(--acc);border-color:var(--acc-30)}
+#gh .gh-status--dim{background:var(--s3);color:var(--dim);border-color:var(--b1)}
+
+/* Toast sticky — errore persistente con bottone di dismiss. Usato da
+   GH.toast(msg, 'err', 0) per messaggi di lunga durata (import falliti ecc). */
+#gh .toast.toast-sticky{padding-right:36px;position:relative;animation:none;border-width:1px}
+#gh .toast-x{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:transparent;border:0;color:inherit;font-size:18px;line-height:1;cursor:pointer;padding:2px 6px;opacity:.7}
+#gh .toast-x:hover{opacity:1}
 
 @media(max-width:768px){
     /* ── Sidebar tabs: shrink to icon-only ─────────────────────────── */

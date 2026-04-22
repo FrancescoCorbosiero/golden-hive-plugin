@@ -781,5 +781,69 @@
 #gh .rpem-h-failed .rpem-h-status{color:var(--red)}
 #gh .rpem-h-type,#gh .rpem-h-date,#gh .rpem-ct-src{color:var(--dim)}
 
-@media(max-width:768px){#gh .tabs-col{width:48px}#gh .tab-label,#gh .tab-section{display:none}#gh .tab-item{justify-content:center;padding:10px 8px}#gh .summary-grid{grid-template-columns:repeat(2,1fr)}#gh .tax-detail{display:none!important}#gh .mp-mapper-layout{flex-direction:column}#gh .mp-col-source,#gh .mp-col-target{width:100%;max-height:150px;border-right:none;border-bottom:1px solid var(--b1)}#gh .mp-col-target{border-left:none;border-top:1px solid var(--b1);border-bottom:none}#gh .em-row{grid-template-columns:1fr 70px;gap:6px}#gh .em-row .em-time,#gh .em-row .em-type{display:none}#gh .em-hint{padding-left:0}#gh .rpem-tpl-ph-panel,#gh .rpem-wizard-preview{display:none}}
+@media(max-width:768px){
+    /* ── Sidebar tabs: shrink to icon-only ─────────────────────────── */
+    #gh .tabs-col{width:48px}
+    #gh .tab-label,#gh .tab-section{display:none}
+    #gh .tab-item{justify-content:center;padding:10px 8px}
+
+    /* ── Toolbars: compact padding, always wrap ───────────────────── */
+    #gh .toolbar{padding:8px 12px;gap:8px}
+    #gh .filter-sep{display:none}
+
+    /* ── cfg-row: stack label above input, full width ─────────────── */
+    /* Usato in: brand form, templates, campaigns, transactional,
+       test email, mapper rules. Su mobile tiene tutto in colonna. */
+    #gh .cfg-row{flex-direction:column;align-items:stretch;gap:6px}
+    #gh .cfg-row .cfg-label{min-width:0;padding:0}
+    #gh .cfg-row .cfg-input,#gh .cfg-row .cfg-select{width:100%}
+    /* Eccezione: se il cfg-row contiene un datetime-local o input piccolo
+       accoppiato a un pulsante, lasciamo wrappare senza forzare column */
+    #gh .rpem-product-search{flex-wrap:wrap}
+
+    /* ── Transazionali: head in colonna ───────────────────────────── */
+    #gh .rpem-trx-head{flex-direction:column;align-items:stretch;gap:8px}
+    #gh .rpem-trx-toggle{align-self:flex-start}
+
+    /* ── Brand form: stack code key sotto l'input ─────────────────── */
+    #gh .rpem-brand-key{margin-left:0;margin-top:4px;align-self:flex-start}
+
+    /* ── Template editor: stack HTML sopra e placeholder panel
+          sotto. La regola legacy nascondeva il panel; lo manteniamo
+          visibile ma inline, cosi l'utente vede cosa sta usando. */
+    #gh .rpem-tpl-editor-body{flex-direction:column}
+    #gh .rpem-tpl-ph-panel{display:block;width:100%;flex:0 0 auto;max-height:40vh;border-left:none;border-top:1px solid var(--b1)}
+    #gh .rpem-tpl-editor-left{padding:10px 12px}
+    #gh .rpem-code{min-height:180px}
+
+    /* ── Campaign wizard: nasconde preview (gia fatto) + stack body ── */
+    #gh .rpem-wizard-body{flex-direction:column}
+    #gh .rpem-wizard-left{flex:0 0 auto;padding:10px 12px}
+    #gh .rpem-wizard-preview{display:none}
+
+    /* ── Mapper: column layout ────────────────────────────────────── */
+    #gh .mp-mapper-layout{flex-direction:column}
+    #gh .mp-col-source,#gh .mp-col-target{width:100%;max-height:150px;border-right:none;border-bottom:1px solid var(--b1)}
+    #gh .mp-col-target{border-left:none;border-top:1px solid var(--b1);border-bottom:none}
+
+    /* ── Inline Editor / altre tab con summary-grid ───────────────── */
+    #gh .summary-grid{grid-template-columns:repeat(2,1fr)}
+    #gh .tax-detail{display:none!important}
+
+    /* ── Email history / contacts row compacted ───────────────────── */
+    #gh .em-row{grid-template-columns:1fr 70px;gap:6px}
+    #gh .em-row .em-time,#gh .em-row .em-type{display:none}
+    #gh .em-hint{padding-left:0}
+
+    /* ── em-list e rpem-h-row: consenti wrap invece di forzare tutto
+          su una sola riga (molti pannelli lo usavano: history, contacts). */
+    #gh .rpem-h-row,#gh .rpem-ct-row{flex-wrap:wrap;gap:6px}
+    #gh .em-list{overflow-x:auto}
+
+    /* ── Test email unresolved box: spezza word-break ──────────────── */
+    #gh #em-test-unresolved{word-break:break-all}
+
+    /* ── Stats bars: wrap invece di scorrere off-screen ───────────── */
+    #gh .stats-bar{flex-wrap:wrap}
+}
 </style>

@@ -195,6 +195,52 @@
     </div>
 </div>
 
+<!-- ═══ EMAIL — TRANSAZIONALI ═══ -->
+<div class="panel" id="panel-email-transactional">
+    <div class="toolbar">
+        <span class="filter-label">Email transazionali</span>
+        <div class="filter-sep"></div>
+        <button class="btn btn-ghost" onclick="GH.emTrxLoad()"><span class="spin" id="em-trx-spin" style="display:none"></span> Ricarica</button>
+    </div>
+    <div class="em-hint" style="padding:8px 16px">
+        Le email transazionali scattano in risposta a eventi ordine WooCommerce.
+        Per ciascun evento abilitato, il template selezionato viene renderizzato
+        con i placeholder <code>{ORDER_*}</code> risolti dall'ordine reale e
+        inviato all'email del cliente. Non richiedono contatti: 1 evento = 1 email.
+    </div>
+    <div class="em-hint" style="padding:4px 16px 16px 16px;background:#fff4e5;border-left:3px solid #c68500;color:#6b4a00;margin:8px 16px;">
+        <strong>Come funziona l'evento <code>order_shipped</code>:</strong>
+        apri un ordine in WooCommerce &rarr; nella sidebar trovi il box
+        <em>Spedizione &amp; Notifica</em>. Compila corriere, codice e URL di
+        tracking, poi clicca <em>Salva &amp; invia notifica</em>.
+    </div>
+    <div class="rpem-trx-list" id="em-trx-list">
+        <div class="empty-state"><div class="empty-icon">&#9993;</div><div class="empty-text">Caricamento...</div></div>
+    </div>
+
+    <!-- Test fire — invia un evento transazionale su un ordine reale per QA -->
+    <div class="toolbar" style="margin-top:24px">
+        <span class="filter-label">Test transazionale</span>
+        <div class="filter-sep"></div>
+    </div>
+    <div class="em-form">
+        <div class="cfg-row">
+            <span class="cfg-label">Evento</span>
+            <select class="cfg-select" id="em-trx-test-event">
+                <option value="">&mdash; seleziona &mdash;</option>
+            </select>
+            <span class="cfg-label">Order ID</span>
+            <input class="cfg-input" type="number" id="em-trx-test-order" placeholder="Es: 12345" min="1" />
+            <button class="btn btn-warn" onclick="GH.emTrxTestFire()"><span class="spin" id="em-trx-test-spin" style="display:none"></span> Rendi &amp; invia</button>
+        </div>
+        <div class="em-hint">
+            Renderizza l'evento selezionato per l'ordine reale indicato e invia
+            l'email alla stessa email del cliente dell'ordine. Usa per QA prima
+            di attivare un binding in produzione.
+        </div>
+    </div>
+</div>
+
 <!-- ═══ EMAIL — CONTACTS ═══ -->
 <div class="panel" id="panel-email-contacts">
     <div class="toolbar">

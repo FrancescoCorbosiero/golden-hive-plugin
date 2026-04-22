@@ -174,7 +174,7 @@
     function renderTplPlaceholders(grouped) {
         const c = $('em-tpl-ph-body');
         if (!c) return;
-        const order = ['BRAND', 'CAMPAIGN', 'PRODUCT', 'RECIPIENT', 'META', 'UNKNOWN'];
+        const order = ['BRAND', 'CAMPAIGN', 'PRODUCT', 'ORDER', 'RECIPIENT', 'META', 'UNKNOWN'];
         const hasAny = order.some(ns => (grouped[ns] || []).length > 0);
         if (!hasAny) { c.innerHTML = '<div class="em-hint">Nessun placeholder trovato.</div>'; return; }
         let h = '';

@@ -711,9 +711,19 @@
 #gh .rpem-ns-campaign .rpem-ph-head{color:var(--acc)}
 #gh .rpem-ns-product .rpem-ph-head{color:var(--grn)}
 #gh .rpem-ns-recipient .rpem-ph-head{color:var(--amb)}
+#gh .rpem-ns-order .rpem-ph-head{color:var(--amb)}
 #gh .rpem-ns-meta .rpem-ph-head{color:var(--dim)}
 #gh .rpem-ns-unknown .rpem-ph-head{color:var(--red)}
 #gh .rpem-ns-unknown code{border:1px solid var(--red)}
+#gh .rpem-trx-list{padding:12px;display:flex;flex-direction:column;gap:12px;overflow-y:auto}
+#gh .rpem-trx-card{background:var(--s2);border:1px solid var(--b1);border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:10px}
+#gh .rpem-trx-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+#gh .rpem-trx-title{font-family:var(--sans);font-size:14px;font-weight:600;color:var(--txt)}
+#gh .rpem-trx-desc{font-family:var(--sans);font-size:12px;color:var(--dim);margin-top:4px}
+#gh .rpem-trx-hook{font-family:var(--mono);font-size:10px;color:var(--dim);margin-top:4px}
+#gh .rpem-trx-hook code{background:var(--s3);padding:1px 5px;border-radius:3px;color:var(--txt)}
+#gh .rpem-trx-toggle{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--dim);cursor:pointer;white-space:nowrap}
+#gh .rpem-trx-toggle input{margin:0}
 #gh .rpem-camp-list{padding:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;overflow-y:auto}
 #gh .rpem-camp-card{background:var(--s2);border:1px solid var(--b1);border-radius:6px;padding:12px;cursor:pointer;transition:border-color .15s}
 #gh .rpem-camp-card:hover{border-color:var(--acc)}

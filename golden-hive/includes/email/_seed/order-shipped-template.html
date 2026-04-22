@@ -1,0 +1,377 @@
+<!-- ============================================================
+     Order Shipped · Tracking / Spedizione
+     EMAIL-SAFE HTML · Max 600px · Inline CSS only
+
+     Placeholders:
+       BRAND_*      → tab Brand (global)
+       ORDER_*      → risolti dall'ordine WooCommerce bindato all'evento
+       META_YEAR    → auto
+     ============================================================ -->
+
+<!-- PREHEADER -->
+<div
+    style="display:none;font-size:1px;color:#ffffff;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">
+    Il tuo pacco e in viaggio &mdash; traccia la spedizione in tempo reale.
+</div>
+
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#0d0d0d;margin:0;padding:0;">
+    <tr>
+        <td align="center" style="padding:40px 20px 48px 20px;">
+
+            <!-- OUTER WRAPPER -->
+            <table width="600" cellpadding="0" cellspacing="0" border="0"
+                style="max-width:600px;width:100%;background-color:#ffffff;">
+
+                <!-- TOP ACCENT BAR -->
+                <tr>
+                    <td style="background-color:{BRAND_COLOR_PRIMARY};height:4px;font-size:0;line-height:0;">&nbsp;</td>
+                </tr>
+
+                <!-- LOGO -->
+                <tr>
+                    <td align="center" style="background-color:#0a0a0a;padding:32px 40px 28px 40px;">
+                        <a href="{BRAND_WEBSITE_URL}" target="_blank" style="text-decoration:none;">
+                            <img src="{BRAND_LOGO_URL}" alt="{BRAND_LOGO_ALT}" width="200"
+                                style="display:block;margin:0 auto;max-width:200px;width:100%;height:auto;border:0;" />
+                        </a>
+                        <p style="margin:14px 0 0 0;
+                           font-family:Georgia,'Times New Roman',serif;
+                           font-size:10px;
+                           color:#555555;
+                           letter-spacing:0.35em;
+                           text-transform:uppercase;">
+                            {BRAND_TAGLINE}
+                        </p>
+                    </td>
+                </tr>
+
+                <!-- HERO BAND — verde spedizione -->
+                <tr>
+                    <td align="center" style="background-color:#1a3a2a;
+                         padding:44px 40px 40px 40px;
+                         border-top:1px solid #254d39;">
+                        <p style="margin:0 0 10px 0;
+                           font-family:Georgia,'Times New Roman',serif;
+                           font-size:10px;
+                           color:#7ec8a0;
+                           letter-spacing:0.45em;
+                           text-transform:uppercase;">
+                            Il tuo ordine &egrave; partito
+                        </p>
+                        <h1 style="margin:0 0 14px 0;
+                            font-family:Georgia,'Times New Roman',serif;
+                            font-size:36px;
+                            font-weight:400;
+                            color:#ffffff;
+                            letter-spacing:-0.02em;
+                            line-height:1.2;">
+                            Il pacco &egrave;<br>
+                            <em style="font-style:italic;color:#a8dfc0;">in viaggio.</em>
+                        </h1>
+                        <p style="margin:0;
+                           font-family:Georgia,'Times New Roman',serif;
+                           font-size:14px;
+                           color:#7ec8a0;
+                           line-height:1.7;">
+                            Ciao {ORDER_CUSTOMER_FIRST_NAME}, il tuo ordine {BRAND_NAME}<br>&egrave; stato affidato al corriere ed &egrave; in consegna.
+                        </p>
+                    </td>
+                </tr>
+
+                <!-- STATUS STEPS -->
+                <tr>
+                    <td style="background-color:#f5faf7;padding:36px 48px 32px 48px;border-bottom:1px solid #e0ede6;">
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+
+                                <!-- Step 1: Ordine ricevuto -->
+                                <td align="center" width="25%" style="padding:0 4px;">
+                                    <div
+                                        style="width:36px;height:36px;background-color:#1a3a2a;border-radius:50%;margin:0 auto 8px auto;line-height:36px;text-align:center;">
+                                        <span
+                                            style="font-family:Georgia,'Times New Roman',serif;font-size:14px;color:#ffffff;">&#10003;</span>
+                                    </div>
+                                    <p
+                                        style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:9px;font-weight:700;color:#1a3a2a;letter-spacing:0.1em;text-transform:uppercase;text-align:center;">
+                                        Ordine<br>ricevuto</p>
+                                </td>
+
+                                <!-- Connector -->
+                                <td width="8%" style="padding-bottom:20px;">
+                                    <div style="height:2px;background-color:#1a3a2a;margin:0;"></div>
+                                </td>
+
+                                <!-- Step 2: Verificato -->
+                                <td align="center" width="25%" style="padding:0 4px;">
+                                    <div
+                                        style="width:36px;height:36px;background-color:#1a3a2a;border-radius:50%;margin:0 auto 8px auto;line-height:36px;text-align:center;">
+                                        <span
+                                            style="font-family:Georgia,'Times New Roman',serif;font-size:14px;color:#ffffff;">&#10003;</span>
+                                    </div>
+                                    <p
+                                        style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:9px;font-weight:700;color:#1a3a2a;letter-spacing:0.1em;text-transform:uppercase;text-align:center;">
+                                        Auth<br>verificata</p>
+                                </td>
+
+                                <!-- Connector -->
+                                <td width="8%" style="padding-bottom:20px;">
+                                    <div style="height:2px;background-color:#1a3a2a;margin:0;"></div>
+                                </td>
+
+                                <!-- Step 3: In consegna (ATTIVO) -->
+                                <td align="center" width="25%" style="padding:0 4px;">
+                                    <div
+                                        style="width:36px;height:36px;background-color:{BRAND_COLOR_PRIMARY};border-radius:50%;margin:0 auto 8px auto;line-height:36px;text-align:center;border:2px solid {BRAND_COLOR_PRIMARY};">
+                                        <span
+                                            style="font-family:Georgia,'Times New Roman',serif;font-size:16px;color:#ffffff;">&#9654;</span>
+                                    </div>
+                                    <p
+                                        style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:9px;font-weight:700;color:{BRAND_COLOR_PRIMARY};letter-spacing:0.1em;text-transform:uppercase;text-align:center;">
+                                        In<br>consegna</p>
+                                </td>
+
+                                <!-- Connector (grigio) -->
+                                <td width="8%" style="padding-bottom:20px;">
+                                    <div style="height:2px;background-color:#dddddd;margin:0;"></div>
+                                </td>
+
+                                <!-- Step 4: Consegnato -->
+                                <td align="center" width="25%" style="padding:0 4px;">
+                                    <div
+                                        style="width:36px;height:36px;background-color:#eeeeee;border-radius:50%;margin:0 auto 8px auto;line-height:36px;text-align:center;">
+                                        <span
+                                            style="font-family:Georgia,'Times New Roman',serif;font-size:14px;color:#aaaaaa;">&#10003;</span>
+                                    </div>
+                                    <p
+                                        style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:9px;color:#aaaaaa;letter-spacing:0.1em;text-transform:uppercase;text-align:center;">
+                                        Consegnato</p>
+                                </td>
+
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <!-- RIEPILOGO ORDINE -->
+                <tr>
+                    <td style="background-color:#ffffff;padding:36px 48px 32px 48px;">
+
+                        <p style="margin:0 0 20px 0;
+                           font-family:Georgia,'Times New Roman',serif;
+                           font-size:11px;
+                           color:#aaaaaa;
+                           letter-spacing:0.3em;
+                           text-transform:uppercase;
+                           text-align:center;">
+                            Riepilogo spedizione &middot; Ordine {ORDER_NUMBER}
+                        </p>
+
+                        <!-- Info table -->
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0"
+                            style="border:1px solid #eeeeee;">
+
+                            <tr>
+                                <td style="padding:14px 20px;border-bottom:1px solid #f5f5f5;background-color:#fafafa;">
+                                    <p
+                                        style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:10px;color:#aaaaaa;letter-spacing:0.15em;text-transform:uppercase;">
+                                        Prodotto</p>
+                                </td>
+                                <td style="padding:14px 20px;border-bottom:1px solid #f5f5f5;background-color:#fafafa;"
+                                    align="right">
+                                    <p
+                                        style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:13px;color:#1a1a1a;">
+                                        {ORDER_ITEM_1_NAME} &nbsp;&middot;&nbsp; {ORDER_ITEM_1_SIZE}</p>
+                                </td>
+                            </tr>
+
+                            <tr>
+                                <td style="padding:14px 20px;border-bottom:1px solid #f5f5f5;">
+                                    <p
+                                        style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:10px;color:#aaaaaa;letter-spacing:0.15em;text-transform:uppercase;">
+                                        Corriere</p>
+                                </td>
+                                <td style="padding:14px 20px;border-bottom:1px solid #f5f5f5;" align="right">
+                                    <p
+                                        style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:13px;color:#1a1a1a;">
+                                        {ORDER_CARRIER}</p>
+                                </td>
+                            </tr>
+
+                            <tr>
+                                <td style="padding:14px 20px;">
+                                    <p
+                                        style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:10px;color:#aaaaaa;letter-spacing:0.15em;text-transform:uppercase;">
+                                        Codice tracking</p>
+                                </td>
+                                <td style="padding:14px 20px;" align="right">
+                                    <p
+                                        style="margin:0;font-family:'Courier New',Courier,monospace;font-size:13px;font-weight:700;color:{BRAND_COLOR_PRIMARY};letter-spacing:0.08em;">
+                                        {ORDER_TRACKING_CODE}</p>
+                                </td>
+                            </tr>
+
+                        </table>
+
+                    </td>
+                </tr>
+
+                <!-- CTA TRACKING -->
+                <tr>
+                    <td align="center" style="background-color:#ffffff;padding:4px 48px 48px 48px;">
+
+                        <table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
+                            <tr>
+                                <td align="center" style="background-color:#1a3a2a;">
+                                    <a href="{ORDER_TRACKING_URL}" style="display:inline-block;
+                                               font-family:Georgia,'Times New Roman',serif;
+                                               font-size:12px;
+                                               font-weight:700;
+                                               color:#ffffff;
+                                               text-decoration:none;
+                                               letter-spacing:0.25em;
+                                               text-transform:uppercase;
+                                               padding:18px 52px;">
+                                        Traccia il pacco &nbsp;&rarr;
+                                    </a>
+                                </td>
+                            </tr>
+                        </table>
+
+                        <p style="margin:16px 0 0 0;
+                           font-family:Georgia,'Times New Roman',serif;
+                           font-size:11px;
+                           color:#cccccc;
+                           letter-spacing:0.1em;
+                           text-align:center;">
+                            Il link ti porta direttamente alla pagina di tracking {ORDER_CARRIER}
+                        </p>
+
+                    </td>
+                </tr>
+
+                <!-- DIVIDER -->
+                <tr>
+                    <td style="padding:0 40px;">
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                                <td style="border-top:1px solid #eeeeee;font-size:0;line-height:0;">&nbsp;</td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <!-- NOTA AUTENTICITA' -->
+                <tr>
+                    <td align="center" style="background-color:#ffffff;padding:36px 56px 36px 56px;">
+                        <p style="margin:0;
+                           font-family:Georgia,'Times New Roman',serif;
+                           font-size:14px;
+                           color:#444444;
+                           line-height:1.8;
+                           text-align:center;">
+                            Il tuo prodotto &egrave; stato <strong style="color:#1a3a2a;">verificato e autenticato</strong><br>
+                            prima della spedizione. Niente repliche.<br>Niente compromessi.
+                        </p>
+                    </td>
+                </tr>
+
+                <!-- 3-PILLAR -->
+                <tr>
+                    <td style="background-color:#0a0a0a;padding:28px 40px;">
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                                <td align="center" width="33%" style="padding:0 8px;border-right:1px solid #2a2a2a;">
+                                    <p
+                                        style="margin:0 0 5px 0;font-family:Georgia,'Times New Roman',serif;font-size:16px;color:{BRAND_COLOR_PRIMARY};">
+                                        &#10022;</p>
+                                    <p
+                                        style="margin:0 0 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:700;color:#ffffff;letter-spacing:0.1em;text-transform:uppercase;">
+                                        {BRAND_PILLAR_1_TITLE}</p>
+                                    <p
+                                        style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:10px;color:#555555;">
+                                        {BRAND_PILLAR_1_DESC}</p>
+                                </td>
+                                <td align="center" width="33%" style="padding:0 8px;border-right:1px solid #2a2a2a;">
+                                    <p
+                                        style="margin:0 0 5px 0;font-family:Georgia,'Times New Roman',serif;font-size:16px;color:{BRAND_COLOR_PRIMARY};">
+                                        &#10022;</p>
+                                    <p
+                                        style="margin:0 0 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:700;color:#ffffff;letter-spacing:0.1em;text-transform:uppercase;">
+                                        {BRAND_PILLAR_2_TITLE}</p>
+                                    <p
+                                        style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:10px;color:#555555;">
+                                        {BRAND_PILLAR_2_DESC}</p>
+                                </td>
+                                <td align="center" width="33%" style="padding:0 8px;">
+                                    <p
+                                        style="margin:0 0 5px 0;font-family:Georgia,'Times New Roman',serif;font-size:16px;color:{BRAND_COLOR_PRIMARY};">
+                                        &#10022;</p>
+                                    <p
+                                        style="margin:0 0 3px 0;font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:700;color:#ffffff;letter-spacing:0.1em;text-transform:uppercase;">
+                                        {BRAND_PILLAR_3_TITLE}</p>
+                                    <p
+                                        style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:10px;color:#555555;">
+                                        {BRAND_PILLAR_3_DESC}</p>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <!-- DIVIDER -->
+                <tr>
+                    <td style="padding:0 40px;">
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                                <td style="border-top:1px solid #eeeeee;font-size:0;line-height:0;">&nbsp;</td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <!-- FOOTER -->
+                <tr>
+                    <td align="center" style="background-color:#ffffff;padding:26px 40px 34px 40px;">
+                        <p style="margin:0 0 12px 0;
+                           font-family:Georgia,'Times New Roman',serif;
+                           font-size:11px;
+                           color:#bbbbbb;
+                           letter-spacing:0.15em;
+                           text-transform:uppercase;">
+                            <a href="{BRAND_INSTAGRAM}"
+                                style="color:{BRAND_COLOR_PRIMARY};text-decoration:none;">Instagram</a>
+                            &nbsp;&nbsp;&middot;&nbsp;&nbsp;
+                            <a href="{BRAND_WEBSITE_URL}" style="color:{BRAND_COLOR_PRIMARY};text-decoration:none;">Shop
+                                Online</a>
+                        </p>
+                        <p style="margin:0;
+                           font-family:Georgia,'Times New Roman',serif;
+                           font-size:11px;
+                           color:#cccccc;
+                           line-height:1.8;">
+                            Questa email &egrave; stata inviata a
+                            <a href="mailto:{ORDER_CUSTOMER_EMAIL}" style="color:#999999;text-decoration:none;">{ORDER_CUSTOMER_EMAIL}</a><br>
+                            {BRAND_LEGAL_ADDRESS}
+                        </p>
+                    </td>
+                </tr>
+
+                <!-- BOTTOM ACCENT BAR -->
+                <tr>
+                    <td style="background-color:{BRAND_COLOR_PRIMARY};height:4px;font-size:0;line-height:0;">&nbsp;</td>
+                </tr>
+
+            </table>
+
+            <p style="margin:20px 0 0 0;
+                 font-family:Georgia,'Times New Roman',serif;
+                 font-size:10px;
+                 color:#444444;
+                 letter-spacing:0.1em;
+                 text-align:center;">
+                &copy; {META_YEAR} {BRAND_NAME} &middot; Tutti i diritti riservati
+            </p>
+
+        </td>
+    </tr>
+</table>

@@ -178,6 +178,57 @@
         GH.emCampaignOpenWithProducts(ids);
     };
 
+    // Hand-off ENTRANTE: da Tax Query o altri moduli. Apre Filtra & Agisci
+    // con un set di product_ids pre-popolato (bypassa il condition builder).
+    // I bulk actions lavorano sul set passato.
+    GH.openBulkOnProducts = async function(productIds, label = '') {
+        if (!Array.isArray(productIds) || !productIds.length) {
+            GH.toast('Nessun prodotto da caricare', 'err'); return;
+        }
+        // Switcha alla tab Filtra & Agisci
+        const btn = document.querySelector('#gh .tab-item[onclick*="\'filter\'"]');
+        if (btn) btn.click();
+        // Esegue una query include_ids → popola la tabella con esattamente
+        // questi prodotti. Nessuna condizione del condition-builder.
+        const r = await GH.ajax('gh_ajax_filter_products', {
+            conditions: '[]',
+            include_ids: JSON.stringify(productIds),
+            per_page: Math.max(50, productIds.length),
+            page: 1,
+        });
+        if (!r || !r.success) { GH.toast('Errore caricamento set', 'err'); return; }
+        filterMeta = filterMeta || {};
+        filteredProducts = r.data.products || [];
+        filteredIds = r.data.product_ids || [];
+        renderFilterResults(r.data);
+        // Seleziona tutti i prodotti caricati (il caller voleva agire su TUTTI).
+        selectedIds = new Set(filteredIds);
+        updateSelectionCount();
+        if (label) GH.toast(label + ': ' + filteredIds.length + ' prodotti pronti', 'ok');
+    };
+
+    // Subset export: prende selectedIds, chiama rp_cm_ajax_export_roundtrip
+    // con include_ids, scarica il JSON come file.
+    GH.exportFilterSelectionAsRoundtrip = async function() {
+        const ids = getSelectedIds();
+        if (!ids.length) { GH.toast('Nessun prodotto selezionato', 'err'); return; }
+        GH.toast('Building roundtrip JSON...', 'ok', 2000);
+        const r = await GH.ajax('rp_cm_ajax_export_roundtrip', {
+            filters: '{}',
+            include_ids: JSON.stringify(ids),
+        });
+        if (!r || !r.success) { GH.toast('Errore export', 'err'); return; }
+        const json = JSON.stringify(r.data, null, 2);
+        const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+        a.href = url; a.download = 'roundtrip-subset-' + ids.length + '-' + stamp + '.json';
+        document.body.appendChild(a); a.click();
+        setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+        GH.toast('Export di ' + ids.length + ' prodotti scaricato', 'ok');
+    };
+
     GH.sendFilterSelectionToBulkJob = function() {
         // Scorciatoia "Invia a Jobs" — aggiunge solo se sei sopra soglia
         // (evita di andare in tab Jobs per 2 prodotti).

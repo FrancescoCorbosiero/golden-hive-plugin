@@ -193,7 +193,24 @@
         GH.toast(navPreviewTerms.length + ' termini pronti per populate', 'ok');
     }
 
-    // ────────────────────────────────────────────────────────────
+    // Hand-off Tax Query → Filtra & Agisci: risolve term_ids nei product_ids
+    // associati e apre la tab Filter con include_ids pre-popolati, cosi
+    // l'utente puo applicare bulk actions sui prodotti che stanno sotto i
+    // termini selezionati.
+    async function tqSendToBulk() {
+        if (!tqSelected.size) { GH.toast('Seleziona almeno un termine', 'err'); return; }
+        const tax = document.getElementById('tq-taxonomy').value;
+        const r = await GH.ajaxWithToast('gh_ajax_products_for_terms',
+            { taxonomy: tax, term_ids: JSON.stringify(Array.from(tqSelected)) },
+            { errPrefix: 'Errore risoluzione prodotti', stickyErr: true });
+        if (!r || !r.success) return;
+        const ids = r.data.product_ids || [];
+        if (!ids.length) { GH.toast('Nessun prodotto nei termini selezionati', 'err'); return; }
+        if (typeof GH.openBulkOnProducts !== 'function') {
+            GH.toast('Filtra & Agisci non caricato', 'err'); return;
+        }
+        GH.openBulkOnProducts(ids, 'Tax Query · ' + tqSelected.size + ' termini');
+    }
     // NAVIGATION MANAGER
     // ────────────────────────────────────────────────────────────
 
@@ -358,7 +375,7 @@
 
     // ── Extend public API ───────────────────────────────────────
     Object.assign(GH, {
-        tqRun, tqToggle, tqSelectAll, tqSelectNone, tqPreset, tqPickTerms, tqSendToNav,
+        tqRun, tqToggle, tqSelectAll, tqSelectNone, tqPreset, tqPickTerms, tqSendToNav, tqSendToBulk,
         navLoadMenus, navLoadItems, navDeleteItem, navPreview, navPopulate, navClearManaged,
     });
 })();

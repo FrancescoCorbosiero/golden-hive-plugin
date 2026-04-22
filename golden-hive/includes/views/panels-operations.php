@@ -74,6 +74,7 @@
                 <div class="filter-sep"></div>
                 <button class="btn btn-ghost" id="btn-bulk-json" onclick="GH.openBulkJson()" style="color:var(--pur)" disabled>{ } JSON Editor</button>
                 <button class="btn btn-ghost" onclick="GH.sendFilterSelectionToEmail()" title="Usa la selezione corrente come prodotti di una nuova campagna email">&#9993; Invia a Campagna</button>
+                <button class="btn btn-ghost" onclick="GH.exportFilterSelectionAsRoundtrip()" title="Scarica JSON roundtrip dei prodotti selezionati (sottoinsieme, non l'intero catalogo)">&#8615; Export JSON</button>
                 <span id="bulk-result" style="font-size:11px;color:var(--grn);"></span>
             </div>
         </div>

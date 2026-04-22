@@ -43,6 +43,18 @@ function gh_filter_products( array $conditions = [], array $options = [] ): arra
     $db_args['orderby'] = $options['orderby'] ?? 'title';
     $db_args['order']   = $options['order']   ?? 'ASC';
 
+    // Include-by-IDs: abilita hand-off da Tax Query / altre sorgenti per
+    // pre-popolare il set di prodotti da bulk-editare. Se settato, limita
+    // la query ai soli ID specificati (le condizioni continuano a filtrare
+    // ulteriormente).
+    if ( ! empty( $options['include_ids'] ) && is_array( $options['include_ids'] ) ) {
+        $ids = array_values( array_filter( array_map( 'intval', $options['include_ids'] ) ) );
+        if ( ! empty( $ids ) ) {
+            $db_args['include'] = $ids;
+            $db_args['limit']   = -1;
+        }
+    }
+
     $query    = new WC_Product_Query( $db_args );
     $products = $query->get_products();
 

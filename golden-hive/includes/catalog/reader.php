@@ -26,6 +26,16 @@ function rp_cm_get_all_products( array $filters = [] ): array {
         $args['category'] = [ $filters['category'] ];
     }
 
+    // Include-by-IDs: limita il set iniziale a uno specifico elenco di prodotti.
+    // Usato per subset export (roundtrip filtrato) / riuso del reader da moduli.
+    if ( ! empty( $filters['include_ids'] ) && is_array( $filters['include_ids'] ) ) {
+        $ids = array_values( array_filter( array_map( 'intval', $filters['include_ids'] ) ) );
+        if ( ! empty( $ids ) ) {
+            $args['include'] = $ids;
+            $args['limit']   = -1;
+        }
+    }
+
     $query    = new WC_Product_Query( $args );
     $products = $query->get_products();
 

@@ -13,6 +13,27 @@ defined( 'ABSPATH' ) || exit;
 
 // ═══ TAXONOMY QUERY ═══════════════════════════════════════════════════════
 
+// Risolve un elenco di term_ids nei product_ids associati.
+// Usato per hand-off Tax Query → Filtra & Agisci (bulk actions).
+add_action( 'wp_ajax_gh_ajax_products_for_terms', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $taxonomy = sanitize_key( (string) ( $_POST['taxonomy'] ?? 'product_cat' ) );
+    $term_ids = function_exists( 'gh_ajax_int_array' )
+        ? gh_ajax_int_array( 'term_ids' )
+        : array_values( array_filter( array_map( 'intval', (array) json_decode( stripslashes( (string) ( $_POST['term_ids'] ?? '[]' ) ), true ) ) ) );
+
+    if ( empty( $term_ids ) ) wp_send_json_error( 'Nessun termine selezionato.' );
+
+    $ids = rp_cm_get_products_for_terms( $term_ids, $taxonomy );
+    wp_send_json_success( [
+        'product_ids' => $ids,
+        'count'       => count( $ids ),
+        'taxonomy'    => $taxonomy,
+    ] );
+} );
+
 add_action( 'wp_ajax_gh_ajax_taxonomy_query', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );

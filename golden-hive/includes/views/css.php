@@ -581,7 +581,7 @@
 
 /* Card */
 #gh .gh-job-card{display:flex;align-items:stretch;background:var(--s2);border:1px solid var(--b1);border-radius:8px;overflow:hidden;transition:border-color .15s,transform .15s}
-#gh .gh-job-card:hover{border-color:var(--b2)}
+#gh .gh-job-card:hover{border-color:var(--acc)}
 #gh .gh-job-card-stripe{width:4px;flex-shrink:0;background:var(--b2)}
 #gh .gh-job-color-grn .gh-job-card-stripe{background:var(--grn)}
 #gh .gh-job-color-blu .gh-job-card-stripe{background:var(--blu,#4aa3ff)}
@@ -700,8 +700,13 @@
 #gh .rpem-tpl-editor-body{display:flex;flex:1;overflow:hidden}
 #gh .rpem-tpl-editor-left{flex:1;display:flex;flex-direction:column;padding:12px;gap:8px;overflow:hidden}
 #gh .rpem-code{font-family:var(--mono);font-size:12px;min-height:250px;flex:1;white-space:pre;line-height:1.5}
-#gh .rpem-tpl-ph-panel{width:280px;flex:0 0 280px;border-left:1px solid var(--b1);background:var(--s1);overflow-y:auto}
-#gh .rpem-tpl-ph-head{padding:12px 16px;font-family:var(--mono);font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--b1)}
+#gh .rpem-tpl-ph-panel{width:320px;flex:0 0 320px;border-left:1px solid var(--b1);background:var(--s1);display:flex;flex-direction:column;overflow:hidden}
+#gh .rpem-tpl-ph-head{display:flex;gap:0;border-bottom:1px solid var(--b1);background:var(--s2);flex-shrink:0}
+#gh .rpem-tpl-tab{flex:1;padding:10px 12px;background:transparent;border:0;border-bottom:2px solid transparent;color:var(--dim);font-family:var(--mono);font-size:10px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;transition:color .15s,border-color .15s}
+#gh .rpem-tpl-tab:hover{color:var(--txt)}
+#gh .rpem-tpl-tab.is-active{color:var(--acc);border-bottom-color:var(--acc)}
+#gh .rpem-tpl-ph-body{flex:1;overflow-y:auto}
+#gh .rpem-tpl-preview-iframe{flex:1;width:100%;border:0;background:#fff;min-height:0}
 #gh .rpem-tpl-ph-body,#gh .rpem-ph-group{padding:8px 12px}
 #gh .rpem-ph-head{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:1px;margin-bottom:6px;display:flex;align-items:center;gap:6px}
 #gh .rpem-ph-head span{background:var(--s3);padding:1px 5px;border-radius:3px;font-size:9px}
@@ -731,11 +736,15 @@
 #gh .rpem-camp-name{font-family:var(--sans);font-size:14px;font-weight:600;color:var(--txt)}
 #gh .rpem-camp-card-subj{font-family:var(--sans);font-size:12px;color:var(--dim);margin-bottom:8px}
 #gh .rpem-camp-card-meta{display:flex;flex-wrap:wrap;gap:8px;font-family:var(--mono);font-size:10px;color:var(--dim)}
-#gh .em-st{font-family:var(--mono);font-size:10px;padding:2px 6px;border-radius:3px;background:var(--s3);color:var(--txt)}
-#gh .em-st-sent{background:var(--grn);color:#000}
-#gh .em-st-failed{background:var(--red);color:#fff}
-#gh .em-st-scheduled{background:var(--acc);color:#fff}
-#gh .em-st-sending{background:var(--amb);color:#000}
+/* Status chip legacy — refitted per matchare .gh-status (stesso visual
+   language: bg muted + text colorato + border muted, invece dei fondi
+   solidi originali che urlavano troppo). Non tocca il markup. */
+#gh .em-st{font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:3px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;border:1px solid var(--b1);background:var(--s3);color:var(--dim)}
+#gh .em-st-sent{background:var(--grn-15);color:var(--grn);border-color:var(--grn-30)}
+#gh .em-st-failed{background:var(--red-15);color:var(--red);border-color:var(--red-30)}
+#gh .em-st-scheduled{background:var(--acc-15);color:var(--acc);border-color:var(--acc-30)}
+#gh .em-st-sending{background:var(--amb-15);color:var(--amb);border-color:var(--amb-30)}
+#gh .em-st-draft{background:var(--s3);color:var(--dim);border-color:var(--b1)}
 #gh .rpem-wizard{display:flex;flex-direction:column;flex:1;overflow:hidden}
 #gh .rpem-wizard-body{display:flex;flex:1;overflow:hidden}
 #gh .rpem-wizard-left{flex:1;padding:12px;overflow-y:auto;display:flex;flex-direction:column;gap:12px}
@@ -817,6 +826,10 @@
     #gh .toolbar{padding:8px 12px;gap:8px}
     #gh .filter-sep{display:none}
 
+    /* ── Tap targets: bump .btn a ~36px su mobile. Non tocca la dimensione
+          del font (text piu grande non serve, serve l'area clickabile). */
+    #gh .btn{padding:10px 14px;font-size:11px;min-height:34px}
+
     /* ── cfg-row: stack label above input, full width ─────────────── */
     /* Usato in: brand form, templates, campaigns, transactional,
        test email, mapper rules. Su mobile tiene tutto in colonna. */
@@ -838,9 +851,10 @@
           sotto. La regola legacy nascondeva il panel; lo manteniamo
           visibile ma inline, cosi l'utente vede cosa sta usando. */
     #gh .rpem-tpl-editor-body{flex-direction:column}
-    #gh .rpem-tpl-ph-panel{display:block;width:100%;flex:0 0 auto;max-height:40vh;border-left:none;border-top:1px solid var(--b1)}
+    #gh .rpem-tpl-ph-panel{width:100%;flex:0 0 auto;max-height:40vh;border-left:none;border-top:1px solid var(--b1)}
     #gh .rpem-tpl-editor-left{padding:10px 12px}
     #gh .rpem-code{min-height:180px}
+    #gh .rpem-tpl-preview-iframe{min-height:200px}
 
     /* ── Campaign wizard: nasconde preview (gia fatto) + stack body ── */
     #gh .rpem-wizard-body{flex-direction:column}

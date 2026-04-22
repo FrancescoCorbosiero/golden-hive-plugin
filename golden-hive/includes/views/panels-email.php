@@ -59,10 +59,14 @@
                 </div>
             </div>
             <aside class="rpem-tpl-ph-panel">
-                <div class="rpem-tpl-ph-head">Placeholder estratti</div>
-                <div class="rpem-tpl-ph-body" id="em-tpl-ph-body">
-                    <div class="em-hint">Scrivi HTML con placeholder <code>{BRAND_*}</code>, <code>{CAMPAIGN_*}</code>, <code>{PRODUCT_N_*}</code>, <code>{RECIPIENT_*}</code>, <code>{META_*}</code>.</div>
+                <div class="rpem-tpl-ph-head">
+                    <button class="rpem-tpl-tab is-active" id="em-tpl-tab-ph" onclick="GH.emTplSetAsideMode('ph')">Placeholder</button>
+                    <button class="rpem-tpl-tab" id="em-tpl-tab-preview" onclick="GH.emTplSetAsideMode('preview')">Anteprima live</button>
                 </div>
+                <div class="rpem-tpl-ph-body" id="em-tpl-ph-body">
+                    <div class="em-hint">Scrivi HTML con placeholder <code>{BRAND_*}</code>, <code>{CAMPAIGN_*}</code>, <code>{PRODUCT_N_*}</code>, <code>{ORDER_*}</code>, <code>{RECIPIENT_*}</code>, <code>{META_*}</code>.</div>
+                </div>
+                <iframe id="em-tpl-preview-iframe" class="rpem-tpl-preview-iframe" sandbox="allow-same-origin" title="Anteprima live" style="display:none"></iframe>
             </aside>
         </div>
     </div>

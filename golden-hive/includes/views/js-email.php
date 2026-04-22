@@ -234,14 +234,50 @@
     };
 
     let tplTimer = null;
+    let tplAsideMode = 'ph';  // 'ph' | 'preview'
     GH.emTplExtractPlaceholders = function() {
         clearTimeout(tplTimer);
         tplTimer = setTimeout(async () => {
             const html = $('em-tpl-html').value || '';
+            // Sempre aggiorna i placeholder (servono anche quando preview attivo)
             const r = await ajax('rp_em_ajax_template_extract_placeholders', { html });
-            if (!r.success) return;
-            renderTplPlaceholders(r.data.grouped || {});
-        }, 300);
+            if (r.success) renderTplPlaceholders(r.data.grouped || {});
+            // Se la modalita aside e "preview", renderizza anche l'iframe.
+            if (tplAsideMode === 'preview' && editingTpl && editingTpl.id) {
+                refreshTplPreview();
+            }
+        }, 350);
+    };
+
+    async function refreshTplPreview() {
+        if (!editingTpl || !editingTpl.id) return;
+        const iframe = $('em-tpl-preview-iframe');
+        if (!iframe) return;
+        const r = await ajax('rp_em_ajax_template_render_demo', { id: editingTpl.id });
+        if (!r.success) return;
+        iframe.srcdoc = r.data.html || '';
+    }
+
+    GH.emTplSetAsideMode = function(mode) {
+        tplAsideMode = (mode === 'preview') ? 'preview' : 'ph';
+        const body = $('em-tpl-ph-body'), iframe = $('em-tpl-preview-iframe');
+        const tPh = $('em-tpl-tab-ph'), tPv = $('em-tpl-tab-preview');
+        if (tplAsideMode === 'preview') {
+            body.style.display = 'none';
+            iframe.style.display = 'block';
+            tPh.classList.remove('is-active');
+            tPv.classList.add('is-active');
+            if (!editingTpl || !editingTpl.id) {
+                iframe.srcdoc = '<div style="font-family:system-ui;padding:20px;color:#888">Salva il template prima per vedere l\'anteprima live.</div>';
+            } else {
+                refreshTplPreview();
+            }
+        } else {
+            body.style.display = '';
+            iframe.style.display = 'none';
+            tPh.classList.add('is-active');
+            tPv.classList.remove('is-active');
+        }
     };
 
     function renderTplPlaceholders(grouped) {

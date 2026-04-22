@@ -165,6 +165,30 @@
     }
     function getSelectedIds() { return Array.from(selectedIds); }
 
+    // ── HAND-OFF: selezione corrente → altre tab ────────────────
+    // Pattern analogo a Tax Query → Navigazione: niente storage,
+    // passo gli ID direttamente al dispatcher della tab target.
+
+    GH.sendFilterSelectionToEmail = function() {
+        const ids = getSelectedIds();
+        if (!ids.length) { GH.toast('Nessun prodotto selezionato', 'err'); return; }
+        if (typeof GH.emCampaignOpenWithProducts !== 'function') {
+            GH.toast('Modulo Email non caricato', 'err'); return;
+        }
+        GH.emCampaignOpenWithProducts(ids);
+    };
+
+    GH.sendFilterSelectionToBulkJob = function() {
+        // Scorciatoia "Invia a Jobs" — aggiunge solo se sei sopra soglia
+        // (evita di andare in tab Jobs per 2 prodotti).
+        const ids = getSelectedIds();
+        if (!ids.length) { GH.toast('Nessun prodotto selezionato', 'err'); return; }
+        // Forza il toggle "esegui come job" + switch + focus bulk select
+        const cb = document.getElementById('bulk-as-job'); if (cb) cb.checked = true;
+        document.getElementById('bulk-action-select').focus();
+        GH.toast('Toggle "esegui come job" attivato — scegli l\'azione', 'ok');
+    };
+
     // ── RENDER RESULTS TABLE ────────────────────────────────────
     function renderFilterResults(data) {
         const area = document.getElementById('filter-results-area');

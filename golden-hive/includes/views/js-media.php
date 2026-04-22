@@ -116,6 +116,7 @@
 
             // Row actions
             h += '<td class="ml-row-actions">';
+            h += '<button class="btn btn-ghost btn-sm" onclick="GH.mlSetFeaturedFor(' + item.id + ')" title="Imposta come featured image di un prodotto">&#10026; Feat.</button>';
             if (item.is_whitelisted) {
                 h += '<button class="btn btn-ghost btn-sm" onclick="GH.mlToggleWhitelistRow(' + item.id + ',true)" title="Rimuovi da whitelist">&minus;WL</button>';
             } else {
@@ -407,6 +408,27 @@
         if (name === 'media-library' && !mlState.loaded) {
             GH.mlQuery(true);
         }
+    };
+
+    // Cross-module hand-off: imposta un attachment come featured image di un
+    // prodotto. UX minimale: prompt per ID o SKU, auto-pick del primo match.
+    // Per una UX piu ricca (search typeahead inline) vedere roadmap Batch 5.
+    GH.mlSetFeaturedFor = async function(attachmentId) {
+        const q = prompt('Prodotto target (ID numerico o SKU):');
+        if (!q) return;
+        const sr = await GH.ajax('gh_ajax_product_search', { query: q.trim() });
+        if (!sr || !sr.success || !Array.isArray(sr.data) || !sr.data.length) {
+            GH.toast('Prodotto non trovato', 'err'); return;
+        }
+        const p = sr.data[0];
+        const label = p.name + ' (#' + p.id + (p.sku ? ' · ' + p.sku : '') + ')';
+        if (!confirm('Impostare attachment #' + attachmentId + ' come featured image di:\n' + label + '?')) return;
+        const r = await GH.ajaxWithToast(
+            'rp_mm_ajax_set_featured',
+            { product_id: p.id, attachment_id: attachmentId },
+            { errPrefix: 'Errore featured', okMsg: 'Featured impostato su ' + p.name }
+        );
+        if (r && r.success) GH.mlQuery(false); // rinfresca usage badges
     };
 
 })();

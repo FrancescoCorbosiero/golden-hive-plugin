@@ -48,6 +48,33 @@
         openWizard('Nuova campagna', false);
     };
 
+    // Hand-off entry: apre il wizard in modalita nuova con product_ids pre-popolati.
+    // Chiamato da Filtra & Agisci (GH.sendFilterSelectionToEmail) o altre sorgenti.
+    GH.emCampaignOpenWithProducts = async function(productIds) {
+        if (!Array.isArray(productIds) || !productIds.length) {
+            toast('Nessun prodotto passato', 'err'); return;
+        }
+        // Carica la lista template se non in memoria (serve per il select)
+        if (!tplIndex.length) {
+            const rt = await ajax('rp_em_ajax_template_list');
+            tplIndex = rt.success ? (rt.data || []) : [];
+        }
+        // Switcha alla tab Campagne
+        const btn = document.querySelector('#gh .tab-item[onclick*="\'email-campaigns\'"]');
+        if (btn) btn.click();
+        // Apri wizard con product_ids pre-popolati
+        editing = {
+            id:'', name:'', subject:'', preheader:'', template_id:'', payload:{},
+            product_ids: productIds.slice(),
+            source_type:'hustle', module_ids:[], csv_contacts:'',
+            rate_limit:200000, scheduled_at:''
+        };
+        productCache = {};
+        openWizard('Nuova campagna · ' + productIds.length + ' prodotti', false);
+        hydrateProductCache(productIds);
+        toast(productIds.length + ' prodotti pronti nel wizard', 'ok');
+    };
+
     GH.emCampaignEdit = async function(id) {
         const r = await ajax('rp_em_ajax_campaign_get', { id });
         if (!r.success) { toast('Errore', 'err'); return; }
@@ -279,15 +306,38 @@
         c.innerHTML = h;
     }
 
+    // Memo dell'ultimo render per hand-off verso Test Email.
+    let lastPreview = { html:'', subject:'', preheader:'' };
+
     GH.emCampaignPreview = async function() {
         if (!editing?.id) { toast('Salva prima la campagna', 'err'); return; }
         const sp = $('em-camp-preview-spin'); sp.style.display = '';
         try {
             const r = await ajax('rp_em_ajax_campaign_preview', { id: editing.id });
             if (!r.success) { toast('Errore preview', 'err'); return; }
-            $('em-camp-preview-frame').srcdoc = r.data.html || '';
-            $('em-camp-preview-subject').textContent = r.data.subject || '';
+            lastPreview = { html: r.data.html || '', subject: r.data.subject || '', preheader: r.data.preheader || '' };
+            $('em-camp-preview-frame').srcdoc = lastPreview.html;
+            $('em-camp-preview-subject').textContent = lastPreview.subject;
         } finally { sp.style.display = 'none'; }
+    };
+
+    // Hand-off: l'HTML renderizzato diventa il body della tab Test Email.
+    // Se il preview non e ancora stato eseguito, lo esegue prima.
+    GH.emCampaignSendPreviewAsTest = async function() {
+        if (!editing?.id) { toast('Salva prima la campagna', 'err'); return; }
+        if (!lastPreview.html) {
+            toast('Rendering preview...', 'ok', 1500);
+            await GH.emCampaignPreview();
+            if (!lastPreview.html) return;
+        }
+        // Popola i campi della tab Test Email
+        const to = $('em-test-to');       if (to && !to.value) to.value = '';
+        const subj = $('em-test-subject'); if (subj) subj.value = lastPreview.subject;
+        const body = $('em-test-body');    if (body) body.value = lastPreview.html;
+        // Switcha tab
+        const btn = document.querySelector('#gh .tab-item[onclick*="\'email-test\'"]');
+        if (btn) btn.click();
+        toast('HTML pronto in Test Email: inserisci destinatario e invia', 'ok');
     };
 
     GH.emCampaignSchedule = async function() {

@@ -73,6 +73,7 @@
                 <button class="btn btn-primary" id="btn-bulk-execute" onclick="GH.executeBulk()" disabled>Applica</button>
                 <div class="filter-sep"></div>
                 <button class="btn btn-ghost" id="btn-bulk-json" onclick="GH.openBulkJson()" style="color:var(--pur)" disabled>{ } JSON Editor</button>
+                <button class="btn btn-ghost" onclick="GH.sendFilterSelectionToEmail()" title="Usa la selezione corrente come prodotti di una nuova campagna email">&#9993; Invia a Campagna</button>
                 <span id="bulk-result" style="font-size:11px;color:var(--grn);"></span>
             </div>
         </div>
@@ -167,6 +168,7 @@
             <span id="ie-dirty-badge" class="ie-dirty-badge" style="display:none">&#9679; Non salvato</span>
             <button class="btn btn-primary" id="btn-ie-save" onclick="GH.ieSave()" disabled><span class="spin" id="ie-save-spin" style="display:none"></span> Salva</button>
             <button class="btn btn-ghost" onclick="GH.ieReload()">Ricarica</button>
+            <button class="btn btn-ghost" onclick="GH.iePreviewInEmail()" title="Renderizza questo prodotto come PRODUCT_1_* in un template email e apri in Test Email">&#9993; Preview email</button>
         </div>
     </div>
 

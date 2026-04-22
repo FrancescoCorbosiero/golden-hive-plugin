@@ -99,6 +99,25 @@
         }
     };
 
+    // Cross-module hand-off: apri il prodotto corrente come PRODUCT_1_* in un
+    // template email e porta l'HTML renderizzato nella tab Test Email. Se non
+    // viene specificato un template, il backend sceglie il primo che usa
+    // placeholder PRODUCT_1_*.
+    GH.iePreviewInEmail = async function() {
+        if (!ie.product || !ie.product.id) { GH.toast('Carica un prodotto prima', 'err'); return; }
+        const r = await GH.ajaxWithToast('rp_em_ajax_preview_product_in_email',
+            { product_id: ie.product.id },
+            { errPrefix:'Errore preview email', stickyErr:true });
+        if (!r || !r.success) return;
+        const d = r.data || {};
+        const subj = document.getElementById('em-test-subject'); if (subj) subj.value = d.subject || '';
+        const body = document.getElementById('em-test-body');    if (body) body.value = d.html || '';
+        const btn = document.querySelector('#gh .tab-item[onclick*="\'email-test\'"]');
+        if (btn) btn.click();
+        const tname = d.template_name || d.template_id || 'template';
+        GH.toast('Preview pronto con "' + tname + '": inserisci destinatario e invia', 'ok');
+    };
+
     GH.ieUnload = function() {
         if (Object.keys(ie.dirty).length || Object.keys(ie.varDirty).length) {
             if (!confirm('Modifiche non salvate. Chiudere comunque?')) return;

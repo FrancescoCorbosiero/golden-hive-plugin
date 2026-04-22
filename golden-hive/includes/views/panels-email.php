@@ -192,6 +192,7 @@
                     <span>Anteprima</span>
                     <span id="em-camp-preview-subject" class="rpem-preview-subject"></span>
                     <div style="flex:1"></div>
+                    <button class="btn btn-ghost" onclick="GH.emCampaignSendPreviewAsTest()" title="Porta l'HTML renderizzato nella tab Test Email per inviartelo">&#9993; Test da qui</button>
                     <button class="btn btn-ghost" onclick="GH.emCampaignPreview()"><span class="spin" id="em-camp-preview-spin" style="display:none"></span> Refresh</button>
                 </div>
                 <iframe id="em-camp-preview-frame" class="rpem-preview-frame" sandbox="allow-same-origin" title="Preview campagna"></iframe>

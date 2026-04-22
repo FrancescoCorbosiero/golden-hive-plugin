@@ -169,6 +169,7 @@
             <span id="ie-dirty-badge" class="ie-dirty-badge" style="display:none">&#9679; Non salvato</span>
             <button class="btn btn-primary" id="btn-ie-save" onclick="GH.ieSave()" disabled><span class="spin" id="ie-save-spin" style="display:none"></span> Salva</button>
             <button class="btn btn-ghost" onclick="GH.ieReload()">Ricarica</button>
+            <button class="btn btn-ghost" onclick="GH.ieCopyJSON()" title="Copia il prodotto corrente come JSON (con eventuali modifiche pending)">Copia JSON</button>
             <button class="btn btn-ghost" onclick="GH.iePreviewInEmail()" title="Renderizza questo prodotto come PRODUCT_1_* in un template email e apri in Test Email">&#9993; Preview email</button>
         </div>
     </div>

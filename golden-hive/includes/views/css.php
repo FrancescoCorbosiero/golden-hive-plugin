@@ -816,6 +816,15 @@
 #gh .toast-x{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:transparent;border:0;color:inherit;font-size:18px;line-height:1;cursor:pointer;padding:2px 6px;opacity:.7}
 #gh .toast-x:hover{opacity:1}
 
+/* Modal confirm — sostituisce confirm() nativo. Usato da GH.confirm(msg, opts). */
+#gh .gh-modal-overlay{position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;padding:20px;animation:gh-mfade .12s ease}
+#gh .gh-modal{background:var(--s1);border:1px solid var(--b1);border-radius:8px;max-width:440px;width:100%;padding:20px;display:flex;flex-direction:column;gap:12px;box-shadow:0 20px 60px rgba(0,0,0,.5);animation:gh-mslide .15s ease}
+#gh .gh-modal-title{font-family:var(--mono);font-size:10px;letter-spacing:.15em;color:var(--dim);text-transform:uppercase}
+#gh .gh-modal-body{font-family:var(--sans);font-size:13px;color:var(--txt);line-height:1.55}
+#gh .gh-modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:4px}
+@keyframes gh-mfade{from{opacity:0}to{opacity:1}}
+@keyframes gh-mslide{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
 @media(max-width:768px){
     /* ── Sidebar tabs: shrink to icon-only ─────────────────────────── */
     #gh .tabs-col{width:48px}

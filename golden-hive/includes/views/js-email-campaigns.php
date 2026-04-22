@@ -269,7 +269,7 @@
 
     GH.emCampaignDelete = async function() {
         if (!editing?.id) return;
-        if (!confirm('Eliminare la campagna?')) return;
+        if (!await GH.confirm('Eliminare la campagna "' + (editing.name || editing.id) + '"?\nSe schedulata, il cron verra rimosso.', { title:'Elimina campagna', danger:true, okLabel:'Elimina' })) return;
         const r = await ajax('rp_em_ajax_campaign_delete', { id: editing.id });
         if (!r.success) { toast('Errore', 'err'); return; }
         toast('Eliminata', 'ok');
@@ -352,7 +352,7 @@
 
     GH.emCampaignSend = async function() {
         if (!editing?.id) { toast('Salva prima la campagna', 'err'); return; }
-        if (!confirm('Invio immediato a tutti i contatti della sorgente. Procedere?')) return;
+        if (!await GH.confirm('Invio IMMEDIATO a tutti i contatti della sorgente.\nNon si puo annullare una volta partiti gli invii. Procedere?', { title:'Invia campagna', danger:true, okLabel:'Invia ora' })) return;
         const sp = $('em-camp-send-spin'); sp.style.display = '';
         try {
             const r = await ajax('rp_em_ajax_campaign_send', { id: editing.id });

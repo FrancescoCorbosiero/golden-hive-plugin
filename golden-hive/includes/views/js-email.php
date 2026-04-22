@@ -76,7 +76,7 @@
     };
 
     GH.emBrandReset = async function() {
-        if (!confirm('Ripristinare il brand ai valori di default?')) return;
+        if (!await GH.confirm('Ripristinare il brand ai valori di default?\nLe tue impostazioni attuali andranno perse.', { title:'Reset brand', danger:true, okLabel:'Ripristina' })) return;
         const r = await ajax('rp_em_ajax_brand_reset');
         if (!r.success) { toast('Errore', 'err'); return; }
         brandData = r.data.brand || {};
@@ -188,7 +188,7 @@
 
     GH.emTplDelete = async function() {
         if (!editingTpl?.id) return;
-        if (!confirm('Eliminare "' + (editingTpl.name || editingTpl.id) + '"?')) return;
+        if (!await GH.confirm('Eliminare il template "' + (editingTpl.name || editingTpl.id) + '"?\nLe campagne che lo usano smetteranno di validare.', { title:'Elimina template', danger:true, okLabel:'Elimina' })) return;
         const r = await ajax('rp_em_ajax_template_delete', { id: editingTpl.id });
         if (!r.success) { toast('Errore', 'err'); return; }
         toast('Template eliminato', 'ok');
@@ -467,7 +467,7 @@
     }
 
     GH.emHistoryClear = async function() {
-        if (!confirm('Svuotare completamente lo storico email?')) return;
+        if (!await GH.confirm('Svuotare completamente lo storico email?\nI log storici di test e campagne verranno cancellati (non recuperabili).', { title:'Svuota storico', danger:true, okLabel:'Svuota' })) return;
         const r = await ajax('rp_em_ajax_clear_log');
         if (!r.success) { toast('Errore', 'err'); return; }
         toast('Storico svuotato', 'ok');

@@ -165,6 +165,52 @@ const GH = (function() {
         copyToClipboard(json).then(() => toast(label + ' copiato negli appunti', 'ok'));
     }
 
+    // GH.confirm: replace nativo confirm() con un modal in-panel. Ritorna Promise<bool>.
+    // Uso: if (!await GH.confirm('Eliminare?', { danger:true })) return;
+    function ghConfirm(msg, opts) {
+        opts = opts || {};
+        const title       = opts.title       || '';
+        const okLabel     = opts.okLabel     || 'OK';
+        const cancelLabel = opts.cancelLabel || 'Annulla';
+        const danger      = !!opts.danger;
+
+        return new Promise((resolve) => {
+            const overlay = document.createElement('div');
+            overlay.className = 'gh-modal-overlay';
+            const bodyHtml = String(msg || '').replace(/\n/g, '<br>');
+            overlay.innerHTML =
+                '<div class="gh-modal" role="dialog" aria-modal="true">' +
+                    (title ? '<div class="gh-modal-title">' + esc(title) + '</div>' : '') +
+                    '<div class="gh-modal-body">' + bodyHtml + '</div>' +
+                    '<div class="gh-modal-actions">' +
+                        '<button class="btn btn-ghost gh-modal-cancel">' + esc(cancelLabel) + '</button>' +
+                        '<button class="btn ' + (danger ? 'btn-danger' : 'btn-primary') + ' gh-modal-ok">' + esc(okLabel) + '</button>' +
+                    '</div>' +
+                '</div>';
+            // Attacca dentro #gh per ereditare lo scope CSS.
+            (document.getElementById('gh') || document.body).appendChild(overlay);
+
+            function cleanup(result) {
+                document.removeEventListener('keydown', keyHandler);
+                overlay.remove();
+                resolve(result);
+            }
+            function keyHandler(e) {
+                if (e.key === 'Escape') { e.preventDefault(); cleanup(false); }
+                else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); cleanup(true); }
+            }
+            overlay.querySelector('.gh-modal-ok').addEventListener('click', () => cleanup(true));
+            overlay.querySelector('.gh-modal-cancel').addEventListener('click', () => cleanup(false));
+            overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(false); });
+            document.addEventListener('keydown', keyHandler);
+            // Focus sul bottone primario per abilitare Tab e Enter immediato.
+            setTimeout(() => {
+                const ok = overlay.querySelector('.gh-modal-ok');
+                if (ok) ok.focus();
+            }, 10);
+        });
+    }
+
     // wireDirtyInputs(containerId): su ogni input/textarea/select dentro il
     // container, aggancia markDirty() su input/change (idempotente, safe da
     // chiamare piu volte sullo stesso container).

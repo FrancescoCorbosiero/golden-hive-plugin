@@ -304,6 +304,10 @@
         jobsPreviewCron();
         document.getElementById('jobs-editor').style.display = '';
         jobsSetEditMode('form');
+        if (typeof GH.wireDirtyInputs === 'function') GH.wireDirtyInputs('jobs-editor');
+        if (typeof GH.clearDirty === 'function')      GH.clearDirty();
+        if (typeof GH.registerShortcuts === 'function') GH.registerShortcuts({ close: () => jobsCancelEdit(), save: () => jobsSave() });
+        if (typeof GH.updateHash === 'function')      GH.updateHash('jobs', 'new');
     }
 
     async function jobsEdit(id) {
@@ -321,11 +325,28 @@
         jobsPreviewCron();
         document.getElementById('jobs-editor').style.display = '';
         jobsSetEditMode('form');
+        if (typeof GH.wireDirtyInputs === 'function') GH.wireDirtyInputs('jobs-editor');
+        if (typeof GH.clearDirty === 'function')      GH.clearDirty();
+        if (typeof GH.registerShortcuts === 'function') GH.registerShortcuts({ close: () => jobsCancelEdit(), save: () => jobsSave() });
+        if (typeof GH.updateHash === 'function')      GH.updateHash('jobs', id);
     }
 
     function jobsCancelEdit() {
         editing = null;
         document.getElementById('jobs-editor').style.display = 'none';
+        if (typeof GH.clearShortcuts === 'function') GH.clearShortcuts();
+        if (typeof GH.clearDirty === 'function')     GH.clearDirty();
+        if (typeof GH.updateHash === 'function')     GH.updateHash('jobs');
+    }
+
+    function jobsCopyJSON() {
+        if (!editing) { GH.toast('Nessun job in modifica', 'err'); return; }
+        if (typeof GH.copyJSON === 'function') GH.copyJSON(editing, 'Job');
+    }
+
+    // Deep-link: #/jobs/<id> apre l'editor per quel job.
+    if (typeof GH.registerDeepOpener === 'function') {
+        GH.registerDeepOpener('jobs', (id) => { if (id === 'new') jobsNew(); else jobsEdit(id); });
     }
 
     function jobsSetEditMode(mode) {
@@ -557,6 +578,7 @@
     GH.jobsNew         = jobsNew;
     GH.jobsEdit        = jobsEdit;
     GH.jobsCancelEdit  = jobsCancelEdit;
+    GH.jobsCopyJSON    = jobsCopyJSON;
     GH.jobsSetEditMode = jobsSetEditMode;
     GH.jobsOnKindChange= jobsOnKindChange;
     GH.jobsApplySimple = jobsApplySimple;

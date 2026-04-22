@@ -579,6 +579,34 @@
     GH.jobsEdit        = jobsEdit;
     GH.jobsCancelEdit  = jobsCancelEdit;
     GH.jobsCopyJSON    = jobsCopyJSON;
+
+    // Cross-module hand-off: apri l'editor Jobs pre-popolato con un kind +
+    // params + label. Usato dai feed tab per "Schedula questo feed".
+    GH.jobsNewWithPreset = async function(preset) {
+        preset = preset || {};
+        // Switcha alla tab Jobs
+        const btn = document.querySelector('#gh .tab-item[onclick*="\'jobs\'"]');
+        if (btn) btn.click();
+        // Assicura che la lista kinds sia caricata (jobsReload)
+        if (!Object.keys(kinds).length && typeof jobsReload === 'function') {
+            await jobsReload();
+        }
+        // Apri l'editor "nuovo"
+        jobsNew();
+        // Applica preset
+        if (preset.kind) {
+            const kindSel = document.getElementById('jobs-f-kind');
+            if (kindSel) kindSel.value = preset.kind;
+            renderParamsForm(preset.params || {});
+        }
+        if (preset.label) {
+            document.getElementById('jobs-f-label').value = preset.label;
+        }
+        if (preset.cron) {
+            document.getElementById('jobs-f-cron').value = preset.cron;
+        }
+        GH.toast('Preset applicato: ' + (preset.kind || 'job'), 'ok');
+    };
     GH.jobsSetEditMode = jobsSetEditMode;
     GH.jobsOnKindChange= jobsOnKindChange;
     GH.jobsApplySimple = jobsApplySimple;

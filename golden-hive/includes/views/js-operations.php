@@ -178,6 +178,36 @@
         GH.emCampaignOpenWithProducts(ids);
     };
 
+    // Hand-off Filter ↔ Smart Taxonomy (bidirectional).
+    //
+    // Filter → Smart: GH.saveCurrentFilterAsSmartRule() prende le conditions
+    // attuali e le passa a smartOpenWithConditions.
+    // Smart → Filter: GH.filterLoadConditions(conds) imposta le conditions
+    // nel builder, switcha tab e runna il filter.
+    // Entrambi i moduli usano lo stesso schema (filter/conditions.php).
+    GH.filterLoadConditions = async function(newConditions) {
+        if (!Array.isArray(newConditions)) return;
+        const btn = document.querySelector('#gh .tab-item[onclick*="\'filter\'"]');
+        if (btn) btn.click();
+        // Assicura che filterMeta sia caricato (serve al condition builder).
+        if (!filterMeta) {
+            const r = await GH.ajax('gh_ajax_filter_meta');
+            if (r && r.success) filterMeta = r.data;
+        }
+        conditions = JSON.parse(JSON.stringify(newConditions));
+        renderConditions();
+        await GH.runFilter();
+        GH.toast('Conditions caricate: ' + conditions.length, 'ok');
+    };
+
+    GH.saveCurrentFilterAsSmartRule = async function() {
+        if (!conditions.length) { GH.toast('Nessuna condizione da salvare', 'err'); return; }
+        if (typeof GH.smartOpenWithConditions !== 'function') {
+            GH.toast('Smart Taxonomy non caricato', 'err'); return;
+        }
+        GH.smartOpenWithConditions(conditions);
+    };
+
     // Hand-off ENTRANTE: da Tax Query o altri moduli. Apre Filtra & Agisci
     // con un set di product_ids pre-popolato (bypassa il condition builder).
     // I bulk actions lavorano sul set passato.

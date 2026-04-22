@@ -6,6 +6,8 @@
         <button class="btn btn-ghost" onclick="GH.clearConditions()">&#10005; Reset</button>
         <div class="filter-sep"></div>
         <span class="filter-label" id="filter-count" style="color:var(--grn);font-weight:600;"></span>
+        <div style="flex:1"></div>
+        <button class="btn btn-ghost" onclick="GH.saveCurrentFilterAsSmartRule()" title="Salva le conditions correnti come Smart Rule su un termine tassonomia">&#9876; Salva come Smart Rule</button>
     </div>
 
     <!-- Condition builder -->

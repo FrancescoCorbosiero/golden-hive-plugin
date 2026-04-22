@@ -14,6 +14,13 @@
         brandSchema = r.data.schema || [];
         brandData   = r.data.brand || {};
         renderBrandForm();
+        GH.wireDirtyInputs('em-brand-form');
+        GH.clearDirty();
+        GH.registerShortcuts({ save: () => GH.emBrandSave() });
+    };
+
+    GH.emBrandCopyJSON = function() {
+        GH.copyJSON(brandData || {}, 'Brand');
     };
 
     function renderBrandForm() {
@@ -63,12 +70,13 @@
             const r = await ajax('rp_em_ajax_brand_save', { brand: JSON.stringify(data) });
             if (!r.success) { toast('Errore: ' + r.data, 'err'); return; }
             brandData = r.data.brand || {};
+            GH.clearDirty();
             toast('Brand salvato', 'ok');
         } finally { sp.style.display = 'none'; }
     };
 
     GH.emBrandReset = async function() {
-        if (!confirm('Ripristinare il brand ai valori di default?')) return;
+        if (!await GH.confirm('Ripristinare il brand ai valori di default?\nLe tue impostazioni attuali andranno perse.', { title:'Reset brand', danger:true, okLabel:'Ripristina' })) return;
         const r = await ajax('rp_em_ajax_brand_reset');
         if (!r.success) { toast('Errore', 'err'); return; }
         brandData = r.data.brand || {};
@@ -84,6 +92,8 @@
         if (!r.success) { toast('Errore templates', 'err'); return; }
         templates = r.data || [];
         renderTplList();
+        // Tieni in sync il dropdown della Test Email, se presente.
+        if (typeof GH.emTestPopulateTemplates === 'function') GH.emTestPopulateTemplates();
     };
 
     function renderTplList() {
@@ -113,6 +123,10 @@
         $('em-tpl-list-view').style.display = 'none';
         $('em-tpl-editor-view').style.display = 'flex';
         GH.emTplExtractPlaceholders();
+        GH.wireDirtyInputs('em-tpl-editor-view');
+        GH.clearDirty();
+        GH.registerShortcuts({ close: () => GH.emTplBackToList(), save: () => GH.emTplSave() });
+        GH.updateHash('email-templates', 'new');
     };
 
     GH.emTplEdit = async function(id) {
@@ -127,9 +141,29 @@
         $('em-tpl-list-view').style.display = 'none';
         $('em-tpl-editor-view').style.display = 'flex';
         GH.emTplExtractPlaceholders();
+        GH.wireDirtyInputs('em-tpl-editor-view');
+        GH.clearDirty();
+        GH.registerShortcuts({ close: () => GH.emTplBackToList(), save: () => GH.emTplSave() });
+        GH.updateHash('email-templates', id);
     };
 
-    GH.emTplBackToList = function() { renderTplList(); };
+    GH.emTplBackToList = function() {
+        GH.clearShortcuts();
+        GH.clearDirty();
+        GH.updateHash('email-templates');
+        renderTplList();
+    };
+
+    GH.emTplCopyJSON = function() {
+        if (!editingTpl) { toast('Salva prima', 'err'); return; }
+        GH.copyJSON(editingTpl, 'Template');
+    };
+
+    // Deep-link opener: apri l'editor se l'URL e #/email-templates/<id>
+    GH.registerDeepOpener('email-templates', (id) => {
+        if (id === 'new') return GH.emTplNew();
+        GH.emTplEdit(id);
+    });
 
     GH.emTplSave = async function() {
         const sp = $('em-tpl-save-spin'); sp.style.display = '';
@@ -146,13 +180,15 @@
             editingTpl = r.data;
             $('em-tpl-editor-title').textContent = editingTpl.name;
             $('em-tpl-delete-btn').style.display = '';
+            GH.clearDirty();
+            GH.updateHash('email-templates', editingTpl.id);
             toast('Template salvato', 'ok');
         } finally { sp.style.display = 'none'; }
     };
 
     GH.emTplDelete = async function() {
         if (!editingTpl?.id) return;
-        if (!confirm('Eliminare "' + (editingTpl.name || editingTpl.id) + '"?')) return;
+        if (!await GH.confirm('Eliminare il template "' + (editingTpl.name || editingTpl.id) + '"?\nLe campagne che lo usano smetteranno di validare.', { title:'Elimina template', danger:true, okLabel:'Elimina' })) return;
         const r = await ajax('rp_em_ajax_template_delete', { id: editingTpl.id });
         if (!r.success) { toast('Errore', 'err'); return; }
         toast('Template eliminato', 'ok');
@@ -160,15 +196,88 @@
         GH.emTplLoad();
     };
 
+    // ── TEMPLATE EXPORT (download HTML grezzo / renderizzato demo) ──────
+
+    function downloadText(filename, text, mime) {
+        const blob = new Blob([text], { type: (mime || 'text/html') + ';charset=utf-8' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+        setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+    }
+
+    function slugify(s) {
+        return (s || 'template').toString()
+            .toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+            .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'template';
+    }
+
+    GH.emTplDownloadRaw = function() {
+        const html = $('em-tpl-html').value || '';
+        if (!html) { toast('HTML vuoto', 'err'); return; }
+        const name = $('em-tpl-name').value.trim() || 'template';
+        downloadText(slugify(name) + '.raw.html', html);
+        toast('HTML grezzo scaricato', 'ok');
+    };
+
+    GH.emTplDownloadDemo = async function() {
+        if (!editingTpl?.id) { toast('Salva il template prima di esportarlo con dati demo', 'err'); return; }
+        const sp = $('em-tpl-demo-spin'); if (sp) sp.style.display = '';
+        try {
+            const r = await ajax('rp_em_ajax_template_render_demo', { id: editingTpl.id });
+            if (!r.success) { toast('Errore: ' + (r.data || 'render fallito'), 'err'); return; }
+            const name = editingTpl.name || 'template';
+            downloadText(slugify(name) + '.demo.html', r.data.html || '');
+            const unres = (r.data.unresolved_keys || []).length;
+            toast('HTML demo scaricato' + (unres ? ' (' + unres + ' placeholder non coperti)' : ''), 'ok');
+        } finally { if (sp) sp.style.display = 'none'; }
+    };
+
     let tplTimer = null;
+    let tplAsideMode = 'ph';  // 'ph' | 'preview'
     GH.emTplExtractPlaceholders = function() {
         clearTimeout(tplTimer);
         tplTimer = setTimeout(async () => {
             const html = $('em-tpl-html').value || '';
+            // Sempre aggiorna i placeholder (servono anche quando preview attivo)
             const r = await ajax('rp_em_ajax_template_extract_placeholders', { html });
-            if (!r.success) return;
-            renderTplPlaceholders(r.data.grouped || {});
-        }, 300);
+            if (r.success) renderTplPlaceholders(r.data.grouped || {});
+            // Se la modalita aside e "preview", renderizza anche l'iframe.
+            if (tplAsideMode === 'preview' && editingTpl && editingTpl.id) {
+                refreshTplPreview();
+            }
+        }, 350);
+    };
+
+    async function refreshTplPreview() {
+        if (!editingTpl || !editingTpl.id) return;
+        const iframe = $('em-tpl-preview-iframe');
+        if (!iframe) return;
+        const r = await ajax('rp_em_ajax_template_render_demo', { id: editingTpl.id });
+        if (!r.success) return;
+        iframe.srcdoc = r.data.html || '';
+    }
+
+    GH.emTplSetAsideMode = function(mode) {
+        tplAsideMode = (mode === 'preview') ? 'preview' : 'ph';
+        const body = $('em-tpl-ph-body'), iframe = $('em-tpl-preview-iframe');
+        const tPh = $('em-tpl-tab-ph'), tPv = $('em-tpl-tab-preview');
+        if (tplAsideMode === 'preview') {
+            body.style.display = 'none';
+            iframe.style.display = 'block';
+            tPh.classList.remove('is-active');
+            tPv.classList.add('is-active');
+            if (!editingTpl || !editingTpl.id) {
+                iframe.srcdoc = '<div style="font-family:system-ui;padding:20px;color:#888">Salva il template prima per vedere l\'anteprima live.</div>';
+            } else {
+                refreshTplPreview();
+            }
+        } else {
+            body.style.display = '';
+            iframe.style.display = 'none';
+            tPh.classList.add('is-active');
+            tPv.classList.remove('is-active');
+        }
     };
 
     function renderTplPlaceholders(grouped) {
@@ -190,6 +299,17 @@
     }
 
     // ── TEST + SEED ─────────────────────────────────────────────
+
+    // Inizializza il tab Test Email: popola il dropdown template.
+    // Se la lista e gia in memoria la usa; altrimenti la carica.
+    GH.emTestInit = async function() {
+        if (!templates || !templates.length) {
+            const r = await ajax('rp_em_ajax_template_list');
+            if (r.success) templates = r.data || [];
+        }
+        GH.emTestPopulateTemplates();
+    };
+
     GH.emSendTest = async function() {
         const to = $('em-test-to').value.trim();
         const subject = $('em-test-subject').value.trim();
@@ -201,6 +321,50 @@
             if (r.success) toast(r.data.message || 'Inviata', 'ok');
             else toast('Errore: ' + (r.data || 'invio fallito'), 'err');
         } finally { sp.style.display = 'none'; }
+    };
+
+    // ── TEST: template selector + load with demo values ─────────
+    GH.emTestPopulateTemplates = function() {
+        const sel = $('em-test-template');
+        if (!sel) return;
+        const current = sel.value;
+        sel.innerHTML = '<option value="">&mdash; HTML libero &mdash;</option>' +
+            templates.map(t => '<option value="' + esc(t.id) + '"' + (current === t.id ? ' selected' : '') + '>' + esc(t.name || t.id) + '</option>').join('');
+        // Abilita "Carica" solo se un template e selezionato
+        const btn = $('em-test-load-btn'); if (btn) btn.disabled = !sel.value;
+    };
+
+    GH.emTestOnTemplateChange = function() {
+        const btn = $('em-test-load-btn');
+        const sel = $('em-test-template');
+        if (btn && sel) btn.disabled = !sel.value;
+    };
+
+    GH.emTestLoadTemplate = async function() {
+        const id = $('em-test-template').value;
+        if (!id) { toast('Seleziona un template', 'err'); return; }
+        const sp = $('em-test-load-spin'); if (sp) sp.style.display = '';
+        try {
+            const r = await ajax('rp_em_ajax_template_render_demo', { id });
+            if (!r.success) { toast('Errore: ' + (r.data || 'render fallito'), 'err'); return; }
+            const d = r.data;
+            $('em-test-body').value    = d.html || '';
+            $('em-test-subject').value = d.subject || '';
+            const unres = d.unresolved_keys || [];
+            const box = $('em-test-unresolved');
+            if (box) {
+                if (unres.length) {
+                    box.innerHTML = '<strong>' + unres.length + ' placeholder senza valore demo:</strong> ' +
+                        unres.map(k => '<code>{' + esc(k) + '}</code>').join(' ') +
+                        '<br><em>Sostituiti con marker <code>[KEY]</code> nel body. Modifica il body prima di inviare.</em>';
+                    box.style.display = '';
+                } else {
+                    box.innerHTML = '<strong>&#10003; Tutti i placeholder sono stati risolti con dati demo.</strong>';
+                    box.style.display = '';
+                }
+            }
+            toast('Template caricato con dati demo', 'ok');
+        } finally { if (sp) sp.style.display = 'none'; }
     };
 
     GH.emSeedDemo = async function() {
@@ -303,7 +467,7 @@
     }
 
     GH.emHistoryClear = async function() {
-        if (!confirm('Svuotare completamente lo storico email?')) return;
+        if (!await GH.confirm('Svuotare completamente lo storico email?\nI log storici di test e campagne verranno cancellati (non recuperabili).', { title:'Svuota storico', danger:true, okLabel:'Svuota' })) return;
         const r = await ajax('rp_em_ajax_clear_log');
         if (!r.success) { toast('Errore', 'err'); return; }
         toast('Storico svuotato', 'ok');

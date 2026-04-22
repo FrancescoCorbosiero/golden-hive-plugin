@@ -136,6 +136,27 @@ add_action( 'wp_ajax_{prefix}_ajax_{action}', function () {
 - Sempre `wp_send_json_success/error` — mai `echo` raw.
 - Mai `wp_ajax_nopriv_*` — tutti i plugin sono solo per utenti autenticati.
 
+### Helper canonici per nuovi handler (golden-hive)
+
+Dal Batch 1 del refactor audit-driven, golden-hive espone wrapper che
+collassano il boilerplate sopra. Il pattern sopra resta valido per
+compatibilità (plugin standalone e codice esistente). I nuovi handler
+di golden-hive dovrebbero usare:
+
+```php
+add_action( 'wp_ajax_gh_ajax_my_action', function () {
+    gh_ajax_guard();                              // nonce (gh_ OR rp_em_) + cap
+    $id    = gh_ajax_text( 'id' );
+    $ids   = gh_ajax_int_array( 'product_ids' );
+    $data  = gh_ajax_json( 'payload' );
+    // ...
+    wp_send_json_success( [...] );
+} );
+```
+
+Disponibili anche: `gh_ajax_textarea`, `gh_ajax_key`, `gh_ajax_email`,
+`gh_ajax_int`, `gh_ajax_bool`. Vedi `golden-hive/includes/core/ajax-helpers.php`.
+
 ---
 
 ## PHP — Regole Condivise
@@ -194,6 +215,14 @@ Tutti i plugin condividono lo stesso design system. L'utente deve sentire che so
     --txt: #d8dce8;   /* testo principale */
     --dim: #5f6480;   /* testo secondario, label */
     --mut: #2a2d3a;   /* testo disabilitato, placeholder */
+
+    /* Alpha variants per background muted di chip/badge/hover.
+       Da usare invece di rgba(...) literal per mantenere coerenza. */
+    --acc-10, --acc-15, --acc-30;
+    --grn-10, --grn-15, --grn-30;
+    --red-10, --red-15, --red-30;
+    --amb-15, --amb-30;
+    --pur-15, --pur-30;
 }
 ```
 
@@ -235,6 +264,27 @@ CSS colori: `.ok` → `--grn`, `.err` → `--red`, `.inf` → `--acc`
 }
 @keyframes sp { to { transform: rotate(360deg); } }
 ```
+
+**Card unificata (`.gh-card`)** — base per liste di entita cliccabili:
+```html
+<div class="gh-card gh-card--clickable" onclick="...">content</div>
+<div class="gh-card gh-card--compact">content</div>
+```
+```css
+.gh-card { background: var(--s2); border: 1px solid var(--b1); border-radius: 6px; padding: 12px; }
+.gh-card--clickable:hover { border-color: var(--acc); }
+```
+Sostituisce gradualmente `.rpem-tpl-card`, `.rpem-camp-card`, `.gh-job-card` & co.
+
+**Status chip unificato (`.gh-status`)** — 5 varianti con stesso visual language:
+```html
+<span class="gh-status gh-status--ok">Sent</span>
+<span class="gh-status gh-status--err">Failed</span>
+<span class="gh-status gh-status--warn">Pending</span>
+<span class="gh-status gh-status--info">Scheduled</span>
+<span class="gh-status gh-status--dim">Draft</span>
+```
+Pattern: background 15% alpha del colore target + text del colore pieno + border 30% alpha. Le classi legacy `.em-st-*` / `.st-*` sono repaintate con lo stesso visual (nessun rename HTML richiesto).
 
 **Syntax highlight JSON** — stessa funzione `hl()` in tutti i plugin:
 ```javascript

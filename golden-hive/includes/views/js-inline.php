@@ -94,12 +94,39 @@
             renderHeader();
             renderCurrentTab();
             updateDirtyState();
+            // Cmd/Ctrl+S = Salva, Esc = Chiudi
+            if (typeof GH.registerShortcuts === 'function') {
+                GH.registerShortcuts({ close: () => GH.ieUnload(), save: () => GH.ieSave() });
+            }
+            if (typeof GH.updateHash === 'function') GH.updateHash('inline-editor', String(ie.product.id));
         } finally {
             if (ov) ov.classList.remove('visible');
         }
     };
 
+    // Cross-module hand-off: apri il prodotto corrente come PRODUCT_1_* in un
+    // template email e porta l'HTML renderizzato nella tab Test Email. Se non
+    // viene specificato un template, il backend sceglie il primo che usa
+    // placeholder PRODUCT_1_*.
+    GH.iePreviewInEmail = async function() {
+        if (!ie.product || !ie.product.id) { GH.toast('Carica un prodotto prima', 'err'); return; }
+        const r = await GH.ajaxWithToast('rp_em_ajax_preview_product_in_email',
+            { product_id: ie.product.id },
+            { errPrefix:'Errore preview email', stickyErr:true });
+        if (!r || !r.success) return;
+        const d = r.data || {};
+        const subj = document.getElementById('em-test-subject'); if (subj) subj.value = d.subject || '';
+        const body = document.getElementById('em-test-body');    if (body) body.value = d.html || '';
+        const btn = document.querySelector('#gh .tab-item[onclick*="\'email-test\'"]');
+        if (btn) btn.click();
+        const tname = d.template_name || d.template_id || 'template';
+        GH.toast('Preview pronto con "' + tname + '": inserisci destinatario e invia', 'ok');
+    };
+
     GH.ieUnload = function() {
+        if (typeof GH.clearShortcuts === 'function') GH.clearShortcuts();
+        if (typeof GH.clearDirty === 'function')     GH.clearDirty();
+        if (typeof GH.updateHash === 'function')     GH.updateHash('inline-editor');
         if (Object.keys(ie.dirty).length || Object.keys(ie.varDirty).length) {
             if (!confirm('Modifiche non salvate. Chiudere comunque?')) return;
         }
@@ -325,6 +352,10 @@
         const btn = document.getElementById('btn-ie-var-save');
         if (badge) badge.style.display = hasDirty ? '' : 'none';
         if (btn) btn.disabled = !hasDirty;
+        // Bridge al global dirty-guard (varianti contano come modifiche).
+        if (typeof GH.markDirty === 'function' && typeof GH.clearDirty === 'function') {
+            if (hasDirty || Object.keys(ie.dirty).length) GH.markDirty(); else GH.clearDirty();
+        }
     };
 
     GH.ieVarSave = async function() {
@@ -377,11 +408,31 @@
     };
 
     function updateDirtyState() {
-        const n = Object.keys(ie.dirty).length;
+        const n  = Object.keys(ie.dirty).length;
+        const nv = Object.keys(ie.varDirty || {}).length;
         const badge = document.getElementById('ie-dirty-badge');
         const btn = document.getElementById('btn-ie-save');
         if (badge) badge.style.display = n > 0 ? '' : 'none';
         if (btn) btn.disabled = n === 0;
+        // Bridge al global dirty-guard: se qualsiasi dirty locale, markDirty;
+        // altrimenti clearDirty. Cosi switchTab/beforeunload chiedono conferma.
+        if (typeof GH.markDirty === 'function' && typeof GH.clearDirty === 'function') {
+            if (n > 0 || nv > 0) GH.markDirty(); else GH.clearDirty();
+        }
+    }
+
+    // Copia-prodotto-come-JSON (comoda per debug / riuso in altri strumenti).
+    GH.ieCopyJSON = function() {
+        if (!ie.product) { GH.toast('Carica un prodotto prima', 'err'); return; }
+        const merged = Object.assign({}, ie.product, ie.dirty || {});
+        if (typeof GH.copyJSON === 'function') GH.copyJSON(merged, 'Prodotto');
+    };
+
+    // Deep-link: #/inline-editor/<id|sku>
+    if (typeof GH.registerDeepOpener === 'function') {
+        GH.registerDeepOpener('inline-editor', (idOrSku) => {
+            if (idOrSku && typeof GH.openInlineEditor === 'function') GH.openInlineEditor(idOrSku);
+        });
     }
 
 })();

@@ -116,6 +116,61 @@ add_action( 'wp_ajax_rp_em_ajax_template_extract_placeholders', function () {
     ] );
 } );
 
+add_action( 'wp_ajax_rp_em_ajax_template_render_demo', function () {
+    rp_em_ajax_guard();
+    $id = sanitize_text_field( (string) ( $_POST['id'] ?? '' ) );
+    if ( $id === '' ) wp_send_json_error( 'ID template mancante.' );
+
+    $result = rp_em_render_template_with_demo( $id );
+    if ( $result['html'] === '' ) wp_send_json_error( 'Template non trovato o render vuoto.' );
+    wp_send_json_success( $result );
+} );
+
+// Render template con uno specifico prodotto nello slot PRODUCT_1_*.
+// Se template_id non specificato, usa il primo template che referenzia PRODUCT_1_*.
+// Cross-module: Inline Editor → Email preview.
+add_action( 'wp_ajax_rp_em_ajax_preview_product_in_email', function () {
+    rp_em_ajax_guard();
+    $product_id  = (int) ( $_POST['product_id'] ?? 0 );
+    $template_id = sanitize_text_field( (string) ( $_POST['template_id'] ?? '' ) );
+
+    if ( $product_id <= 0 ) wp_send_json_error( 'Product ID mancante.' );
+
+    if ( $template_id === '' ) {
+        foreach ( rp_em_get_templates() as $t ) {
+            $keys = $t['placeholders_cache'] ?? rp_em_extract_placeholders( (string) ( $t['html'] ?? '' ) );
+            foreach ( $keys as $k ) {
+                if ( rp_em_product_index( $k ) === 1 ) {
+                    $template_id = (string) $t['id'];
+                    break 2;
+                }
+            }
+        }
+    }
+    if ( $template_id === '' ) {
+        wp_send_json_error( 'Nessun template con slot PRODUCT_1_*. Crea o seleziona un template che usi {PRODUCT_1_*}.' );
+    }
+
+    $template = rp_em_get_template( $template_id );
+    if ( ! $template ) wp_send_json_error( 'Template non trovato.' );
+
+    $html = (string) ( $template['html'] ?? '' );
+    $keys = $template['placeholders_cache'] ?? rp_em_extract_placeholders( $html );
+
+    [ $values, $unresolved ] = rp_em_build_demo_values( $keys );
+    // Override PRODUCT_1_* col prodotto reale.
+    $values = array_merge( $values, rp_em_resolve_product_fields( $product_id, 1 ) );
+
+    $rendered = rp_em_render_raw( $html, $values, preserve_recipient: false );
+    wp_send_json_success( [
+        'html'            => $rendered,
+        'subject'         => '[Preview] ' . (string) ( $template['name'] ?? $template_id ),
+        'template_id'     => $template_id,
+        'template_name'   => (string) ( $template['name'] ?? '' ),
+        'unresolved_keys' => $unresolved,
+    ] );
+} );
+
 // ═══ CAMPAIGNS ══════════════════════════════════════════════════════════════
 
 add_action( 'wp_ajax_rp_em_ajax_campaign_list', function () {

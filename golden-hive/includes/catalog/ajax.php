@@ -17,6 +17,13 @@ add_action( 'wp_ajax_rp_cm_ajax_export_roundtrip', function () {
         $filters = json_decode( $raw, true ) ?: [];
     }
 
+    // Subset export: cross-module hand-off da Filtra & Agisci.
+    if ( ! empty( $_POST['include_ids'] ) ) {
+        $filters['include_ids'] = function_exists( 'gh_ajax_int_array' )
+            ? gh_ajax_int_array( 'include_ids' )
+            : array_values( array_filter( array_map( 'intval', (array) json_decode( stripslashes( (string) $_POST['include_ids'] ), true ) ) ) );
+    }
+
     $result = rp_cm_export_roundtrip( $filters );
     wp_send_json_success( $result );
 } );

@@ -6,6 +6,8 @@
         <button class="btn btn-ghost" onclick="GH.clearConditions()">&#10005; Reset</button>
         <div class="filter-sep"></div>
         <span class="filter-label" id="filter-count" style="color:var(--grn);font-weight:600;"></span>
+        <div style="flex:1"></div>
+        <button class="btn btn-ghost" onclick="GH.saveCurrentFilterAsSmartRule()" title="Salva le conditions correnti come Smart Rule su un termine tassonomia">&#9876; Salva come Smart Rule</button>
     </div>
 
     <!-- Condition builder -->
@@ -73,6 +75,8 @@
                 <button class="btn btn-primary" id="btn-bulk-execute" onclick="GH.executeBulk()" disabled>Applica</button>
                 <div class="filter-sep"></div>
                 <button class="btn btn-ghost" id="btn-bulk-json" onclick="GH.openBulkJson()" style="color:var(--pur)" disabled>{ } JSON Editor</button>
+                <button class="btn btn-ghost" onclick="GH.sendFilterSelectionToEmail()" title="Usa la selezione corrente come prodotti di una nuova campagna email">&#9993; Invia a Campagna</button>
+                <button class="btn btn-ghost" onclick="GH.exportFilterSelectionAsRoundtrip()" title="Scarica JSON roundtrip dei prodotti selezionati (sottoinsieme, non l'intero catalogo)">&#8615; Export JSON</button>
                 <span id="bulk-result" style="font-size:11px;color:var(--grn);"></span>
             </div>
         </div>
@@ -167,6 +171,8 @@
             <span id="ie-dirty-badge" class="ie-dirty-badge" style="display:none">&#9679; Non salvato</span>
             <button class="btn btn-primary" id="btn-ie-save" onclick="GH.ieSave()" disabled><span class="spin" id="ie-save-spin" style="display:none"></span> Salva</button>
             <button class="btn btn-ghost" onclick="GH.ieReload()">Ricarica</button>
+            <button class="btn btn-ghost" onclick="GH.ieCopyJSON()" title="Copia il prodotto corrente come JSON (con eventuali modifiche pending)">Copia JSON</button>
+            <button class="btn btn-ghost" onclick="GH.iePreviewInEmail()" title="Renderizza questo prodotto come PRODUCT_1_* in un template email e apri in Test Email">&#9993; Preview email</button>
         </div>
     </div>
 

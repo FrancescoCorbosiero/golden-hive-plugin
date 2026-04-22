@@ -2,7 +2,7 @@
 #gh{all:initial}#gh *,#gh *::before,#gh *::after{box-sizing:border-box;margin:0;padding:0;font-family:'DM Sans',system-ui,sans-serif}
 /* Root: calc the exact remaining space after WP admin bar (32px desktop, 46px mobile).
    Negative margins cancel the padding WP Admin wraps around .wrap / #wpbody-content. */
-#gh{--bg:#0c0d10;--s1:#111317;--s2:#16181d;--s3:#1c1f26;--b1:#232630;--b2:#2e3240;--acc:#3d7fff;--grn:#22c78b;--red:#e85d5d;--amb:#e8a824;--pur:#9b72f5;--txt:#d8dce8;--dim:#5f6480;--mut:#2a2d3a;--mono:'JetBrains Mono','Courier New',monospace;--sans:'DM Sans',system-ui,sans-serif;display:flex;flex-direction:column;height:calc(100vh - 32px);background:var(--bg);color:var(--txt);font-size:13px;margin:-10px -20px -20px -20px;overflow:hidden;box-sizing:border-box}
+#gh{--bg:#0c0d10;--s1:#111317;--s2:#16181d;--s3:#1c1f26;--b1:#232630;--b2:#2e3240;--acc:#3d7fff;--grn:#22c78b;--red:#e85d5d;--amb:#e8a824;--pur:#9b72f5;--txt:#d8dce8;--dim:#5f6480;--mut:#2a2d3a;--acc-10:rgba(61,127,255,.1);--acc-15:rgba(61,127,255,.15);--acc-30:rgba(61,127,255,.3);--grn-10:rgba(34,199,139,.1);--grn-15:rgba(34,199,139,.15);--grn-30:rgba(34,199,139,.3);--red-10:rgba(232,93,93,.1);--red-15:rgba(232,93,93,.15);--red-30:rgba(232,93,93,.3);--amb-15:rgba(232,168,36,.15);--amb-30:rgba(232,168,36,.3);--pur-15:rgba(155,114,245,.15);--pur-30:rgba(155,114,245,.3);--mono:'JetBrains Mono','Courier New',monospace;--sans:'DM Sans',system-ui,sans-serif;display:flex;flex-direction:column;height:calc(100vh - 32px);background:var(--bg);color:var(--txt);font-size:13px;margin:-10px -20px -20px -20px;overflow:hidden;box-sizing:border-box}
 #gh *,#gh *::before,#gh *::after{box-sizing:inherit}
 @media screen and (max-width:782px){#gh{height:calc(100vh - 46px)}}
 
@@ -581,7 +581,7 @@
 
 /* Card */
 #gh .gh-job-card{display:flex;align-items:stretch;background:var(--s2);border:1px solid var(--b1);border-radius:8px;overflow:hidden;transition:border-color .15s,transform .15s}
-#gh .gh-job-card:hover{border-color:var(--b2)}
+#gh .gh-job-card:hover{border-color:var(--acc)}
 #gh .gh-job-card-stripe{width:4px;flex-shrink:0;background:var(--b2)}
 #gh .gh-job-color-grn .gh-job-card-stripe{background:var(--grn)}
 #gh .gh-job-color-blu .gh-job-card-stripe{background:var(--blu,#4aa3ff)}
@@ -700,8 +700,13 @@
 #gh .rpem-tpl-editor-body{display:flex;flex:1;overflow:hidden}
 #gh .rpem-tpl-editor-left{flex:1;display:flex;flex-direction:column;padding:12px;gap:8px;overflow:hidden}
 #gh .rpem-code{font-family:var(--mono);font-size:12px;min-height:250px;flex:1;white-space:pre;line-height:1.5}
-#gh .rpem-tpl-ph-panel{width:280px;flex:0 0 280px;border-left:1px solid var(--b1);background:var(--s1);overflow-y:auto}
-#gh .rpem-tpl-ph-head{padding:12px 16px;font-family:var(--mono);font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--b1)}
+#gh .rpem-tpl-ph-panel{width:320px;flex:0 0 320px;border-left:1px solid var(--b1);background:var(--s1);display:flex;flex-direction:column;overflow:hidden}
+#gh .rpem-tpl-ph-head{display:flex;gap:0;border-bottom:1px solid var(--b1);background:var(--s2);flex-shrink:0}
+#gh .rpem-tpl-tab{flex:1;padding:10px 12px;background:transparent;border:0;border-bottom:2px solid transparent;color:var(--dim);font-family:var(--mono);font-size:10px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;transition:color .15s,border-color .15s}
+#gh .rpem-tpl-tab:hover{color:var(--txt)}
+#gh .rpem-tpl-tab.is-active{color:var(--acc);border-bottom-color:var(--acc)}
+#gh .rpem-tpl-ph-body{flex:1;overflow-y:auto}
+#gh .rpem-tpl-preview-iframe{flex:1;width:100%;border:0;background:#fff;min-height:0}
 #gh .rpem-tpl-ph-body,#gh .rpem-ph-group{padding:8px 12px}
 #gh .rpem-ph-head{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:1px;margin-bottom:6px;display:flex;align-items:center;gap:6px}
 #gh .rpem-ph-head span{background:var(--s3);padding:1px 5px;border-radius:3px;font-size:9px}
@@ -731,11 +736,15 @@
 #gh .rpem-camp-name{font-family:var(--sans);font-size:14px;font-weight:600;color:var(--txt)}
 #gh .rpem-camp-card-subj{font-family:var(--sans);font-size:12px;color:var(--dim);margin-bottom:8px}
 #gh .rpem-camp-card-meta{display:flex;flex-wrap:wrap;gap:8px;font-family:var(--mono);font-size:10px;color:var(--dim)}
-#gh .em-st{font-family:var(--mono);font-size:10px;padding:2px 6px;border-radius:3px;background:var(--s3);color:var(--txt)}
-#gh .em-st-sent{background:var(--grn);color:#000}
-#gh .em-st-failed{background:var(--red);color:#fff}
-#gh .em-st-scheduled{background:var(--acc);color:#fff}
-#gh .em-st-sending{background:var(--amb);color:#000}
+/* Status chip legacy — refitted per matchare .gh-status (stesso visual
+   language: bg muted + text colorato + border muted, invece dei fondi
+   solidi originali che urlavano troppo). Non tocca il markup. */
+#gh .em-st{font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:3px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;border:1px solid var(--b1);background:var(--s3);color:var(--dim)}
+#gh .em-st-sent{background:var(--grn-15);color:var(--grn);border-color:var(--grn-30)}
+#gh .em-st-failed{background:var(--red-15);color:var(--red);border-color:var(--red-30)}
+#gh .em-st-scheduled{background:var(--acc-15);color:var(--acc);border-color:var(--acc-30)}
+#gh .em-st-sending{background:var(--amb-15);color:var(--amb);border-color:var(--amb-30)}
+#gh .em-st-draft{background:var(--s3);color:var(--dim);border-color:var(--b1)}
 #gh .rpem-wizard{display:flex;flex-direction:column;flex:1;overflow:hidden}
 #gh .rpem-wizard-body{display:flex;flex:1;overflow:hidden}
 #gh .rpem-wizard-left{flex:1;padding:12px;overflow-y:auto;display:flex;flex-direction:column;gap:12px}
@@ -781,5 +790,109 @@
 #gh .rpem-h-failed .rpem-h-status{color:var(--red)}
 #gh .rpem-h-type,#gh .rpem-h-date,#gh .rpem-ct-src{color:var(--dim)}
 
-@media(max-width:768px){#gh .tabs-col{width:48px}#gh .tab-label,#gh .tab-section{display:none}#gh .tab-item{justify-content:center;padding:10px 8px}#gh .summary-grid{grid-template-columns:repeat(2,1fr)}#gh .tax-detail{display:none!important}#gh .mp-mapper-layout{flex-direction:column}#gh .mp-col-source,#gh .mp-col-target{width:100%;max-height:150px;border-right:none;border-bottom:1px solid var(--b1)}#gh .mp-col-target{border-left:none;border-top:1px solid var(--b1);border-bottom:none}#gh .em-row{grid-template-columns:1fr 70px;gap:6px}#gh .em-row .em-time,#gh .em-row .em-type{display:none}#gh .em-hint{padding-left:0}#gh .rpem-tpl-ph-panel,#gh .rpem-wizard-preview{display:none}}
+/* ═══ UNIFIED COMPONENTS ══════════════════════════════════════════════════
+   Base classes per nuovi componenti (card, status chip). Le classi legacy
+   (.rpem-tpl-card, .gh-job-card, .em-st-*) possono migrare progressivamente. */
+
+/* Card base — sostituisce .rpem-tpl-card / .rpem-camp-card / .rpem-trx-card /
+   .gh-job-card che duplicavano tutti la stessa struttura. */
+#gh .gh-card{background:var(--s2);border:1px solid var(--b1);border-radius:6px;padding:12px;transition:border-color .15s,transform .15s}
+#gh .gh-card:hover{border-color:var(--b2)}
+#gh .gh-card--clickable{cursor:pointer}
+#gh .gh-card--clickable:hover{border-color:var(--acc)}
+#gh .gh-card--compact{padding:8px 10px;border-radius:4px}
+
+/* Status chip — sostituisce .em-st-* / .st-* / .gh-job-chip-*. 5 varianti. */
+#gh .gh-status{display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;padding:2px 7px;border-radius:3px;border:1px solid transparent;white-space:nowrap}
+#gh .gh-status--ok{background:var(--grn-15);color:var(--grn);border-color:var(--grn-30)}
+#gh .gh-status--err{background:var(--red-15);color:var(--red);border-color:var(--red-30)}
+#gh .gh-status--warn{background:var(--amb-15);color:var(--amb);border-color:var(--amb-30)}
+#gh .gh-status--info{background:var(--acc-15);color:var(--acc);border-color:var(--acc-30)}
+#gh .gh-status--dim{background:var(--s3);color:var(--dim);border-color:var(--b1)}
+
+/* Toast sticky — errore persistente con bottone di dismiss. Usato da
+   GH.toast(msg, 'err', 0) per messaggi di lunga durata (import falliti ecc). */
+#gh .toast.toast-sticky{padding-right:36px;position:relative;animation:none;border-width:1px}
+#gh .toast-x{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:transparent;border:0;color:inherit;font-size:18px;line-height:1;cursor:pointer;padding:2px 6px;opacity:.7}
+#gh .toast-x:hover{opacity:1}
+
+/* Modal confirm — sostituisce confirm() nativo. Usato da GH.confirm(msg, opts). */
+#gh .gh-modal-overlay{position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;padding:20px;animation:gh-mfade .12s ease}
+#gh .gh-modal{background:var(--s1);border:1px solid var(--b1);border-radius:8px;max-width:440px;width:100%;padding:20px;display:flex;flex-direction:column;gap:12px;box-shadow:0 20px 60px rgba(0,0,0,.5);animation:gh-mslide .15s ease}
+#gh .gh-modal-title{font-family:var(--mono);font-size:10px;letter-spacing:.15em;color:var(--dim);text-transform:uppercase}
+#gh .gh-modal-body{font-family:var(--sans);font-size:13px;color:var(--txt);line-height:1.55}
+#gh .gh-modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:4px}
+@keyframes gh-mfade{from{opacity:0}to{opacity:1}}
+@keyframes gh-mslide{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+@media(max-width:768px){
+    /* ── Sidebar tabs: shrink to icon-only ─────────────────────────── */
+    #gh .tabs-col{width:48px}
+    #gh .tab-label,#gh .tab-section{display:none}
+    #gh .tab-item{justify-content:center;padding:10px 8px}
+
+    /* ── Toolbars: compact padding, always wrap ───────────────────── */
+    #gh .toolbar{padding:8px 12px;gap:8px}
+    #gh .filter-sep{display:none}
+
+    /* ── Tap targets: bump .btn a ~36px su mobile. Non tocca la dimensione
+          del font (text piu grande non serve, serve l'area clickabile). */
+    #gh .btn{padding:10px 14px;font-size:11px;min-height:34px}
+
+    /* ── cfg-row: stack label above input, full width ─────────────── */
+    /* Usato in: brand form, templates, campaigns, transactional,
+       test email, mapper rules. Su mobile tiene tutto in colonna. */
+    #gh .cfg-row{flex-direction:column;align-items:stretch;gap:6px}
+    #gh .cfg-row .cfg-label{min-width:0;padding:0}
+    #gh .cfg-row .cfg-input,#gh .cfg-row .cfg-select{width:100%}
+    /* Eccezione: se il cfg-row contiene un datetime-local o input piccolo
+       accoppiato a un pulsante, lasciamo wrappare senza forzare column */
+    #gh .rpem-product-search{flex-wrap:wrap}
+
+    /* ── Transazionali: head in colonna ───────────────────────────── */
+    #gh .rpem-trx-head{flex-direction:column;align-items:stretch;gap:8px}
+    #gh .rpem-trx-toggle{align-self:flex-start}
+
+    /* ── Brand form: stack code key sotto l'input ─────────────────── */
+    #gh .rpem-brand-key{margin-left:0;margin-top:4px;align-self:flex-start}
+
+    /* ── Template editor: stack HTML sopra e placeholder panel
+          sotto. La regola legacy nascondeva il panel; lo manteniamo
+          visibile ma inline, cosi l'utente vede cosa sta usando. */
+    #gh .rpem-tpl-editor-body{flex-direction:column}
+    #gh .rpem-tpl-ph-panel{width:100%;flex:0 0 auto;max-height:40vh;border-left:none;border-top:1px solid var(--b1)}
+    #gh .rpem-tpl-editor-left{padding:10px 12px}
+    #gh .rpem-code{min-height:180px}
+    #gh .rpem-tpl-preview-iframe{min-height:200px}
+
+    /* ── Campaign wizard: nasconde preview (gia fatto) + stack body ── */
+    #gh .rpem-wizard-body{flex-direction:column}
+    #gh .rpem-wizard-left{flex:0 0 auto;padding:10px 12px}
+    #gh .rpem-wizard-preview{display:none}
+
+    /* ── Mapper: column layout ────────────────────────────────────── */
+    #gh .mp-mapper-layout{flex-direction:column}
+    #gh .mp-col-source,#gh .mp-col-target{width:100%;max-height:150px;border-right:none;border-bottom:1px solid var(--b1)}
+    #gh .mp-col-target{border-left:none;border-top:1px solid var(--b1);border-bottom:none}
+
+    /* ── Inline Editor / altre tab con summary-grid ───────────────── */
+    #gh .summary-grid{grid-template-columns:repeat(2,1fr)}
+    #gh .tax-detail{display:none!important}
+
+    /* ── Email history / contacts row compacted ───────────────────── */
+    #gh .em-row{grid-template-columns:1fr 70px;gap:6px}
+    #gh .em-row .em-time,#gh .em-row .em-type{display:none}
+    #gh .em-hint{padding-left:0}
+
+    /* ── em-list e rpem-h-row: consenti wrap invece di forzare tutto
+          su una sola riga (molti pannelli lo usavano: history, contacts). */
+    #gh .rpem-h-row,#gh .rpem-ct-row{flex-wrap:wrap;gap:6px}
+    #gh .em-list{overflow-x:auto}
+
+    /* ── Test email unresolved box: spezza word-break ──────────────── */
+    #gh #em-test-unresolved{word-break:break-all}
+
+    /* ── Stats bars: wrap invece di scorrere off-screen ───────────── */
+    #gh .stats-bar{flex-wrap:wrap}
+}
 </style>

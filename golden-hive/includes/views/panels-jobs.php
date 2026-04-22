@@ -47,6 +47,7 @@ defined( 'ABSPATH' ) || exit;
             <div style="display:flex;gap:4px">
                 <button class="btn btn-ghost" id="jobs-edit-mode-form" onclick="GH.jobsSetEditMode('form')"  style="border-color:var(--acc)">Form</button>
                 <button class="btn btn-ghost" id="jobs-edit-mode-code" onclick="GH.jobsSetEditMode('code')">Code (JSON)</button>
+                <button class="btn btn-ghost" onclick="GH.jobsCopyJSON()" title="Copia il job come JSON (debug / backup)">Copia JSON</button>
             </div>
         </div>
 

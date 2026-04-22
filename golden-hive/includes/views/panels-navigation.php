@@ -69,6 +69,7 @@
         <div class="stat" style="margin-left:auto">
             <button class="btn btn-ghost" onclick="GH.tqSelectAll()">Seleziona tutti</button>
             <button class="btn btn-ghost" onclick="GH.tqSelectNone()">Deseleziona</button>
+            <button class="btn btn-ghost" onclick="GH.tqSendToBulk()" title="Risolvi i termini selezionati nei loro prodotti e aprili in Filtra &amp; Agisci per bulk actions">&#9999; Invia a Bulk &rarr;</button>
             <button class="btn btn-primary" onclick="GH.tqSendToNav()" title="Apri Navigazione con i termini selezionati">Invia a Navigazione &rarr;</button>
         </div>
     </div>

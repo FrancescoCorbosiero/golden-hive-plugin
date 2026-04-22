@@ -33,6 +33,13 @@ add_action( 'wp_ajax_gh_ajax_filter_products', function () {
         'order'    => strtoupper( sanitize_key( $_POST['order'] ?? 'ASC' ) ) === 'DESC' ? 'DESC' : 'ASC',
     ];
 
+    // Hand-off da Tax Query / altre fonti: limita al set specificato.
+    if ( ! empty( $_POST['include_ids'] ) ) {
+        $options['include_ids'] = function_exists( 'gh_ajax_int_array' )
+            ? gh_ajax_int_array( 'include_ids' )
+            : array_values( array_filter( array_map( 'intval', (array) json_decode( stripslashes( (string) $_POST['include_ids'] ), true ) ) ) );
+    }
+
     $result = gh_filter_products( $conditions, $options );
 
     wp_send_json_success( $result );

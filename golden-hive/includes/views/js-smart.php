@@ -143,6 +143,7 @@
         h += '<div style="display:flex;gap:6px;margin-top:12px;align-items:center">';
         h += '<button class="btn btn-ghost" onclick="GH.smartPreview()"><span class="spin" id="sr-preview-spin" style="display:none"></span> Anteprima</button>';
         h += '<span id="sr-preview-count" style="font-family:var(--mono);font-size:11px;color:var(--grn)"></span>';
+        h += '<button class="btn btn-ghost" onclick="GH.smartOpenInFilter()" title="Apri queste conditions in Filtra & Agisci (per modificare o bulk-editare i prodotti che matchano)">&#8644; Apri in Filter</button>';
         h += '<div class="filter-sep"></div>';
         h += '<button class="btn btn-primary" onclick="GH.smartSave()">Salva regola</button>';
         h += '<button class="btn btn-ghost" onclick="GH.smartCancelEdit()">Annulla</button>';
@@ -289,6 +290,48 @@
     GH.smartCancelEdit = function() {
         srEditing = false;
         renderSmartRule();
+    };
+
+    // Hand-off Smart → Filter: porta le conditions correnti al condition
+    // builder di Filtra & Agisci. L'utente puo poi modificarle / applicare
+    // bulk actions sui prodotti che matchano.
+    GH.smartOpenInFilter = function() {
+        const src = srEditing ? srConditions : (srRule?.conditions || []);
+        if (!src.length) { GH.toast('Nessuna condizione disponibile', 'err'); return; }
+        if (typeof GH.filterLoadConditions !== 'function') {
+            GH.toast('Filtra & Agisci non caricato', 'err'); return;
+        }
+        GH.filterLoadConditions(src);
+    };
+
+    // Hand-off Filter → Smart: accetta un elenco di conditions e apre
+    // l'editor. Richiede un termine gia selezionato in Tassonomie
+    // (altrimenti l'utente deve sceglierne uno prima).
+    GH.smartOpenWithConditions = function(newConditions) {
+        if (!Array.isArray(newConditions) || !newConditions.length) {
+            GH.toast('Nessuna condizione da caricare', 'err'); return;
+        }
+        // Switcha a Tassonomie e chiede di selezionare un termine target.
+        const btn = document.querySelector('#gh .tab-item[onclick*="\'taxonomy\'"]');
+        if (btn) btn.click();
+        GH.toast('Seleziona il termine target, poi ri-clicca "Salva come Smart Rule"', 'ok', 5000);
+        // Memo: salva le conditions in staging — quando l'utente selezionera
+        // un termine, smart.js le caricara via hook.
+        window._ghSmartPendingConditions = newConditions;
+    };
+
+    // Quando un termine viene selezionato, applica eventuali conditions pending.
+    const _origLoadRule = loadSmartRuleForTerm;
+    loadSmartRuleForTerm = async function(termId) {
+        await _origLoadRule(termId);
+        const pending = window._ghSmartPendingConditions;
+        if (Array.isArray(pending) && pending.length) {
+            srConditions = JSON.parse(JSON.stringify(pending));
+            srEditing = true;
+            renderSmartRule();
+            delete window._ghSmartPendingConditions;
+            GH.toast('Conditions caricate dal Filter: ' + srConditions.length, 'ok');
+        }
     };
 
     GH.smartDelete = async function() {

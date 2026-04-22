@@ -304,6 +304,10 @@
         jobsPreviewCron();
         document.getElementById('jobs-editor').style.display = '';
         jobsSetEditMode('form');
+        if (typeof GH.wireDirtyInputs === 'function') GH.wireDirtyInputs('jobs-editor');
+        if (typeof GH.clearDirty === 'function')      GH.clearDirty();
+        if (typeof GH.registerShortcuts === 'function') GH.registerShortcuts({ close: () => jobsCancelEdit(), save: () => jobsSave() });
+        if (typeof GH.updateHash === 'function')      GH.updateHash('jobs', 'new');
     }
 
     async function jobsEdit(id) {
@@ -321,11 +325,28 @@
         jobsPreviewCron();
         document.getElementById('jobs-editor').style.display = '';
         jobsSetEditMode('form');
+        if (typeof GH.wireDirtyInputs === 'function') GH.wireDirtyInputs('jobs-editor');
+        if (typeof GH.clearDirty === 'function')      GH.clearDirty();
+        if (typeof GH.registerShortcuts === 'function') GH.registerShortcuts({ close: () => jobsCancelEdit(), save: () => jobsSave() });
+        if (typeof GH.updateHash === 'function')      GH.updateHash('jobs', id);
     }
 
     function jobsCancelEdit() {
         editing = null;
         document.getElementById('jobs-editor').style.display = 'none';
+        if (typeof GH.clearShortcuts === 'function') GH.clearShortcuts();
+        if (typeof GH.clearDirty === 'function')     GH.clearDirty();
+        if (typeof GH.updateHash === 'function')     GH.updateHash('jobs');
+    }
+
+    function jobsCopyJSON() {
+        if (!editing) { GH.toast('Nessun job in modifica', 'err'); return; }
+        if (typeof GH.copyJSON === 'function') GH.copyJSON(editing, 'Job');
+    }
+
+    // Deep-link: #/jobs/<id> apre l'editor per quel job.
+    if (typeof GH.registerDeepOpener === 'function') {
+        GH.registerDeepOpener('jobs', (id) => { if (id === 'new') jobsNew(); else jobsEdit(id); });
     }
 
     function jobsSetEditMode(mode) {
@@ -557,6 +578,35 @@
     GH.jobsNew         = jobsNew;
     GH.jobsEdit        = jobsEdit;
     GH.jobsCancelEdit  = jobsCancelEdit;
+    GH.jobsCopyJSON    = jobsCopyJSON;
+
+    // Cross-module hand-off: apri l'editor Jobs pre-popolato con un kind +
+    // params + label. Usato dai feed tab per "Schedula questo feed".
+    GH.jobsNewWithPreset = async function(preset) {
+        preset = preset || {};
+        // Switcha alla tab Jobs
+        const btn = document.querySelector('#gh .tab-item[onclick*="\'jobs\'"]');
+        if (btn) btn.click();
+        // Assicura che la lista kinds sia caricata (jobsReload)
+        if (!Object.keys(kinds).length && typeof jobsReload === 'function') {
+            await jobsReload();
+        }
+        // Apri l'editor "nuovo"
+        jobsNew();
+        // Applica preset
+        if (preset.kind) {
+            const kindSel = document.getElementById('jobs-f-kind');
+            if (kindSel) kindSel.value = preset.kind;
+            renderParamsForm(preset.params || {});
+        }
+        if (preset.label) {
+            document.getElementById('jobs-f-label').value = preset.label;
+        }
+        if (preset.cron) {
+            document.getElementById('jobs-f-cron').value = preset.cron;
+        }
+        GH.toast('Preset applicato: ' + (preset.kind || 'job'), 'ok');
+    };
     GH.jobsSetEditMode = jobsSetEditMode;
     GH.jobsOnKindChange= jobsOnKindChange;
     GH.jobsApplySimple = jobsApplySimple;

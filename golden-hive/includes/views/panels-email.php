@@ -5,6 +5,7 @@
         <div class="filter-sep"></div>
         <button class="btn btn-primary" onclick="GH.emBrandSave()"><span class="spin" id="em-brand-save-spin" style="display:none"></span> Salva</button>
         <button class="btn btn-ghost" onclick="GH.emBrandLoad()">Ricarica</button>
+        <button class="btn btn-ghost" onclick="GH.emBrandCopyJSON()" title="Copia la config brand come JSON">Copia JSON</button>
         <button class="btn btn-danger" onclick="GH.emBrandReset()" title="Ripristina ai valori di default">Reset defaults</button>
     </div>
     <div class="rpem-brand-form" id="em-brand-form">
@@ -38,6 +39,9 @@
             <div class="filter-sep"></div>
             <span class="filter-label" id="em-tpl-editor-title">Nuovo template</span>
             <div style="flex:1"></div>
+            <button class="btn btn-ghost" onclick="GH.emTplCopyJSON()" title="Copia il template come JSON (debug / backup)">Copia JSON</button>
+            <button class="btn btn-ghost" onclick="GH.emTplDownloadRaw()" title="Scarica HTML grezzo con placeholder">Scarica grezzo</button>
+            <button class="btn btn-ghost" onclick="GH.emTplDownloadDemo()" title="Scarica HTML renderizzato con dati demo"><span class="spin" id="em-tpl-demo-spin" style="display:none"></span> Scarica demo</button>
             <button class="btn btn-ghost" id="em-tpl-delete-btn" onclick="GH.emTplDelete()" style="color:var(--red);display:none">Elimina</button>
             <button class="btn btn-primary" onclick="GH.emTplSave()"><span class="spin" id="em-tpl-save-spin" style="display:none"></span> Salva</button>
         </div>
@@ -55,10 +59,14 @@
                 </div>
             </div>
             <aside class="rpem-tpl-ph-panel">
-                <div class="rpem-tpl-ph-head">Placeholder estratti</div>
-                <div class="rpem-tpl-ph-body" id="em-tpl-ph-body">
-                    <div class="em-hint">Scrivi HTML con placeholder <code>{BRAND_*}</code>, <code>{CAMPAIGN_*}</code>, <code>{PRODUCT_N_*}</code>, <code>{RECIPIENT_*}</code>, <code>{META_*}</code>.</div>
+                <div class="rpem-tpl-ph-head">
+                    <button class="rpem-tpl-tab is-active" id="em-tpl-tab-ph" onclick="GH.emTplSetAsideMode('ph')">Placeholder</button>
+                    <button class="rpem-tpl-tab" id="em-tpl-tab-preview" onclick="GH.emTplSetAsideMode('preview')">Anteprima live</button>
                 </div>
+                <div class="rpem-tpl-ph-body" id="em-tpl-ph-body">
+                    <div class="em-hint">Scrivi HTML con placeholder <code>{BRAND_*}</code>, <code>{CAMPAIGN_*}</code>, <code>{PRODUCT_N_*}</code>, <code>{ORDER_*}</code>, <code>{RECIPIENT_*}</code>, <code>{META_*}</code>.</div>
+                </div>
+                <iframe id="em-tpl-preview-iframe" class="rpem-tpl-preview-iframe" sandbox="allow-same-origin" title="Anteprima live" style="display:none"></iframe>
             </aside>
         </div>
     </div>
@@ -86,6 +94,7 @@
             <div class="filter-sep"></div>
             <span class="filter-label" id="em-camp-wizard-title">Nuova campagna</span>
             <div style="flex:1"></div>
+            <button class="btn btn-ghost" onclick="GH.emCampaignCopyJSON()" title="Copia la campagna come JSON (debug / backup)">Copia JSON</button>
             <button class="btn btn-ghost" id="em-camp-delete-btn" onclick="GH.emCampaignDelete()" style="color:var(--red);display:none">Elimina</button>
             <button class="btn btn-ghost" onclick="GH.emCampaignValidate()"><span class="spin" id="em-camp-validate-spin" style="display:none"></span> Valida</button>
             <button class="btn btn-primary" onclick="GH.emCampaignSave()"><span class="spin" id="em-camp-save-spin" style="display:none"></span> Salva</button>
@@ -187,6 +196,7 @@
                     <span>Anteprima</span>
                     <span id="em-camp-preview-subject" class="rpem-preview-subject"></span>
                     <div style="flex:1"></div>
+                    <button class="btn btn-ghost" onclick="GH.emCampaignSendPreviewAsTest()" title="Porta l'HTML renderizzato nella tab Test Email per inviartelo">&#9993; Test da qui</button>
                     <button class="btn btn-ghost" onclick="GH.emCampaignPreview()"><span class="spin" id="em-camp-preview-spin" style="display:none"></span> Refresh</button>
                 </div>
                 <iframe id="em-camp-preview-frame" class="rpem-preview-frame" sandbox="allow-same-origin" title="Preview campagna"></iframe>
@@ -274,10 +284,23 @@
         <button class="btn btn-primary" id="em-test-btn" onclick="GH.emSendTest()"><span class="spin" id="em-test-spin" style="display:none"></span> Invia test</button>
     </div>
     <div class="em-form">
+        <div class="cfg-row">
+            <span class="cfg-label">Template</span>
+            <select class="cfg-select" id="em-test-template" onchange="GH.emTestOnTemplateChange()">
+                <option value="">&mdash; HTML libero &mdash;</option>
+            </select>
+            <button class="btn btn-ghost" onclick="GH.emTestLoadTemplate()" id="em-test-load-btn" disabled><span class="spin" id="em-test-load-spin" style="display:none"></span> Carica con dati demo</button>
+        </div>
         <div class="cfg-row"><span class="cfg-label">A</span><input class="cfg-input" id="em-test-to" type="email" placeholder="destinatario@example.com" /></div>
         <div class="cfg-row"><span class="cfg-label">Oggetto</span><input class="cfg-input" id="em-test-subject" placeholder="(opzionale)" /></div>
         <div class="cfg-row em-row-stretch"><span class="cfg-label">HTML</span><textarea class="cfg-input em-textarea" id="em-test-body" placeholder="(opzionale: usa template di default)"></textarea></div>
-        <div class="em-hint">Invio diretto via <strong>wp_mail()</strong> &rarr; WP Mail SMTP &rarr; AWS SES. Nessun placeholder, nessun rendering.</div>
+        <div class="em-hint">
+            Invio diretto via <strong>wp_mail()</strong> &rarr; WP Mail SMTP &rarr; AWS SES.
+            Se selezioni un template, <em>Carica con dati demo</em> renderizza
+            BRAND + META + valori euristici per CAMPAIGN/PRODUCT/ORDER (ultimo
+            ordine reale) e popola il body qui sotto. Da li puoi modificare e inviare.
+        </div>
+        <div id="em-test-unresolved" class="em-hint" style="display:none"></div>
     </div>
 
     <div class="toolbar" style="margin-top:24px">

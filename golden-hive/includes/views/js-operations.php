@@ -165,6 +165,111 @@
     }
     function getSelectedIds() { return Array.from(selectedIds); }
 
+    // ── HAND-OFF: selezione corrente → altre tab ────────────────
+    // Pattern analogo a Tax Query → Navigazione: niente storage,
+    // passo gli ID direttamente al dispatcher della tab target.
+
+    GH.sendFilterSelectionToEmail = function() {
+        const ids = getSelectedIds();
+        if (!ids.length) { GH.toast('Nessun prodotto selezionato', 'err'); return; }
+        if (typeof GH.emCampaignOpenWithProducts !== 'function') {
+            GH.toast('Modulo Email non caricato', 'err'); return;
+        }
+        GH.emCampaignOpenWithProducts(ids);
+    };
+
+    // Hand-off Filter ↔ Smart Taxonomy (bidirectional).
+    //
+    // Filter → Smart: GH.saveCurrentFilterAsSmartRule() prende le conditions
+    // attuali e le passa a smartOpenWithConditions.
+    // Smart → Filter: GH.filterLoadConditions(conds) imposta le conditions
+    // nel builder, switcha tab e runna il filter.
+    // Entrambi i moduli usano lo stesso schema (filter/conditions.php).
+    GH.filterLoadConditions = async function(newConditions) {
+        if (!Array.isArray(newConditions)) return;
+        const btn = document.querySelector('#gh .tab-item[onclick*="\'filter\'"]');
+        if (btn) btn.click();
+        // Assicura che filterMeta sia caricato (serve al condition builder).
+        if (!filterMeta) {
+            const r = await GH.ajax('gh_ajax_filter_meta');
+            if (r && r.success) filterMeta = r.data;
+        }
+        conditions = JSON.parse(JSON.stringify(newConditions));
+        renderConditions();
+        await GH.runFilter();
+        GH.toast('Conditions caricate: ' + conditions.length, 'ok');
+    };
+
+    GH.saveCurrentFilterAsSmartRule = async function() {
+        if (!conditions.length) { GH.toast('Nessuna condizione da salvare', 'err'); return; }
+        if (typeof GH.smartOpenWithConditions !== 'function') {
+            GH.toast('Smart Taxonomy non caricato', 'err'); return;
+        }
+        GH.smartOpenWithConditions(conditions);
+    };
+
+    // Hand-off ENTRANTE: da Tax Query o altri moduli. Apre Filtra & Agisci
+    // con un set di product_ids pre-popolato (bypassa il condition builder).
+    // I bulk actions lavorano sul set passato.
+    GH.openBulkOnProducts = async function(productIds, label = '') {
+        if (!Array.isArray(productIds) || !productIds.length) {
+            GH.toast('Nessun prodotto da caricare', 'err'); return;
+        }
+        // Switcha alla tab Filtra & Agisci
+        const btn = document.querySelector('#gh .tab-item[onclick*="\'filter\'"]');
+        if (btn) btn.click();
+        // Esegue una query include_ids → popola la tabella con esattamente
+        // questi prodotti. Nessuna condizione del condition-builder.
+        const r = await GH.ajax('gh_ajax_filter_products', {
+            conditions: '[]',
+            include_ids: JSON.stringify(productIds),
+            per_page: Math.max(50, productIds.length),
+            page: 1,
+        });
+        if (!r || !r.success) { GH.toast('Errore caricamento set', 'err'); return; }
+        filterMeta = filterMeta || {};
+        filteredProducts = r.data.products || [];
+        filteredIds = r.data.product_ids || [];
+        renderFilterResults(r.data);
+        // Seleziona tutti i prodotti caricati (il caller voleva agire su TUTTI).
+        selectedIds = new Set(filteredIds);
+        updateSelectionCount();
+        if (label) GH.toast(label + ': ' + filteredIds.length + ' prodotti pronti', 'ok');
+    };
+
+    // Subset export: prende selectedIds, chiama rp_cm_ajax_export_roundtrip
+    // con include_ids, scarica il JSON come file.
+    GH.exportFilterSelectionAsRoundtrip = async function() {
+        const ids = getSelectedIds();
+        if (!ids.length) { GH.toast('Nessun prodotto selezionato', 'err'); return; }
+        GH.toast('Building roundtrip JSON...', 'ok', 2000);
+        const r = await GH.ajax('rp_cm_ajax_export_roundtrip', {
+            filters: '{}',
+            include_ids: JSON.stringify(ids),
+        });
+        if (!r || !r.success) { GH.toast('Errore export', 'err'); return; }
+        const json = JSON.stringify(r.data, null, 2);
+        const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+        a.href = url; a.download = 'roundtrip-subset-' + ids.length + '-' + stamp + '.json';
+        document.body.appendChild(a); a.click();
+        setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+        GH.toast('Export di ' + ids.length + ' prodotti scaricato', 'ok');
+    };
+
+    GH.sendFilterSelectionToBulkJob = function() {
+        // Scorciatoia "Invia a Jobs" — aggiunge solo se sei sopra soglia
+        // (evita di andare in tab Jobs per 2 prodotti).
+        const ids = getSelectedIds();
+        if (!ids.length) { GH.toast('Nessun prodotto selezionato', 'err'); return; }
+        // Forza il toggle "esegui come job" + switch + focus bulk select
+        const cb = document.getElementById('bulk-as-job'); if (cb) cb.checked = true;
+        document.getElementById('bulk-action-select').focus();
+        GH.toast('Toggle "esegui come job" attivato — scegli l\'azione', 'ok');
+    };
+
     // ── RENDER RESULTS TABLE ────────────────────────────────────
     function renderFilterResults(data) {
         const area = document.getElementById('filter-results-area');

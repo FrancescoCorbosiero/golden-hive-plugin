@@ -550,7 +550,10 @@
             h += '<td>' + (schedLabels[f.schedule] || f.schedule) + '</td>';
             h += '<td style="font-size:10px">' + lastRun + '</td>';
             h += '<td class="' + statusCls + '">' + lastStatus + '</td>';
-            h += '<td><button class="btn btn-ghost" onclick="event.stopPropagation();GH.csvRunFeedFromList(\'' + f.id + '\',this)">&#9654; Run</button></td>';
+            h += '<td>' +
+                '<button class="btn btn-ghost" onclick="event.stopPropagation();GH.csvRunFeedFromList(\'' + f.id + '\',this)">&#9654; Run</button> ' +
+                '<button class="btn btn-ghost" onclick="event.stopPropagation();GH.csvScheduleFeed(\'' + f.id + '\',\'' + esc(f.name || f.id) + '\')" title="Schedula questo feed come job ricorrente">&#9202; Schedula</button>' +
+                '</td>';
             h += '</tr>';
         }
         h += '</tbody></table>';
@@ -910,6 +913,26 @@
             toast(s.created + ' creati, ' + s.updated + ' aggiornati', s.errors ? 'err' : 'ok', 5000);
         } catch (e) { toast('Errore', 'err'); }
         finally { ov.classList.remove('visible'); sp.style.display = 'none'; }
+    }
+
+    // Cross-module hand-off: schedula un CSV feed come job ricorrente.
+    // Apre la tab Jobs con l'editor pre-popolato (kind=csv_feed, feed_id=X).
+    // L'utente deve ancora scegliere il cron e cliccare Salva.
+    async function csvScheduleFeed(feedId, feedName) {
+        if (typeof GH.jobsNewWithPreset !== 'function') {
+            GH.toast('Jobs non caricato', 'err'); return;
+        }
+        await GH.jobsNewWithPreset({
+            kind:   'csv_feed',
+            label:  'CSV Feed · ' + (feedName || feedId),
+            cron:   '0 6 * * *',   // default: 6am ogni giorno
+            params: {
+                feed_id: feedId,
+                create_new: true,
+                update_existing: true,
+                sideload_images: false,
+            },
+        });
     }
 
     async function csvRunFeedFromList(feedId, btn) {
@@ -1334,5 +1357,5 @@
         await dispatchReimport('sf', cfg, skus, overwriteMedia, 'sf-reimport-status');
     }
 
-    return{ajax,toast,esc,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,gsPriceModeChange,gsReimportDispatch,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,sfMarkupModeChange,sfReimportDispatch,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog,nucPreview,nucExecute,feedCleanup};
+    return{ajax,ajaxWithToast,toast,esc,emptyState,statusChip,confirm:ghConfirm,markDirty,clearDirty,isDirty,registerShortcuts,clearShortcuts,registerDeepOpener,updateHash,copyJSON,copyToClipboard,wireDirtyInputs,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,gsPriceModeChange,gsReimportDispatch,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,sfMarkupModeChange,sfReimportDispatch,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvScheduleFeed,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog,nucPreview,nucExecute,feedCleanup};
 })();

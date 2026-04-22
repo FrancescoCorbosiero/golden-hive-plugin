@@ -35,66 +35,76 @@ golden-hive/
 ├── golden-hive.php              ← Entry point. Solo require_once.
 ├── CLAUDE.md                    ← Questo file.
 └── includes/
+    ├── core/                    ← Foundation helpers riutilizzabili (prefix: gh_)
+    │   ├── product-factory.php  ← gh_create_simple_product, gh_create_variable_product
+    │   ├── option-store.php     ← gh_option_list_all/_find/_upsert/_remove (CRUD generico wp_options-as-list)
+    │   ├── ajax-helpers.php     ← gh_ajax_guard + gh_ajax_{text,textarea,key,email,int,bool,json,int_array}
+    │   └── ui-helpers.php       ← gh_empty_state, gh_status_chip (HTML snippet standardizzati)
     ├── product/                 ← Da rp-product-manager (prefix: rp_) + Inline Editor AJAX (prefix: gh_)
     │   ├── crud.php             ← rp_get_product, rp_create_product, rp_update_product, rp_delete_product
     │   ├── variations.php       ← rp_search_products, rp_get_product_variations, rp_update_variation, rp_bulk_update_variations
     │   └── ajax.php             ← gh_ajax_product_search, _load, _save, _variations_save
-    ├── core/
-    │   └── product-factory.php  ← gh_create_simple_product, gh_create_variable_product
     ├── catalog/                 ← Da rp-catalog-manager (prefix: rp_cm_)
-    │   ├── reader.php           ← rp_cm_get_all_products, rp_cm_get_product_variants, rp_cm_get_product_categories, ...
-    │   ├── aggregator.php       ← rp_cm_aggregate_product, rp_cm_extract_sizes, rp_cm_calculate_pricing, ...
+    │   ├── reader.php           ← rp_cm_get_all_products (accetta filters[include_ids] per subset export)
+    │   ├── aggregator.php       ← rp_cm_aggregate_product, rp_cm_extract_sizes, rp_cm_calculate_pricing
     │   ├── tree-builder.php     ← rp_cm_build_tree, rp_cm_get_product_tree_path
     │   ├── exporter.php         ← rp_cm_export_catalog, rp_cm_export_roundtrip
     │   ├── importer.php         ← rp_cm_import_preview, rp_cm_import_apply
-    │   ├── taxonomy-manager.php ← rp_cm_get_taxonomy_tree, rp_cm_create_category, rp_cm_assign_product_categories, ...
+    │   ├── taxonomy-manager.php ← rp_cm_get_taxonomy_tree, rp_cm_create_category, rp_cm_assign_product_categories
     │   ├── taxonomy-query.php   ← rp_cm_query_taxonomies (filter/sort/top-N), rp_cm_get_products_for_terms
+    │   ├── smart-taxonomy.php   ← gh_smart_* (regole condizionali, STESSO schema conditions di Filter)
     │   ├── bulk-creator.php     ← rp_cm_bulk_preview, rp_cm_bulk_apply
-    │   └── ajax.php             ← AJAX bridge per catalogo/tassonomia
-    ├── navigation/              ← NUOVO (prefix: gh_nav_)
+    │   └── ajax.php             ← AJAX bridge (export_roundtrip supporta include_ids)
+    ├── navigation/              ← (prefix: gh_nav_)
     │   ├── manager.php          ← gh_nav_get_menus, _get_menu_items, _upsert_item, _populate_from_terms, _clear_managed_children
-    │   └── ajax.php             ← gh_ajax_taxonomy_query, gh_ajax_nav_{menus,items,populate,clear_managed,delete_item}
-    ├── media/                   ← Da rp-media-cleaner (prefix: rp_mc_)
-    │   ├── scanner.php           ← rp_mm_build_usage_map, _get_orphan_attachments, _build_attachment_data_batch
-    │   ├── browser.php          ← gh_media_build_usage_index (cached), gh_media_query, _safe_cleanup_preview
-    │   ├── library.php          ← rp_mm_set_product_featured_image, _set_product_gallery, _get_attachment_usage
-    │   ├── whitelist.php, cleaner.php
-    │   └── ajax.php             ← gh_ajax_media_query, _query_ids, _safe_cleanup_preview, _bulk_whitelist, ...
-    ├── feeds/                   ← Da rp-rest-caller (prefix: rp_rc_)
-    │   ├── http-client.php, response-parser.php, saved-endpoints.php, feed-goldensneakers.php
+    │   └── ajax.php             ← gh_ajax_taxonomy_query, gh_ajax_products_for_terms (hand-off TaxQuery→Bulk), gh_ajax_nav_{...}
+    ├── media/                   ← Da rp-media-cleaner (prefix: rp_mc_ / rp_mm_)
+    │   ├── scanner.php, browser.php, library.php, whitelist.php, cleaner.php
+    │   └── ajax.php              ← include rp_mm_ajax_set_featured (usato da hand-off Media row → Featured)
+    ├── feeds/                   ← Da rp-rest-caller (prefix: rp_rc_ / gh_*)
+    │   ├── http-client.php, response-parser.php, saved-endpoints.php
+    │   ├── feed-goldensneakers.php, feed-stockfirmati.php, feed-csv.php
+    │   ├── csv-presets.php, feed-config-engine.php, media-preimport.php
+    │   ├── scheduler.php, reimport.php
     │   └── ajax.php
-    ├── filter/                  ← NUOVO (prefix: gh_)
-    │   ├── conditions.php       ← gh_get_condition_definitions, gh_evaluate_condition (18 tipi)
-    │   ├── query-engine.php     ← gh_filter_products, gh_filter_product_ids, gh_get_filter_meta
-    │   └── ajax.php             ← gh_ajax_filter_*, gh_ajax_inline_update, gh_ajax_product_detail
-    ├── bulk/                    ← NUOVO (prefix: gh_)
-    │   ├── actions.php          ← gh_execute_bulk_action (13 azioni: taxonomy, status, price, stock, SEO, order)
-    │   ├── sorter.php           ← gh_sort_products, gh_sort_preview (11 regole di ordinamento)
-    │   └── ajax.php             ← gh_ajax_bulk_*, gh_ajax_sort_*
-    ├── email/                   ← Multi-layer template system (prefix: rp_em_)
-    │   ├── placeholders.php     ← rp_em_extract_placeholders, _extract_namespace (BRAND|CAMPAIGN|PRODUCT|RECIPIENT|META)
-    │   ├── brand.php            ← rp_em_get_brand, _save_brand (single-row wp_option), _get_brand_schema
-    │   ├── templates.php        ← rp_em_get_templates, _save_template, _list_templates, _install_demo_template
+    ├── jobs/                    ← Scheduler unificato (prefix: gh_jobs_)
+    │   ├── cron-expr.php, registry.php, storage.php, log.php, runner.php, migrate.php
+    │   ├── handlers-feeds.php   ← job kinds: csv_feed, config_feed
+    │   ├── handlers-ops.php
+    │   └── ajax.php
+    ├── filter/                  ← (prefix: gh_)
+    │   ├── conditions.php       ← gh_get_condition_definitions, gh_evaluate_condition (19 tipi)
+    │   ├── query-engine.php     ← gh_filter_products (options[include_ids] bypassa condition builder), gh_filter_product_ids
+    │   └── ajax.php             ← gh_ajax_filter_* (supporta include_ids per subset/hand-off)
+    ├── bulk/                    ← (prefix: gh_)
+    │   ├── actions.php, sorter.php, ajax.php
+    ├── mapper/                  ← Visual field mapper (prefix: gh_mp_)
+    │   ├── engine.php, storage.php, ajax.php
+    ├── email/                   ← Multi-layer email + transactional (prefix: rp_em_)
+    │   ├── placeholders.php     ← _extract_namespace (BRAND|CAMPAIGN|PRODUCT|ORDER|RECIPIENT|META), _order_item_{index,field}
+    │   ├── brand.php            ← rp_em_get_brand/_save_brand/_reset_brand
+    │   ├── templates.php        ← CRUD templates + _install_demo_template / _install_weekend_2products_template / _install_order_shipped_template + auto-install admin_init
     │   ├── renderer.php         ← rp_em_render_campaign, _render_raw, _merge_layers, _resolve_product_fields
-    │   ├── validator.php        ← rp_em_validate_campaign (MISSING_VALUE, NAMESPACE_VIOLATION, UNSUBSTITUTED, INVALID_HEX, EMPTY_URL)
-    │   ├── campaigns.php        ← rp_em_get_campaigns, _save_campaign, _schedule_campaign, _execute_campaign, _build_campaign_payload
-    │   ├── contacts.php         ← rp_em_get_hustle_subscribers, rp_em_parse_csv_contacts, rp_em_merge_contacts
-    │   ├── mailer.php           ← rp_em_send_test_email, rp_em_send_campaign_rendered (riceve HTML gia renderizzato)
-    │   ├── log.php              ← rp_em_log_email, _get_email_log, _email_log_stats
-    │   ├── _seed/               ← Demo template + brand defaults + campaign payload + seeder
-    │   └── ajax.php             ← rp_em_ajax_*
+    │   ├── validator.php        ← rp_em_validate_campaign (ORDER_* in campaign template → NAMESPACE_VIOLATION)
+    │   ├── campaigns.php        ← CRUD campagne + _schedule_campaign + _execute_campaign + cron handler
+    │   ├── contacts.php         ← rp_em_get_hustle_subscribers, rp_em_parse_csv_contacts
+    │   ├── mailer.php           ← rp_em_send_test_email, rp_em_send_campaign_rendered
+    │   ├── log.php              ← rp_em_log_email (type: test | campaign | transactional)
+    │   ├── order-resolver.php   ← rp_em_resolve_order_fields: WC order → ORDER_* map (40+ campi + ORDER_ITEM_N_*)
+    │   ├── transactional.php    ← Event-driven: _transactional_events, _get/save_binding, _render/fire_transactional + hook WP/Woo
+    │   ├── order-meta-box.php   ← WC order screen (legacy + HPOS): form tracking + "Salva & invia notifica"
+    │   ├── demo-render.php      ← _render_template_with_demo + _build_demo_values (euristica per CAMPAIGN_*)
+    │   ├── _seed/               ← demo-template, weekend-2products, order-shipped, seeder
+    │   ├── ajax.php             ← rp_em_ajax_* (campaigns/templates/brand/test/demo render/preview-product-in-email)
+    │   └── transactional-ajax.php ← rp_em_ajax_trx_list/_save/_test_fire, rp_em_ajax_save_tracking (metabox)
+    ├── tools/
+    │   ├── nuclear-cleanup.php, ajax.php
     ├── views/
-    │   ├── css.php              ← Design system completo (dark theme)
-    │   ├── panels.php           ← Pannelli: taxonomy, media library, whitelist, feeds, import, tools
-    │   ├── panels-operations.php← Pannelli: filtra & agisci, inline editor, ordinamento
-    │   ├── panels-navigation.php← Pannelli: tax-query, navigation (WP nav menus)
-    │   ├── js.php               ← GH module IIFE (core functions, ajax, toast)
-    │   ├── js2.php              ← GH module (whitelist, feeds, roundtrip, return public API)
-    │   ├── js-operations.php    ← Filter/bulk JS (conditions builder, inline edit, selection, sorting)
-    │   ├── js-inline.php        ← Inline Editor (search, form, JSON, variations, dirty save)
-    │   ├── js-navigation.php    ← Tax Query + Navigation Manager (GH.tq*, GH.nav*)
-    │   └── js-media.php         ← Media Library (query, filters, bulk ops, Safe Cleanup)
-    └── admin-page.php           ← add_menu_page + render con sidebar tab
+    │   ├── css.php              ← Design system + .gh-card + .gh-status-* unified + color alpha tokens + @media mobile
+    │   ├── panels*.php          ← panels, panels-operations, panels-navigation, panels-mapper, panels-jobs, panels-email
+    │   ├── js.php + js2.php     ← GH module IIFE: ajax, ajaxWithToast, toast (sticky), confirm, emptyState, statusChip, markDirty/clearDirty/isDirty, registerShortcuts, registerDeepOpener, updateHash, copyJSON, copyToClipboard, wireDirtyInputs, switchTab (hash-aware)
+    │   └── js-*.php             ← js-operations, js-inline, js-smart, js-navigation, js-media, js-mapper, js-jobs, js-email, js-email-campaigns, js-email-transactional
+    └── admin-page.php           ← add_menu_page + sidebar a tab
 ```
 
 ---
@@ -372,20 +382,34 @@ Sistema di template email con placeholder namespaced in 5 layer. Il brand e
 globale (il plugin gira dentro un sito brandizzato — una sola config per sito,
 non multi-tenant).
 
-### 5 namespace di placeholder
+### 6 namespace di placeholder
 
 Regex unica: `/\{([A-Z][A-Z0-9_]*)\}/`. Tutto UPPERCASE.
 
-| Namespace   | Sorgente                         | Esempio                    |
-|-------------|----------------------------------|----------------------------|
-| `BRAND_*`   | `wp_option['rp_em_brand']`       | `{BRAND_LOGO_URL}`         |
-| `CAMPAIGN_*`| payload della campagna           | `{CAMPAIGN_HERO_TITLE}`    |
-| `PRODUCT_N_*`| `product_ids` in ordine → WC    | `{PRODUCT_1_PRICE}`        |
-| `RECIPIENT_*`| ESP merge-tag (letterale nell'HTML) | `{RECIPIENT_FIRST_NAME}` |
-| `META_*`    | auto: YEAR, DATE, DATETIME        | `{META_YEAR}`              |
+| Namespace     | Sorgente                                     | Esempio                       | Contesto       |
+|---------------|----------------------------------------------|-------------------------------|----------------|
+| `BRAND_*`     | `wp_option['rp_em_brand']`                   | `{BRAND_LOGO_URL}`            | tutti          |
+| `CAMPAIGN_*`  | payload della campagna (wizard)              | `{CAMPAIGN_HERO_TITLE}`       | campaigns      |
+| `PRODUCT_N_*` | `product_ids` → WC (risolto dal renderer)    | `{PRODUCT_1_PRICE}`           | campaigns      |
+| `ORDER_*`     | WC order via `rp_em_resolve_order_fields`    | `{ORDER_TRACKING_CODE}`       | transazionali  |
+| `RECIPIENT_*` | ESP merge-tag (letterale per campaigns)      | `{RECIPIENT_FIRST_NAME}`      | tutti          |
+| `META_*`      | auto: YEAR, DATE, DATETIME                   | `{META_YEAR}`                 | tutti          |
 
-I `{RECIPIENT_*}` NON vengono sostituiti dal renderer: restano letterali e
-l'ESP (WP Mail SMTP → SES) li sostituisce per destinatario al send-time.
+I `{RECIPIENT_*}` restano **letterali** nei rendering delle campagne
+(sostituiti dall'ESP per-destinatario al send-time). Nei rendering
+transazionali invece vengono sostituiti direttamente — il destinatario
+e noto (il cliente dell'ordine).
+
+**Validator strict:** il validator campagne flagga `ORDER_*` in un
+template campagna come `NAMESPACE_VIOLATION` (gli ORDER vanno nei
+template transazionali, non nelle campagne marketing) e viceversa.
+
+**ORDER_* fields** (vedi `order-resolver.php` per la lista completa):
+- Top-level: `ORDER_NUMBER`, `ORDER_DATE`, `ORDER_STATUS_LABEL`, `ORDER_URL`, `ORDER_TOTAL`, `ORDER_SUBTOTAL`, `ORDER_SHIPPING_TOTAL`, `ORDER_PAYMENT_METHOD`
+- Customer: `ORDER_CUSTOMER_{FIRST,LAST,FULL}_NAME`, `_EMAIL`, `_PHONE`
+- Billing/Shipping: `ORDER_{BILLING,SHIPPING}_{FIRST_NAME, ADDRESS_1, CITY, POSTCODE, STATE, COUNTRY, FULL_ADDRESS}`
+- Shipment: `ORDER_TRACKING_CODE`, `ORDER_TRACKING_URL`, `ORDER_CARRIER`, `ORDER_SHIPPING_METHOD`
+- Line items: `ORDER_ITEM_N_{NAME, SIZE, COLOR, SKU, QUANTITY, PRICE, SUBTOTAL, TOTAL, IMAGE_URL, URL, VARIATION_LABEL}`
 
 ### Flusso render
 
@@ -417,7 +441,7 @@ render_campaign(id):
 
 ### Tab UI in sidebar
 
-EMAIL: Brand / Templates / Campagne (wizard 6-step) / Contatti / Test Email / Storico.
+EMAIL: Brand / Templates / Campagne (wizard 6-step) / **Transazionali** / Contatti / Test Email / Storico.
 
 ### Smoke test
 
@@ -427,11 +451,274 @@ Poi tab Campagne → apri la campagna demo → Valida → Preview → Invia test
 
 ---
 
+## Core — Foundation Helpers
+
+Utility in `includes/core/` riutilizzabili da ogni modulo. Additive: il
+codice esistente non e stato migrato (guard `function_exists()`), ma i
+moduli nuovi dovrebbero usarli di default.
+
+### `option-store.php` — CRUD generico per wp_options-as-list
+
+Sostituisce il pattern `get_option → validate → loop → update_option`
+duplicato in 7+ moduli (brand, templates, campaigns, transactional,
+jobs storage, mapper storage, saved-endpoints, whitelist).
+
+```php
+gh_option_list_all( $key );                    // sempre array
+gh_option_list_find( $key, $id, $id_key='id' );
+gh_option_list_upsert( $key, $data, $id_key='id', $id_prefix='tpl_', ?callable $sanitize=null, $timestamps=true );
+gh_option_list_remove( $key, $id, $id_key='id' );
+gh_option_list_replace( $key, $items );
+```
+
+Gestisce automaticamente `created_at`/`updated_at`, ID generator con
+prefix, sanitize callback opzionale.
+
+### `ajax-helpers.php` — Guard + input sanitization canonici
+
+```php
+gh_ajax_guard( $cap='manage_woocommerce' );    // nonce (gh_nonce OR rp_em_nonce) + capability, 403 su fail
+gh_ajax_text( $key, $default='' );
+gh_ajax_textarea( $key, $default='' );
+gh_ajax_key( $key, $default='' );
+gh_ajax_email( $key, $default='' );            // '' se invalida
+gh_ajax_int( $key, $default=0 );
+gh_ajax_bool( $key );                          // truthy: '1', 'true', 'on', non-empty
+gh_ajax_json( $key, $default=[] );             // JSON → array, [] se malformato
+gh_ajax_int_array( $key );                     // accetta JSON/CSV/array, dedupe, positivi
+```
+
+### `ui-helpers.php` — HTML snippet standardizzati
+
+```php
+gh_empty_state( $icon, $text, $extraClass='' );   // icon non escaped, text escaped
+gh_status_chip( $label, $variant='dim' );         // 'ok'|'err'|'warn'|'info'|'dim'
+```
+
+---
+
+## UX Infrastructure — GH module API (js.php + js2.php)
+
+Foundation JS riutilizzabile da tutti i tab. Esposta via il module IIFE
+come `GH.xxx`.
+
+### AJAX + feedback
+
+```javascript
+GH.ajax(action, body)                          // raw, ritorna { success, data }
+GH.ajaxWithToast(action, body, { okMsg, errPrefix, stickyErr })
+                                               // wrapper con toast automatico su error
+GH.toast(msg, type='ok', ms=3000)              // ms<=0 = sticky con X dismiss
+```
+
+### Dirty tracking + unsaved-changes guard
+
+```javascript
+GH.markDirty()       // setta flag, switchTab chiedera conferma
+GH.clearDirty()      // reset (chiamalo dopo save)
+GH.isDirty()         // lettura
+GH.wireDirtyInputs(containerId)  // idempotente: aggancia markDirty a ogni input/textarea/select
+```
+
+`switchTab` consulta `isDirty()` e mostra `GH.confirm(...)`.
+`window.beforeunload` warna su refresh/chiusura scheda se dirty.
+
+### Keyboard shortcuts + hash router
+
+```javascript
+GH.registerShortcuts({ close: ()=>{...}, save: ()=>{...} })
+                     // Esc→close, Cmd/Ctrl+S→save. Clear su switchTab.
+GH.clearShortcuts()
+GH.registerDeepOpener(tabName, (entityId) => {...})
+                     // #/<tab>/<id> apre l'entita al load/hashchange
+GH.updateHash(tab, entityId?)   // aggiorna URL senza reload
+```
+
+`/` (slash) focus sulla prima search/filter input del pannello attivo
+(handler globale in js.php).
+
+### Modal + clipboard
+
+```javascript
+GH.confirm(msg, { title, okLabel, cancelLabel, danger })  // Promise<bool>
+GH.copyJSON(data, label='JSON')         // stringify + clipboard + toast
+GH.copyToClipboard(text)                // Promise (fallback execCommand)
+```
+
+### UI snippet
+
+```javascript
+GH.emptyState(icon, text, extraClass)
+GH.statusChip(label, variant)           // 'ok'|'err'|'warn'|'info'|'dim'
+```
+
+### Convenzioni editor wiring
+
+Pattern consolidato (applicato a Template / Campaign wizard / Brand
+form / Jobs editor / Inline Editor):
+
+```javascript
+// On open:
+GH.wireDirtyInputs(containerId);
+GH.clearDirty();
+GH.registerShortcuts({ close: () => backToList(), save: () => save() });
+GH.updateHash(tabName, entityId);
+GH.registerDeepOpener(tabName, (id) => openEntity(id));  // 1x a init
+
+// On save success:
+GH.clearDirty();
+GH.updateHash(tabName, entity.id);
+
+// On close/cancel:
+GH.clearShortcuts();
+GH.clearDirty();
+GH.updateHash(tabName);
+```
+
+Altri editor (Mapper, Transactional bindings) NON sono ancora wirati —
+aggiungibili in 3-4 righe seguendo lo stesso pattern.
+
+---
+
+## Email — Transactional Layer
+
+Parallelo alle campagne marketing. Dove le campagne inviano a una lista
+con contenuti uguali, i transazionali inviano a un singolo destinatario
+in risposta a un evento ordine, con placeholder `{ORDER_*}` risolti
+dall'ordine specifico.
+
+### Event registry — `transactional.php`
+
+Hook WP/Woo auto-registrati al `init` priority 5. 5 eventi out-of-box:
+
+| Slug              | Hook                                     | Descrizione                                        |
+|-------------------|------------------------------------------|----------------------------------------------------|
+| `order_processing`| `woocommerce_order_status_processing`    | Pagamento ricevuto, ordine preso in carico          |
+| `order_completed` | `woocommerce_order_status_completed`     | Ordine completato (Woo default per "shipped")       |
+| `order_shipped`   | `rp_em_order_shipped` (custom)           | Fired dal metabox quando il tracking viene salvato  |
+| `order_cancelled` | `woocommerce_order_status_cancelled`     | Cancellato da admin o cliente                       |
+| `order_refunded`  | `woocommerce_order_status_refunded`      | Rimborso totale/parziale                            |
+
+### Storage — `wp_option['rp_em_transactional']`
+
+```php
+[
+  'order_shipped' => [
+    'enabled'     => true,
+    'template_id' => 'tpl_xxx',
+    'subject'     => 'Il tuo ordine {ORDER_NUMBER} e in viaggio',
+    'preheader'   => 'Traccia la spedizione {ORDER_CARRIER} in tempo reale',
+  ],
+  ...
+]
+```
+
+Subject e preheader supportano anche `{BRAND_*}` / `{META_*}` oltre che
+`{ORDER_*}`.
+
+### Flusso fire
+
+```
+woocommerce_order_status_shipped (hook) → rp_em_fire_transactional('order_shipped', $order_id):
+  binding = rp_em_get_transactional_binding('order_shipped')
+  if ! binding.enabled || template_id vuoto → skip
+  render = rp_em_render_transactional(event, order_id):
+      brand  + meta + order_fields (via rp_em_resolve_order_fields)
+      → rp_em_render_raw(template.html, values, preserve_recipient=false)
+  wp_mail( order.customer_email, subject, html ) → rp_em_log_email( type='transactional' )
+```
+
+### Metabox WC order edit screen — `order-meta-box.php`
+
+Registra su entrambi gli screen (`shop_order` legacy + `woocommerce_page_wc-orders`
+HPOS). Form con carrier selector (DHL/BRT/SDA/Poste/UPS/FedEx/…), tracking code,
+tracking URL. Due bottoni:
+- **Salva solo** — persiste `_rp_em_tracking_{code,url,carrier}` sull'order meta
+- **Salva & invia notifica** — salva meta + chiama `rp_em_fire_transactional('order_shipped', $order_id)` direttamente (non via `do_action` per evitare double-send)
+
+Il metabox mostra un warning giallo se il binding `order_shipped` non e attivo.
+
+### Admin UI — tab Transazionali
+
+Lista eventi con toggle attivo, template selector, subject/preheader editabili,
+bottone "Rendi & invia" per test su un order ID reale.
+
+---
+
+## Cross-Module Hand-Off Map
+
+Pattern "Invia a X": un tab risolve i suoi dati nativi (prodotti, termini,
+preview HTML, ordini) e li passa al tab target via metodi `GH.*` pubblici.
+Niente storage persistente — solo passaggio in-memory.
+
+| Sorgente               | Target                 | Trigger                                              | Meccanismo                                                        |
+|------------------------|------------------------|------------------------------------------------------|-------------------------------------------------------------------|
+| Filter selection       | Campaign wizard        | "✉ Invia a Campagna" button                          | `GH.emCampaignOpenWithProducts(ids)`                              |
+| Filter selection       | Roundtrip JSON export  | "↓ Export JSON" button                               | `rp_cm_ajax_export_roundtrip` con `include_ids`                   |
+| Filter conditions      | Smart Taxonomy rule    | "Salva come Smart Rule"                              | `GH.smartOpenWithConditions(conds)` + staging in termine selez.    |
+| Smart Rule conditions  | Filter builder         | "⇄ Apri in Filter"                                   | `GH.filterLoadConditions(conds)` + auto-run                       |
+| Tax Query selection    | Navigation populator   | "Invia a Navigazione →"                              | `GH.tqSendToNav()` + `navPreviewTerms`                            |
+| Tax Query selection    | Bulk on products       | "✎ Invia a Bulk →"                                   | `gh_ajax_products_for_terms` → `GH.openBulkOnProducts(ids)`       |
+| Inline Editor product  | Email test body        | "✉ Preview email" button                             | `rp_em_ajax_preview_product_in_email` → Test Email body           |
+| Campaign preview       | Test Email body        | "✉ Test da qui" button                               | in-memory `lastPreview` → Test Email fields                       |
+| Media Library row      | Product featured image | "✦ Feat." button                                     | `prompt(SKU/ID)` → `rp_mm_ajax_set_featured`                      |
+| CSV Feed row           | Jobs scheduler         | "⏱ Schedula" button                                  | `GH.jobsNewWithPreset({ kind:'csv_feed', params:{feed_id} })`     |
+
+**Regola di design:** il tab target espone una funzione `GH.xxxOpenWith*(data)`
+che accetta i dati, switcha tab, apre editor, popola state. Il tab sorgente
+non conosce i dettagli del target — chiama solo la funzione esposta.
+
+---
+
+## Unified Visual Components
+
+### `.gh-card` — base class per card cliccabili
+
+```html
+<div class="gh-card gh-card--clickable" onclick="...">...</div>
+<div class="gh-card gh-card--compact">...</div>
+```
+
+Sostituira progressivamente `.rpem-tpl-card`, `.rpem-camp-card`,
+`.rpem-trx-card`, `.gh-job-card` (che oggi hanno stile identico dopo
+l'hover-consistency pass del Batch 5).
+
+### `.gh-status` — chip di stato unificato
+
+```html
+<span class="gh-status gh-status--ok">Sent</span>
+<span class="gh-status gh-status--err">Failed</span>
+<span class="gh-status gh-status--warn">Pending</span>
+<span class="gh-status gh-status--info">Scheduled</span>
+<span class="gh-status gh-status--dim">Draft</span>
+```
+
+Le classi legacy `.em-st-*` e `.st-*` sono repaintate per matchare lo
+stesso visual language (background 15% alpha + colored text + border
+30% alpha) — nessun rename HTML necessario.
+
+### Color alpha tokens
+
+```css
+--acc-10, --acc-15, --acc-30    /* --acc al 10%/15%/30% alpha */
+--grn-10, --grn-15, --grn-30
+--red-10, --red-15, --red-30
+--amb-15, --amb-30
+--pur-15, --pur-30
+```
+
+Da usare invece di literal `rgba(...)` per mantenere coerenza con la palette.
+
+---
+
 ## Regole di Sviluppo per Claude Code
 
-1. **Prefix corretto:** `gh_` per moduli nuovi (filter, bulk), prefix originale per moduli mergiati.
-2. **Nonce:** `gh_nonce` per tutti gli AJAX di golden-hive.
+1. **Prefix corretto:** `gh_` per moduli nuovi (filter, bulk, jobs, mapper, core), prefix originale per moduli mergiati (rp_, rp_cm_, rp_em_, rp_mm_).
+2. **Nonce:** `gh_nonce` per tutti gli AJAX di golden-hive. `gh_ajax_guard()` accetta anche `rp_em_nonce` per coesistenza.
 3. **CSS scopato sotto `#gh`** — mai stili globali.
-4. **JS estende GH** — i moduli aggiuntivi (js-operations.php) aggiungono metodi a `GH` dall'esterno.
-5. **Mobile responsive** — il titolare usa lo strumento da telefono.
+4. **JS estende GH** — i moduli aggiuntivi (js-operations, js-email, ...) aggiungono metodi a `GH` dall'esterno e usano gli helper del Batch 1-2.
+5. **Mobile responsive** — il titolare usa lo strumento da telefono. Tutto deve collassare in flex-column sotto 768px.
 6. **Double-load guard** obbligatoria su ogni file condiviso con plugin standalone.
+7. **Editor wiring standard:** nuovi editor agganciano `GH.wireDirtyInputs + registerShortcuts + updateHash + registerDeepOpener` (vedi section "Convenzioni editor wiring").
+8. **Cross-module hand-offs:** espongono `GH.xxxOpenWith*(data)` sul tab target; il sorgente non conosce i dettagli del target.
+9. **Helper core:** moduli nuovi preferiscono `gh_option_list_*` / `gh_ajax_guard` / `gh_ajax_*` invece di re-inline del boilerplate. Il codice esistente stabile non viene migrato.

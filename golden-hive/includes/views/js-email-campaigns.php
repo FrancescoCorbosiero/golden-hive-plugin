@@ -48,6 +48,33 @@
         openWizard('Nuova campagna', false);
     };
 
+    // Hand-off entry: apre il wizard in modalita nuova con product_ids pre-popolati.
+    // Chiamato da Filtra & Agisci (GH.sendFilterSelectionToEmail) o altre sorgenti.
+    GH.emCampaignOpenWithProducts = async function(productIds) {
+        if (!Array.isArray(productIds) || !productIds.length) {
+            toast('Nessun prodotto passato', 'err'); return;
+        }
+        // Carica la lista template se non in memoria (serve per il select)
+        if (!tplIndex.length) {
+            const rt = await ajax('rp_em_ajax_template_list');
+            tplIndex = rt.success ? (rt.data || []) : [];
+        }
+        // Switcha alla tab Campagne
+        const btn = document.querySelector('#gh .tab-item[onclick*="\'email-campaigns\'"]');
+        if (btn) btn.click();
+        // Apri wizard con product_ids pre-popolati
+        editing = {
+            id:'', name:'', subject:'', preheader:'', template_id:'', payload:{},
+            product_ids: productIds.slice(),
+            source_type:'hustle', module_ids:[], csv_contacts:'',
+            rate_limit:200000, scheduled_at:''
+        };
+        productCache = {};
+        openWizard('Nuova campagna · ' + productIds.length + ' prodotti', false);
+        hydrateProductCache(productIds);
+        toast(productIds.length + ' prodotti pronti nel wizard', 'ok');
+    };
+
     GH.emCampaignEdit = async function(id) {
         const r = await ajax('rp_em_ajax_campaign_get', { id });
         if (!r.success) { toast('Errore', 'err'); return; }
@@ -78,13 +105,32 @@
         renderProductSlots();
     }
 
-    GH.emCampaignBackToList = function() { renderList(); };
+    GH.emCampaignBackToList = function() {
+        GH.clearShortcuts();
+        GH.clearDirty();
+        GH.updateHash('email-campaigns');
+        renderList();
+    };
+
+    GH.emCampaignCopyJSON = function() {
+        if (!editing) { toast('Nessuna campagna aperta', 'err'); return; }
+        GH.copyJSON(editing, 'Campagna');
+    };
+
+    GH.registerDeepOpener('email-campaigns', (id) => {
+        if (id === 'new') return GH.emCampaignNew();
+        GH.emCampaignEdit(id);
+    });
 
     function openWizard(title, isExisting) {
         $('em-camp-list-view').style.display   = 'none';
         $('em-camp-wizard-view').style.display = 'flex';
         $('em-camp-wizard-title').textContent  = title;
         $('em-camp-delete-btn').style.display  = isExisting ? '' : 'none';
+        GH.wireDirtyInputs('em-camp-wizard-view');
+        GH.clearDirty();
+        GH.registerShortcuts({ close: () => GH.emCampaignBackToList(), save: () => GH.emCampaignSave() });
+        GH.updateHash('email-campaigns', editing && editing.id ? editing.id : 'new');
 
         // populate template select
         const sel = $('em-camp-template');
@@ -215,13 +261,15 @@
             editing = r.data || editing;
             $('em-camp-delete-btn').style.display = '';
             $('em-camp-wizard-title').textContent = editing.name || 'Campagna';
+            GH.clearDirty();
+            GH.updateHash('email-campaigns', editing.id);
             toast('Campagna salvata', 'ok');
         } finally { sp.style.display = 'none'; }
     };
 
     GH.emCampaignDelete = async function() {
         if (!editing?.id) return;
-        if (!confirm('Eliminare la campagna?')) return;
+        if (!await GH.confirm('Eliminare la campagna "' + (editing.name || editing.id) + '"?\nSe schedulata, il cron verra rimosso.', { title:'Elimina campagna', danger:true, okLabel:'Elimina' })) return;
         const r = await ajax('rp_em_ajax_campaign_delete', { id: editing.id });
         if (!r.success) { toast('Errore', 'err'); return; }
         toast('Eliminata', 'ok');
@@ -258,15 +306,38 @@
         c.innerHTML = h;
     }
 
+    // Memo dell'ultimo render per hand-off verso Test Email.
+    let lastPreview = { html:'', subject:'', preheader:'' };
+
     GH.emCampaignPreview = async function() {
         if (!editing?.id) { toast('Salva prima la campagna', 'err'); return; }
         const sp = $('em-camp-preview-spin'); sp.style.display = '';
         try {
             const r = await ajax('rp_em_ajax_campaign_preview', { id: editing.id });
             if (!r.success) { toast('Errore preview', 'err'); return; }
-            $('em-camp-preview-frame').srcdoc = r.data.html || '';
-            $('em-camp-preview-subject').textContent = r.data.subject || '';
+            lastPreview = { html: r.data.html || '', subject: r.data.subject || '', preheader: r.data.preheader || '' };
+            $('em-camp-preview-frame').srcdoc = lastPreview.html;
+            $('em-camp-preview-subject').textContent = lastPreview.subject;
         } finally { sp.style.display = 'none'; }
+    };
+
+    // Hand-off: l'HTML renderizzato diventa il body della tab Test Email.
+    // Se il preview non e ancora stato eseguito, lo esegue prima.
+    GH.emCampaignSendPreviewAsTest = async function() {
+        if (!editing?.id) { toast('Salva prima la campagna', 'err'); return; }
+        if (!lastPreview.html) {
+            toast('Rendering preview...', 'ok', 1500);
+            await GH.emCampaignPreview();
+            if (!lastPreview.html) return;
+        }
+        // Popola i campi della tab Test Email
+        const to = $('em-test-to');       if (to && !to.value) to.value = '';
+        const subj = $('em-test-subject'); if (subj) subj.value = lastPreview.subject;
+        const body = $('em-test-body');    if (body) body.value = lastPreview.html;
+        // Switcha tab
+        const btn = document.querySelector('#gh .tab-item[onclick*="\'email-test\'"]');
+        if (btn) btn.click();
+        toast('HTML pronto in Test Email: inserisci destinatario e invia', 'ok');
     };
 
     GH.emCampaignSchedule = async function() {
@@ -281,7 +352,7 @@
 
     GH.emCampaignSend = async function() {
         if (!editing?.id) { toast('Salva prima la campagna', 'err'); return; }
-        if (!confirm('Invio immediato a tutti i contatti della sorgente. Procedere?')) return;
+        if (!await GH.confirm('Invio IMMEDIATO a tutti i contatti della sorgente.\nNon si puo annullare una volta partiti gli invii. Procedere?', { title:'Invia campagna', danger:true, okLabel:'Invia ora' })) return;
         const sp = $('em-camp-send-spin'); sp.style.display = '';
         try {
             const r = await ajax('rp_em_ajax_campaign_send', { id: editing.id });

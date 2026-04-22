@@ -15,6 +15,12 @@ defined( 'ABSPATH' ) || exit;
 define( 'GH_VERSION', '1.0.0' );
 define( 'GH_DIR',     plugin_dir_path( __FILE__ ) );
 
+// Core — foundation helpers (option store, AJAX guard, UI snippets).
+// Caricati per primi: ogni modulo puo dipenderne.
+require_once GH_DIR . 'includes/core/option-store.php';
+require_once GH_DIR . 'includes/core/ajax-helpers.php';
+require_once GH_DIR . 'includes/core/ui-helpers.php';
+
 // Product — CRUD + variations (merged from rp-product-manager)
 require_once GH_DIR . 'includes/product/crud.php';
 require_once GH_DIR . 'includes/product/variations.php';
@@ -108,6 +114,7 @@ require_once GH_DIR . 'includes/email/log.php';
 require_once GH_DIR . 'includes/email/order-resolver.php';
 require_once GH_DIR . 'includes/email/transactional.php';
 require_once GH_DIR . 'includes/email/templates.php';
+require_once GH_DIR . 'includes/email/demo-render.php';
 require_once GH_DIR . 'includes/email/order-meta-box.php';
 require_once GH_DIR . 'includes/email/_seed/seeder.php';
 require_once GH_DIR . 'includes/email/ajax.php';

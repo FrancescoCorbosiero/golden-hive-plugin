@@ -11,9 +11,51 @@ const GH = (function() {
     }
     function toast(msg,type='ok',ms=3000) {
         const t=document.createElement('div'); t.className='toast '+type; t.textContent=msg;
+        // Errori persistenti con bottone di dismiss se ms<=0.
+        if (ms<=0) {
+            t.classList.add('toast-sticky');
+            const x=document.createElement('button'); x.className='toast-x'; x.textContent='×';
+            x.onclick=()=>t.remove(); t.appendChild(x);
+            document.getElementById('gh-toasts').appendChild(t); return t;
+        }
         document.getElementById('gh-toasts').appendChild(t); setTimeout(()=>t.remove(),ms);
+        return t;
     }
     function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+
+    // ajaxWithToast: wrapper che collassa ~100 pattern "if !r.success toast err".
+    // opts: { okMsg?: string, errPrefix?: string, stickyErr?: bool }
+    // Ritorna il response originale {success, data}.
+    async function ajaxWithToast(action, body={}, opts={}) {
+        const { okMsg='', errPrefix='Errore', stickyErr=false } = opts;
+        try {
+            const r = await ajax(action, body);
+            if (!r || !r.success) {
+                const msg = errPrefix + (r && r.data ? ': ' + r.data : '');
+                toast(msg, 'err', stickyErr ? 0 : 3000);
+                return r || { success:false, data:'no response' };
+            }
+            if (okMsg) toast(okMsg, 'ok');
+            return r;
+        } catch (e) {
+            toast(errPrefix + ': ' + (e.message || 'network'), 'err', stickyErr ? 0 : 3000);
+            return { success:false, data:e.message || 'network' };
+        }
+    }
+
+    // emptyState: genera markup standard per liste vuote. Icona letterale
+    // (HTML entity), testo escapato.
+    function emptyState(icon, text, extraClass='') {
+        const cls = ('empty-state ' + (extraClass||'')).trim();
+        return '<div class="'+esc(cls)+'"><div class="empty-icon">'+(icon||'&#9898;')+'</div><div class="empty-text">'+esc(text||'')+'</div></div>';
+    }
+
+    // statusChip: <span class="gh-status gh-status--{variant}">{label}</span>
+    function statusChip(label, variant='dim') {
+        const allowed = ['ok','err','warn','info','dim'];
+        const v = allowed.indexOf(variant) >= 0 ? variant : 'dim';
+        return '<span class="gh-status gh-status--'+v+'">'+esc(label||'')+'</span>';
+    }
 
     let _wakeLock = null;
     async function acquireWakeLock() {
@@ -24,7 +66,164 @@ const GH = (function() {
     }
     function hl(j){return String(j).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,m=>{let c='jn';if(/^"/.test(m))c=/:$/.test(m)?'jk':'js';else if(/true|false/.test(m))c='jb';else if(/null/.test(m))c='jx';return'<span class="'+c+'">'+m+'</span>'})}
     function fileSize(b){if(b<1024)return b+' B';if(b<1048576)return(b/1024).toFixed(1)+' KB';return(b/1048576).toFixed(1)+' MB'}
-    function switchTab(name,el){document.querySelectorAll('#gh .tab-item').forEach(t=>t.classList.remove('active'));document.querySelectorAll('#gh .panel').forEach(p=>p.classList.remove('active'));el.classList.add('active');document.getElementById('panel-'+name).classList.add('active')}
+    // ── Dirty tracking (global) ────────────────────────────────────
+    // Editor registra markDirty() on change, clearDirty() on save. switchTab
+    // chiede conferma prima di cambiare pannello. beforeunload warna per
+    // refresh/chiusura scheda.
+    let _dirty = false;
+    function markDirty(){ _dirty = true; }
+    function clearDirty(){ _dirty = false; }
+    function isDirty(){ return _dirty; }
+    window.addEventListener('beforeunload', (e) => { if (_dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+    // ── Shortcut map (global, per-panel) ───────────────────────────
+    // Un editor puo registrare un handler Esc / Save. switchTab azzera.
+    let _shortcuts = { close: null, save: null };
+    function registerShortcuts(map){ _shortcuts = Object.assign({close:null,save:null}, map||{}); }
+    function clearShortcuts(){ _shortcuts = { close:null, save:null }; }
+
+    // Handler globale tastiera: '/', Esc, Cmd/Ctrl+S
+    document.addEventListener('keydown', (e) => {
+        const tag = e.target && e.target.tagName;
+        const inField = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target && e.target.isContentEditable);
+        // Cmd/Ctrl+S: save sempre (anche dentro i field)
+        if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
+            if (_shortcuts.save) { e.preventDefault(); _shortcuts.save(); }
+            return;
+        }
+        if (inField) return; // '/' e Esc solo fuori dai field
+        if (e.key === '/') {
+            const panel = document.querySelector('#gh .panel.active');
+            if (!panel) return;
+            const search = panel.querySelector('input[type="search"], .search-input, input[id*="search"], input[placeholder*="erca"]');
+            if (search) { e.preventDefault(); search.focus(); search.select && search.select(); }
+        } else if (e.key === 'Escape' && _shortcuts.close) {
+            _shortcuts.close();
+        }
+    });
+
+    // ── Hash routing ───────────────────────────────────────────────
+    // Formato: #/<tab-name>  oppure #/<tab-name>/<entity-id>
+    // Al load: se c'e un hash, switcha alla tab. Le editor open-by-id sono
+    // opzionali: un editor puo registrare un opener con registerDeepOpener.
+    const _openers = {};
+    function registerDeepOpener(tabName, fn){ _openers[tabName] = fn; }
+
+    function applyHashRoute() {
+        const hash = (location.hash || '').replace(/^#\/?/, '');
+        if (!hash) return;
+        const [tab, ...rest] = hash.split('/');
+        if (!tab) return;
+        const panel = document.getElementById('panel-'+tab);
+        if (!panel) return;
+        const btn = document.querySelector('#gh .tab-item[onclick*="\''+tab+'\'"]');
+        if (btn) btn.click(); else {
+            document.querySelectorAll('#gh .panel').forEach(p => p.classList.remove('active'));
+            panel.classList.add('active');
+        }
+        const entityId = rest.join('/');
+        if (entityId && typeof _openers[tab] === 'function') {
+            // defer: lascia al tab il tempo di caricare la lista
+            setTimeout(() => _openers[tab](entityId), 150);
+        }
+    }
+    window.addEventListener('DOMContentLoaded', applyHashRoute);
+    window.addEventListener('hashchange', applyHashRoute);
+
+    function updateHash(tab, entityId){
+        const h = '#/' + tab + (entityId ? '/' + entityId : '');
+        if (location.hash !== h) history.replaceState(null, '', h);
+    }
+
+    function switchTab(name,el){
+        if (_dirty && !confirm('Hai modifiche non salvate. Cambiare tab senza salvare?')) return;
+        _dirty = false;
+        clearShortcuts();
+        document.querySelectorAll('#gh .tab-item').forEach(t=>t.classList.remove('active'));
+        document.querySelectorAll('#gh .panel').forEach(p=>p.classList.remove('active'));
+        if (el) el.classList.add('active');
+        const p = document.getElementById('panel-'+name);
+        if (p) p.classList.add('active');
+        updateHash(name);
+    }
+
+    // ── Copy JSON utility ──────────────────────────────────────────
+    function copyToClipboard(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            return navigator.clipboard.writeText(text);
+        }
+        return new Promise((resolve) => {
+            const ta = document.createElement('textarea');
+            ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.select();
+            try { document.execCommand('copy'); } catch(e){}
+            ta.remove(); resolve();
+        });
+    }
+    function copyJSON(data, label='JSON'){
+        const json = JSON.stringify(data, null, 2);
+        copyToClipboard(json).then(() => toast(label + ' copiato negli appunti', 'ok'));
+    }
+
+    // GH.confirm: replace nativo confirm() con un modal in-panel. Ritorna Promise<bool>.
+    // Uso: if (!await GH.confirm('Eliminare?', { danger:true })) return;
+    function ghConfirm(msg, opts) {
+        opts = opts || {};
+        const title       = opts.title       || '';
+        const okLabel     = opts.okLabel     || 'OK';
+        const cancelLabel = opts.cancelLabel || 'Annulla';
+        const danger      = !!opts.danger;
+
+        return new Promise((resolve) => {
+            const overlay = document.createElement('div');
+            overlay.className = 'gh-modal-overlay';
+            const bodyHtml = String(msg || '').replace(/\n/g, '<br>');
+            overlay.innerHTML =
+                '<div class="gh-modal" role="dialog" aria-modal="true">' +
+                    (title ? '<div class="gh-modal-title">' + esc(title) + '</div>' : '') +
+                    '<div class="gh-modal-body">' + bodyHtml + '</div>' +
+                    '<div class="gh-modal-actions">' +
+                        '<button class="btn btn-ghost gh-modal-cancel">' + esc(cancelLabel) + '</button>' +
+                        '<button class="btn ' + (danger ? 'btn-danger' : 'btn-primary') + ' gh-modal-ok">' + esc(okLabel) + '</button>' +
+                    '</div>' +
+                '</div>';
+            // Attacca dentro #gh per ereditare lo scope CSS.
+            (document.getElementById('gh') || document.body).appendChild(overlay);
+
+            function cleanup(result) {
+                document.removeEventListener('keydown', keyHandler);
+                overlay.remove();
+                resolve(result);
+            }
+            function keyHandler(e) {
+                if (e.key === 'Escape') { e.preventDefault(); cleanup(false); }
+                else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); cleanup(true); }
+            }
+            overlay.querySelector('.gh-modal-ok').addEventListener('click', () => cleanup(true));
+            overlay.querySelector('.gh-modal-cancel').addEventListener('click', () => cleanup(false));
+            overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(false); });
+            document.addEventListener('keydown', keyHandler);
+            // Focus sul bottone primario per abilitare Tab e Enter immediato.
+            setTimeout(() => {
+                const ok = overlay.querySelector('.gh-modal-ok');
+                if (ok) ok.focus();
+            }, 10);
+        });
+    }
+
+    // wireDirtyInputs(containerId): su ogni input/textarea/select dentro il
+    // container, aggancia markDirty() su input/change (idempotente, safe da
+    // chiamare piu volte sullo stesso container).
+    function wireDirtyInputs(containerId){
+        const c = document.getElementById(containerId);
+        if (!c) return;
+        c.querySelectorAll('input, textarea, select').forEach(el => {
+            if (el.__ghDirtyBound) return;
+            el.__ghDirtyBound = true;
+            el.addEventListener('input',  () => markDirty());
+            el.addEventListener('change', () => markDirty());
+        });
+    }
     function getFilters(pfx){const f={};const s=document.getElementById(pfx+'-filter-status');if(s)f.status=s.value;const b=document.getElementById(pfx+'-filter-brand');if(b&&b.value)f.brand=b.value;const c=document.getElementById(pfx+'-filter-stock');if(c&&c.checked)f.in_stock=true;return f}
 
     // ── TAXONOMY (product_cat | product_brand) ─────────────────

@@ -84,6 +84,8 @@
         if (!r.success) { toast('Errore templates', 'err'); return; }
         templates = r.data || [];
         renderTplList();
+        // Tieni in sync il dropdown della Test Email, se presente.
+        if (typeof GH.emTestPopulateTemplates === 'function') GH.emTestPopulateTemplates();
     };
 
     function renderTplList() {
@@ -160,6 +162,43 @@
         GH.emTplLoad();
     };
 
+    // ── TEMPLATE EXPORT (download HTML grezzo / renderizzato demo) ──────
+
+    function downloadText(filename, text, mime) {
+        const blob = new Blob([text], { type: (mime || 'text/html') + ';charset=utf-8' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+        setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+    }
+
+    function slugify(s) {
+        return (s || 'template').toString()
+            .toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+            .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'template';
+    }
+
+    GH.emTplDownloadRaw = function() {
+        const html = $('em-tpl-html').value || '';
+        if (!html) { toast('HTML vuoto', 'err'); return; }
+        const name = $('em-tpl-name').value.trim() || 'template';
+        downloadText(slugify(name) + '.raw.html', html);
+        toast('HTML grezzo scaricato', 'ok');
+    };
+
+    GH.emTplDownloadDemo = async function() {
+        if (!editingTpl?.id) { toast('Salva il template prima di esportarlo con dati demo', 'err'); return; }
+        const sp = $('em-tpl-demo-spin'); if (sp) sp.style.display = '';
+        try {
+            const r = await ajax('rp_em_ajax_template_render_demo', { id: editingTpl.id });
+            if (!r.success) { toast('Errore: ' + (r.data || 'render fallito'), 'err'); return; }
+            const name = editingTpl.name || 'template';
+            downloadText(slugify(name) + '.demo.html', r.data.html || '');
+            const unres = (r.data.unresolved_keys || []).length;
+            toast('HTML demo scaricato' + (unres ? ' (' + unres + ' placeholder non coperti)' : ''), 'ok');
+        } finally { if (sp) sp.style.display = 'none'; }
+    };
+
     let tplTimer = null;
     GH.emTplExtractPlaceholders = function() {
         clearTimeout(tplTimer);
@@ -190,6 +229,17 @@
     }
 
     // ── TEST + SEED ─────────────────────────────────────────────
+
+    // Inizializza il tab Test Email: popola il dropdown template.
+    // Se la lista e gia in memoria la usa; altrimenti la carica.
+    GH.emTestInit = async function() {
+        if (!templates || !templates.length) {
+            const r = await ajax('rp_em_ajax_template_list');
+            if (r.success) templates = r.data || [];
+        }
+        GH.emTestPopulateTemplates();
+    };
+
     GH.emSendTest = async function() {
         const to = $('em-test-to').value.trim();
         const subject = $('em-test-subject').value.trim();
@@ -201,6 +251,50 @@
             if (r.success) toast(r.data.message || 'Inviata', 'ok');
             else toast('Errore: ' + (r.data || 'invio fallito'), 'err');
         } finally { sp.style.display = 'none'; }
+    };
+
+    // ── TEST: template selector + load with demo values ─────────
+    GH.emTestPopulateTemplates = function() {
+        const sel = $('em-test-template');
+        if (!sel) return;
+        const current = sel.value;
+        sel.innerHTML = '<option value="">&mdash; HTML libero &mdash;</option>' +
+            templates.map(t => '<option value="' + esc(t.id) + '"' + (current === t.id ? ' selected' : '') + '>' + esc(t.name || t.id) + '</option>').join('');
+        // Abilita "Carica" solo se un template e selezionato
+        const btn = $('em-test-load-btn'); if (btn) btn.disabled = !sel.value;
+    };
+
+    GH.emTestOnTemplateChange = function() {
+        const btn = $('em-test-load-btn');
+        const sel = $('em-test-template');
+        if (btn && sel) btn.disabled = !sel.value;
+    };
+
+    GH.emTestLoadTemplate = async function() {
+        const id = $('em-test-template').value;
+        if (!id) { toast('Seleziona un template', 'err'); return; }
+        const sp = $('em-test-load-spin'); if (sp) sp.style.display = '';
+        try {
+            const r = await ajax('rp_em_ajax_template_render_demo', { id });
+            if (!r.success) { toast('Errore: ' + (r.data || 'render fallito'), 'err'); return; }
+            const d = r.data;
+            $('em-test-body').value    = d.html || '';
+            $('em-test-subject').value = d.subject || '';
+            const unres = d.unresolved_keys || [];
+            const box = $('em-test-unresolved');
+            if (box) {
+                if (unres.length) {
+                    box.innerHTML = '<strong>' + unres.length + ' placeholder senza valore demo:</strong> ' +
+                        unres.map(k => '<code>{' + esc(k) + '}</code>').join(' ') +
+                        '<br><em>Sostituiti con marker <code>[KEY]</code> nel body. Modifica il body prima di inviare.</em>';
+                    box.style.display = '';
+                } else {
+                    box.innerHTML = '<strong>&#10003; Tutti i placeholder sono stati risolti con dati demo.</strong>';
+                    box.style.display = '';
+                }
+            }
+            toast('Template caricato con dati demo', 'ok');
+        } finally { if (sp) sp.style.display = 'none'; }
     };
 
     GH.emSeedDemo = async function() {

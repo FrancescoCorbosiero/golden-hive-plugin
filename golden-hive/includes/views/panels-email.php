@@ -38,6 +38,8 @@
             <div class="filter-sep"></div>
             <span class="filter-label" id="em-tpl-editor-title">Nuovo template</span>
             <div style="flex:1"></div>
+            <button class="btn btn-ghost" onclick="GH.emTplDownloadRaw()" title="Scarica HTML grezzo con placeholder">Scarica grezzo</button>
+            <button class="btn btn-ghost" onclick="GH.emTplDownloadDemo()" title="Scarica HTML renderizzato con dati demo"><span class="spin" id="em-tpl-demo-spin" style="display:none"></span> Scarica demo</button>
             <button class="btn btn-ghost" id="em-tpl-delete-btn" onclick="GH.emTplDelete()" style="color:var(--red);display:none">Elimina</button>
             <button class="btn btn-primary" onclick="GH.emTplSave()"><span class="spin" id="em-tpl-save-spin" style="display:none"></span> Salva</button>
         </div>
@@ -274,10 +276,23 @@
         <button class="btn btn-primary" id="em-test-btn" onclick="GH.emSendTest()"><span class="spin" id="em-test-spin" style="display:none"></span> Invia test</button>
     </div>
     <div class="em-form">
+        <div class="cfg-row">
+            <span class="cfg-label">Template</span>
+            <select class="cfg-select" id="em-test-template" onchange="GH.emTestOnTemplateChange()">
+                <option value="">&mdash; HTML libero &mdash;</option>
+            </select>
+            <button class="btn btn-ghost" onclick="GH.emTestLoadTemplate()" id="em-test-load-btn" disabled><span class="spin" id="em-test-load-spin" style="display:none"></span> Carica con dati demo</button>
+        </div>
         <div class="cfg-row"><span class="cfg-label">A</span><input class="cfg-input" id="em-test-to" type="email" placeholder="destinatario@example.com" /></div>
         <div class="cfg-row"><span class="cfg-label">Oggetto</span><input class="cfg-input" id="em-test-subject" placeholder="(opzionale)" /></div>
         <div class="cfg-row em-row-stretch"><span class="cfg-label">HTML</span><textarea class="cfg-input em-textarea" id="em-test-body" placeholder="(opzionale: usa template di default)"></textarea></div>
-        <div class="em-hint">Invio diretto via <strong>wp_mail()</strong> &rarr; WP Mail SMTP &rarr; AWS SES. Nessun placeholder, nessun rendering.</div>
+        <div class="em-hint">
+            Invio diretto via <strong>wp_mail()</strong> &rarr; WP Mail SMTP &rarr; AWS SES.
+            Se selezioni un template, <em>Carica con dati demo</em> renderizza
+            BRAND + META + valori euristici per CAMPAIGN/PRODUCT/ORDER (ultimo
+            ordine reale) e popola il body qui sotto. Da li puoi modificare e inviare.
+        </div>
+        <div id="em-test-unresolved" class="em-hint" style="display:none"></div>
     </div>
 
     <div class="toolbar" style="margin-top:24px">

@@ -108,6 +108,7 @@ require_once GH_DIR . 'includes/email/log.php';
 require_once GH_DIR . 'includes/email/order-resolver.php';
 require_once GH_DIR . 'includes/email/transactional.php';
 require_once GH_DIR . 'includes/email/templates.php';
+require_once GH_DIR . 'includes/email/demo-render.php';
 require_once GH_DIR . 'includes/email/order-meta-box.php';
 require_once GH_DIR . 'includes/email/_seed/seeder.php';
 require_once GH_DIR . 'includes/email/ajax.php';

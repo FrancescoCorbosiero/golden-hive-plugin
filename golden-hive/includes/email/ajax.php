@@ -116,6 +116,16 @@ add_action( 'wp_ajax_rp_em_ajax_template_extract_placeholders', function () {
     ] );
 } );
 
+add_action( 'wp_ajax_rp_em_ajax_template_render_demo', function () {
+    rp_em_ajax_guard();
+    $id = sanitize_text_field( (string) ( $_POST['id'] ?? '' ) );
+    if ( $id === '' ) wp_send_json_error( 'ID template mancante.' );
+
+    $result = rp_em_render_template_with_demo( $id );
+    if ( $result['html'] === '' ) wp_send_json_error( 'Template non trovato o render vuoto.' );
+    wp_send_json_success( $result );
+} );
+
 // ═══ CAMPAIGNS ══════════════════════════════════════════════════════════════
 
 add_action( 'wp_ajax_rp_em_ajax_campaign_list', function () {

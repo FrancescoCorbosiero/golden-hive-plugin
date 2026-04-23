@@ -163,7 +163,12 @@ dei risultati apre il prodotto nell'Inline Editor.
   server cosi incollare un JSON intero e sempre safe.
 - **Variations** — tabella inline (solo per prodotti variable): taglia,
   sku, prezzi, stock, stato. Dirty tracking indipendente con batch save
-  via `rp_bulk_update_variations()`.
+  via `rp_bulk_update_variations()`. Supporta **bulk operations** su righe
+  selezionate (checkbox per riga + select-all): set regular/sale price,
+  clear sale, adjust regular ±%, set stock qty/status, set publish status.
+  Le azioni bulk popolano i campi dirty delle righe selezionate senza
+  salvare immediatamente — l'utente conferma col bottone "Salva varianti"
+  (permette undo prima del commit).
 
 **AJAX endpoints (product/ajax.php):**
 - `gh_ajax_product_search` — typeahead (auto-detect: ID → SKU esatto → fulltext → SKU LIKE)
@@ -717,7 +722,7 @@ Da usare invece di literal `rgba(...)` per mantenere coerenza con la palette.
 2. **Nonce:** `gh_nonce` per tutti gli AJAX di golden-hive. `gh_ajax_guard()` accetta anche `rp_em_nonce` per coesistenza.
 3. **CSS scopato sotto `#gh`** — mai stili globali.
 4. **JS estende GH** — i moduli aggiuntivi (js-operations, js-email, ...) aggiungono metodi a `GH` dall'esterno e usano gli helper del Batch 1-2.
-5. **Mobile responsive** — il titolare usa lo strumento da telefono. Tutto deve collassare in flex-column sotto 768px.
+5. **Desktop-first, mobile secondario** — il titolare usa lo strumento prevalentemente da desktop. Le regole base devono assumere una larghezza ampia (≥1024px) e sfruttarla (layout a 2 colonne, liste a tutta larghezza, toolbar orizzontali). Sotto `@media(max-width:768px)` i layout collassano in flex-column come fallback, ma non e la priorita visuale. Niente `max-width` arbitrarie sui container principali (`.content`, `.panel`, liste/editor) che impediscano di usare lo spazio orizzontale.
 6. **Double-load guard** obbligatoria su ogni file condiviso con plugin standalone.
 7. **Editor wiring standard:** nuovi editor agganciano `GH.wireDirtyInputs + registerShortcuts + updateHash + registerDeepOpener` (vedi section "Convenzioni editor wiring").
 8. **Cross-module hand-offs:** espongono `GH.xxxOpenWith*(data)` sul tab target; il sorgente non conosce i dettagli del target.

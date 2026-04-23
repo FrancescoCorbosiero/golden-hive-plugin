@@ -18,6 +18,7 @@
         variations: [],      // rp_get_product_variations payload
         dirty: {},           // field → new value (form mode)
         varDirty: {},        // variation_id → { field → val }
+        varSel: {},          // variation_id → true (bulk selection)
         activeTab: 'form',   // form | json | variations
         searchTimer: null,
     };
@@ -90,6 +91,7 @@
             ie.variations = r.data.variations || [];
             ie.dirty      = {};
             ie.varDirty   = {};
+            ie.varSel     = {};
             ie.activeTab  = 'form';
             renderHeader();
             renderCurrentTab();
@@ -130,7 +132,7 @@
         if (Object.keys(ie.dirty).length || Object.keys(ie.varDirty).length) {
             if (!confirm('Modifiche non salvate. Chiudere comunque?')) return;
         }
-        ie.product = null; ie.variations = []; ie.dirty = {}; ie.varDirty = {};
+        ie.product = null; ie.variations = []; ie.dirty = {}; ie.varDirty = {}; ie.varSel = {};
         document.getElementById('ie-header').style.display = 'none';
         document.getElementById('ie-tabs').style.display = 'none';
         document.getElementById('ie-content').innerHTML =
@@ -306,11 +308,38 @@
             area.innerHTML = '<div class="empty-state"><div class="empty-text">Nessuna variazione</div></div>';
             return;
         }
-        let h = '<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">';
+
+        // Prune selection of variations that no longer exist (after reload/save).
+        const validIds = new Set(ie.variations.map(v => v.variation_id));
+        Object.keys(ie.varSel).forEach(vid => { if (!validIds.has(parseInt(vid))) delete ie.varSel[vid]; });
+
+        let h = '<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;flex-wrap:wrap">';
         h += '<span id="ie-var-dirty" class="ie-dirty-badge" style="display:none">&#9679; Varianti modificate</span>';
         h += '<button class="btn btn-primary" id="btn-ie-var-save" onclick="GH.ieVarSave()" disabled><span class="spin" id="ie-var-spin" style="display:none"></span> Salva varianti</button>';
         h += '</div>';
+
+        // Bulk action bar — populates dirty fields on selected rows; does NOT
+        // save immediately. User still hits "Salva varianti" to commit.
+        h += '<div class="ie-var-bulk" id="ie-var-bulk" style="display:none">';
+        h +=   '<span class="ie-var-bulk-count" id="ie-var-bulk-count">0 selezionate</span>';
+        h +=   '<select class="ie-var-input" id="ie-var-bulk-action" onchange="GH.ieVarBulkActionChanged()" style="flex:0 0 auto;min-width:180px">';
+        h +=     '<option value="">— Azione bulk —</option>';
+        h +=     '<option value="set_regular_price">Imposta prezzo regolare</option>';
+        h +=     '<option value="set_sale_price">Imposta prezzo saldo</option>';
+        h +=     '<option value="clear_sale_price">Rimuovi saldo</option>';
+        h +=     '<option value="adjust_regular_pct">Modifica prezzo regolare ±%</option>';
+        h +=     '<option value="set_stock_qty">Imposta quantita stock</option>';
+        h +=     '<option value="set_stock_status">Imposta stato stock</option>';
+        h +=     '<option value="set_status">Imposta stato pubblicazione</option>';
+        h +=   '</select>';
+        h +=   '<input class="ie-var-input" id="ie-var-bulk-value" placeholder="Valore" style="flex:0 0 140px;display:none" />';
+        h +=   '<select class="ie-var-input" id="ie-var-bulk-select" style="flex:0 0 140px;display:none"></select>';
+        h +=   '<button class="btn btn-ghost" id="btn-ie-var-bulk-apply" onclick="GH.ieVarBulkApply()" disabled>Applica</button>';
+        h +=   '<button class="btn btn-ghost" onclick="GH.ieVarBulkClear()">Deseleziona</button>';
+        h += '</div>';
+
         h += '<table class="ie-var-table"><thead><tr>';
+        h += '<th class="ie-var-cbcol"><input type="checkbox" id="ie-var-cb-all" onchange="GH.ieVarSelAll(this.checked)" /></th>';
         h += '<th>Taglia</th><th>SKU</th><th>Regolare</th><th>Saldo</th>';
         h += '<th>Stock</th><th>Qty</th><th>Stato</th>';
         h += '</tr></thead><tbody>';
@@ -318,7 +347,9 @@
             const vid = v.variation_id;
             const d = ie.varDirty[vid] || {};
             const val = (f, def) => d[f] !== undefined ? d[f] : (def ?? '');
-            h += '<tr data-vid="' + vid + '">';
+            const selected = !!ie.varSel[vid];
+            h += '<tr data-vid="' + vid + '"' + (selected ? ' class="ie-var-row-sel"' : '') + '>';
+            h += '<td class="ie-var-cbcol"><input type="checkbox" class="ie-var-cb" data-vid="' + vid + '" onchange="GH.ieVarSel(' + vid + ',this.checked)"' + (selected ? ' checked' : '') + ' /></td>';
             h += '<td class="ie-var-size">' + esc(v.size) + '</td>';
             h += '<td><input class="ie-var-input" value="' + esc(val('sku', v.sku)) + '" oninput="GH.ieVarChanged(' + vid + ',\'sku\',this.value)" /></td>';
             h += '<td><input class="ie-var-input" type="number" step="0.01" value="' + esc(val('regular_price', v.regular_price)) + '" oninput="GH.ieVarChanged(' + vid + ',\'regular_price\',this.value)" /></td>';
@@ -336,7 +367,126 @@
         });
         h += '</tbody></table>';
         area.innerHTML = h;
+        updateBulkBar();
     }
+
+    // ── BULK VARIANT OPERATIONS ────────────────────────────────────────────
+
+    function selectedVids() {
+        return Object.keys(ie.varSel).filter(vid => ie.varSel[vid]).map(vid => parseInt(vid));
+    }
+
+    function updateBulkBar() {
+        const bar    = document.getElementById('ie-var-bulk');
+        const count  = document.getElementById('ie-var-bulk-count');
+        const applyB = document.getElementById('btn-ie-var-bulk-apply');
+        const action = document.getElementById('ie-var-bulk-action');
+        if (!bar) return;
+        const vids = selectedVids();
+        bar.style.display = vids.length ? 'flex' : 'none';
+        if (count) count.textContent = vids.length + ' ' + (vids.length === 1 ? 'selezionata' : 'selezionate');
+        if (applyB) applyB.disabled = !vids.length || !(action && action.value);
+        const cbAll = document.getElementById('ie-var-cb-all');
+        if (cbAll) cbAll.checked = vids.length === ie.variations.length && ie.variations.length > 0;
+    }
+
+    GH.ieVarSel = function(vid, checked) {
+        if (checked) ie.varSel[vid] = true; else delete ie.varSel[vid];
+        const row = document.querySelector('.ie-var-table tr[data-vid="' + vid + '"]');
+        if (row) row.classList.toggle('ie-var-row-sel', !!checked);
+        updateBulkBar();
+    };
+
+    GH.ieVarSelAll = function(checked) {
+        ie.varSel = {};
+        if (checked) ie.variations.forEach(v => ie.varSel[v.variation_id] = true);
+        document.querySelectorAll('.ie-var-cb').forEach(cb => {
+            const vid = parseInt(cb.getAttribute('data-vid'));
+            cb.checked = !!ie.varSel[vid];
+            const row = cb.closest('tr');
+            if (row) row.classList.toggle('ie-var-row-sel', !!ie.varSel[vid]);
+        });
+        updateBulkBar();
+    };
+
+    GH.ieVarBulkClear = function() {
+        ie.varSel = {};
+        document.querySelectorAll('.ie-var-cb').forEach(cb => { cb.checked = false; const r = cb.closest('tr'); if (r) r.classList.remove('ie-var-row-sel'); });
+        const cbAll = document.getElementById('ie-var-cb-all'); if (cbAll) cbAll.checked = false;
+        updateBulkBar();
+    };
+
+    // Swap the value input between text/number/select based on action.
+    GH.ieVarBulkActionChanged = function() {
+        const action = document.getElementById('ie-var-bulk-action').value;
+        const valIn  = document.getElementById('ie-var-bulk-value');
+        const valSel = document.getElementById('ie-var-bulk-select');
+        valIn.style.display  = 'none';
+        valSel.style.display = 'none';
+        valSel.innerHTML = '';
+        if (action === 'set_regular_price' || action === 'set_sale_price' || action === 'adjust_regular_pct' || action === 'set_stock_qty') {
+            valIn.type = 'number';
+            valIn.step = action === 'set_stock_qty' ? '1' : '0.01';
+            valIn.placeholder = action === 'adjust_regular_pct' ? '±% (es: -10 o 15)' : 'Valore';
+            valIn.value = '';
+            valIn.style.display = '';
+        } else if (action === 'set_stock_status') {
+            valSel.innerHTML = '<option value="instock">instock</option><option value="outofstock">outofstock</option>';
+            valSel.style.display = '';
+        } else if (action === 'set_status') {
+            valSel.innerHTML = '<option value="publish">publish</option><option value="private">private</option>';
+            valSel.style.display = '';
+        }
+        updateBulkBar();
+    };
+
+    GH.ieVarBulkApply = function() {
+        const action = document.getElementById('ie-var-bulk-action').value;
+        if (!action) return;
+        const vids = selectedVids();
+        if (!vids.length) return;
+        const valIn  = document.getElementById('ie-var-bulk-value');
+        const valSel = document.getElementById('ie-var-bulk-select');
+
+        // Compute per-variation new value for the target field, then flow
+        // through ieVarChanged so dirty tracking + compare-to-original work.
+        const apply = (vid, field, value) => GH.ieVarChanged(vid, field, String(value));
+
+        if (action === 'set_regular_price') {
+            const v = parseFloat(valIn.value);
+            if (isNaN(v)) { GH.toast('Valore non valido', 'err'); return; }
+            vids.forEach(vid => apply(vid, 'regular_price', v.toFixed(2)));
+        } else if (action === 'set_sale_price') {
+            const v = parseFloat(valIn.value);
+            if (isNaN(v)) { GH.toast('Valore non valido', 'err'); return; }
+            vids.forEach(vid => apply(vid, 'sale_price', v.toFixed(2)));
+        } else if (action === 'clear_sale_price') {
+            vids.forEach(vid => apply(vid, 'sale_price', ''));
+        } else if (action === 'adjust_regular_pct') {
+            const pct = parseFloat(valIn.value);
+            if (isNaN(pct)) { GH.toast('Percentuale non valida', 'err'); return; }
+            vids.forEach(vid => {
+                const orig = ie.variations.find(v => v.variation_id === vid);
+                const base = parseFloat((ie.varDirty[vid] && ie.varDirty[vid].regular_price) ?? (orig && orig.regular_price));
+                if (isNaN(base)) return;
+                const next = base * (1 + pct / 100);
+                apply(vid, 'regular_price', next.toFixed(2));
+            });
+        } else if (action === 'set_stock_qty') {
+            const v = parseInt(valIn.value);
+            if (isNaN(v)) { GH.toast('Quantita non valida', 'err'); return; }
+            vids.forEach(vid => apply(vid, 'stock_quantity', v));
+        } else if (action === 'set_stock_status') {
+            vids.forEach(vid => apply(vid, 'stock_status', valSel.value));
+        } else if (action === 'set_status') {
+            vids.forEach(vid => apply(vid, 'status', valSel.value));
+        }
+
+        // Re-render so the inputs reflect the staged dirty values, keeping
+        // selection checkboxes intact (varSel persists).
+        renderVariations(document.getElementById('ie-content'));
+        GH.toast(vids.length + ' varianti aggiornate (pending salvataggio)', 'ok');
+    };
 
     GH.ieVarChanged = function(vid, field, value) {
         if (!ie.varDirty[vid]) ie.varDirty[vid] = {};

@@ -278,25 +278,47 @@ function rp_em_execute_campaign( string $campaign_id ): array {
  * @return array
  */
 function rp_em_execute_campaign_internal( string $campaign_id, array $campaign ): array {
-    // Validate first — se errori bloccanti, abort.
-    $validation = rp_em_validate_campaign( $campaign_id );
-    if ( ! $validation['ok'] ) {
+    // Validator BLOCCANTE: solo fatali (template mancante, HTML rotto,
+    // subject vuoto). Placeholder mancanti / brand incompleto NON bloccano
+    // piu il send — il renderer li sostituisce con stringa vuota.
+    $blocking = rp_em_validate_campaign_blocking( $campaign_id );
+    // Compute anche la validazione strict in modo da salvarla come
+    // last_validation (cosi l'UI continua a mostrare warning/quality issues)
+    // ma non la usiamo per decidere se bloccare.
+    $full = rp_em_validate_campaign( $campaign_id );
+
+    if ( ! $blocking['ok'] ) {
         rp_em_save_campaign( [
             'id'              => $campaign_id,
             'status'          => RP_EM_STATUS_FAILED,
-            'last_validation' => $validation,
-            'stats'           => [ 'sent' => 0, 'failed' => 0, 'errors' => array_map( fn( $e ) => $e['message'], $validation['errors'] ) ],
+            'last_validation' => $full,
+            'stats'           => [ 'sent' => 0, 'failed' => 0, 'errors' => array_map( fn( $e ) => $e['message'], $blocking['errors'] ) ],
         ] );
-        return [ 'sent' => 0, 'failed' => 0, 'errors' => array_map( fn( $e ) => $e['message'], $validation['errors'] ) ];
+        return [ 'sent' => 0, 'failed' => 0, 'errors' => array_map( fn( $e ) => $e['message'], $blocking['errors'] ) ];
     }
 
     rp_em_save_campaign( [
-        'id'         => $campaign_id,
-        'status'     => RP_EM_STATUS_SENDING,
-        'started_at' => current_time( 'mysql' ),
+        'id'              => $campaign_id,
+        'status'          => RP_EM_STATUS_SENDING,
+        'started_at'      => current_time( 'mysql' ),
+        'last_validation' => $full,
     ] );
 
-    $html = rp_em_render_campaign( $campaign_id );
+    // Render: isolato in try/catch cosi qualunque eccezione del layer
+    // placeholder/template/WC resolver viene catturata e segnalata senza
+    // far 500 la response.
+    try {
+        $html = rp_em_render_campaign( $campaign_id );
+    } catch ( \Throwable $e ) {
+        error_log( 'rp_em_render_campaign threw for ' . $campaign_id . ' — ' . $e->getMessage() );
+        rp_em_save_campaign( [
+            'id'     => $campaign_id,
+            'status' => RP_EM_STATUS_FAILED,
+            'stats'  => [ 'sent' => 0, 'failed' => 0, 'errors' => [ 'Render exception: ' . $e->getMessage() ] ],
+        ] );
+        return [ 'sent' => 0, 'failed' => 0, 'errors' => [ 'Render exception: ' . $e->getMessage() ] ];
+    }
+
     if ( $html === '' ) {
         rp_em_save_campaign( [
             'id'     => $campaign_id,

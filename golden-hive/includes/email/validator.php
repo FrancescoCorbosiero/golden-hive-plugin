@@ -232,6 +232,55 @@ function rp_em_validation_result( array $errors, array $warnings ): array {
 const RP_EM_TEMPLATE_HTML_MAX_BYTES = 512000; // 500 KB
 
 /**
+ * Validator RILASSATO per il send: ritorna solo errori VERAMENTE bloccanti
+ * (senza cui il send e fisicamente impossibile).
+ *
+ * Questa e la variante usata da rp_em_execute_campaign: il campaign deve
+ * partire anche se brand ha placeholder mancanti o il template referenzia
+ * chiavi CAMPAIGN non compilate — il renderer le tratta come stringa vuota,
+ * e il send prosegue. La UI "Valida" continua a usare rp_em_validate_campaign
+ * (strict) per la quality review.
+ *
+ * Blocca SOLO su:
+ *   - Campaign / template non trovati
+ *   - Template HTML fatale (EMPTY_HTML, INVALID_UTF8, UNBALANCED_TABLE, SCRIPT_TAG,
+ *     HTML_TOO_LARGE)
+ *   - Subject vuoto (un client email senza subject finisce in spam/trash)
+ *
+ * @param string $campaign_id
+ * @return array { errors: array, warnings: array, ok: bool, validated_at: string }
+ */
+function rp_em_validate_campaign_blocking( string $campaign_id ): array {
+    $errors = [];
+
+    $campaign = rp_em_get_campaign( $campaign_id );
+    if ( ! $campaign ) {
+        return rp_em_validation_result(
+            [ rp_em_err( 'TEMPLATE_NOT_FOUND', '', 'Campagna non trovata.' ) ],
+            []
+        );
+    }
+
+    $template = rp_em_get_template( (string) ( $campaign['template_id'] ?? '' ) );
+    if ( ! $template ) {
+        return rp_em_validation_result(
+            [ rp_em_err( 'TEMPLATE_NOT_FOUND', (string) ( $campaign['template_id'] ?? '' ), 'Template della campagna non trovato.' ) ],
+            []
+        );
+    }
+
+    // HTML fatale: senza un body valido, il send e fisicamente impossibile.
+    $html_check = rp_em_validate_template_html( (string) ( $template['html'] ?? '' ) );
+    foreach ( $html_check['errors'] as $e ) $errors[] = $e;
+
+    if ( trim( (string) ( $campaign['subject'] ?? '' ) ) === '' ) {
+        $errors[] = rp_em_err( 'MISSING_VALUE', 'subject', 'Subject vuoto: un email senza oggetto finisce in spam.' );
+    }
+
+    return rp_em_validation_result( $errors, [] );
+}
+
+/**
  * Valida il body HTML di un template email. Usato sia dal save (rifiuto in
  * ingresso per non accumulare dati che fanno fatalare la render) sia dal
  * validator campagna (per segnalarlo anche post-save).

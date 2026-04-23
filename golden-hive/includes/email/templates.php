@@ -225,6 +225,34 @@ function rp_em_install_order_shipped_template(): ?string {
     ] );
 }
 
+/**
+ * Installa il template "Catalog · 6 Prodotti con Sezioni" dai seed.
+ * 3 sezioni categorizzate (accent-color differenziato) con 2 prodotti ciascuna.
+ * Ogni prodotto ha badge custom (bg/color/text) e CTA.
+ *
+ * Idempotente: match per nome.
+ *
+ * @return string|null ID del template installato, o null se non installabile.
+ */
+function rp_em_install_catalog_6products_template(): ?string {
+    $seed_html = __DIR__ . '/_seed/catalog-6products-template.html';
+    if ( ! is_readable( $seed_html ) ) return null;
+
+    $name = 'Catalog · 6 Prodotti con Sezioni';
+    foreach ( rp_em_get_templates() as $t ) {
+        if ( ( $t['name'] ?? '' ) === $name ) return $t['id'];
+    }
+
+    $html = file_get_contents( $seed_html );
+    if ( ! $html ) return null;
+
+    return rp_em_save_template( [
+        'name'        => $name,
+        'description' => 'Newsletter catalogo: hero + 3 sezioni categorizzate, ognuna con 2 prodotti + link "Vedi tutti". Accent colors progressivi (brand primary → rosa → pink). Badge custom per prodotto dal payload campagna.',
+        'html'        => $html,
+    ] );
+}
+
 // ── Auto-install dei seed template curati (one-shot per flag).
 // Se l'utente elimina il template a mano, non viene reinstallato.
 add_action( 'admin_init', function () {
@@ -255,6 +283,12 @@ add_action( 'admin_init', function () {
                     ] );
                 }
             }
+        }
+    }
+
+    if ( get_option( 'rp_em_seed_catalog_6p_installed' ) !== '1' ) {
+        if ( rp_em_install_catalog_6products_template() ) {
+            update_option( 'rp_em_seed_catalog_6p_installed', '1', false );
         }
     }
 } );

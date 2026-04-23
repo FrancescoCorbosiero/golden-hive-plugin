@@ -31,54 +31,70 @@ if ( ! function_exists( 'rp_em_check_nonce' ) ) {
 if ( has_action( 'wp_ajax_rp_em_ajax_brand_get' ) ) return;
 
 /**
- * Guard interno: nonce + capability. Da chiamare all'inizio di ogni handler.
+ * Fail-safe early bind — registrato UNA VOLTA al load del file, non dentro
+ * il guard. Scatta per QUALSIASI richiesta admin-ajax.php con action
+ * rp_em_ajax_* o gh_ajax_*, indipendentemente da dove il fatal e avvenuto
+ * (plugin load, init hook, admin_init, render del body del handler).
  *
- * Installa anche uno shutdown handler fail-safe: se un fatal error avviene
- * dopo il guard (during rendering, option loading, ecc.), convertiamo la
- * response HTML di WP in una response JSON cosi il frontend puo mostrare un
- * messaggio utile invece di un "Unexpected token '<'" al parse.
+ * Senza questo, un fatal prima che rp_em_ajax_guard() venga chiamato
+ * restituisce la pagina HTML critical-error di WP che il client non puo
+ * parsare, lasciando il dev senza diagnostica.
+ */
+if ( ! defined( 'RP_EM_AJAX_FAILSAFE_BOUND' ) ) {
+    define( 'RP_EM_AJAX_FAILSAFE_BOUND', true );
+
+    $rp_em_is_our_ajax = (
+        ( defined( 'DOING_AJAX' ) && DOING_AJAX )
+        || ( isset( $_SERVER['SCRIPT_NAME'] ) && str_ends_with( (string) $_SERVER['SCRIPT_NAME'], '/admin-ajax.php' ) )
+    );
+    $rp_em_action = (string) ( $_REQUEST['action'] ?? '' );
+    if ( $rp_em_is_our_ajax && ( str_starts_with( $rp_em_action, 'rp_em_ajax_' ) || str_starts_with( $rp_em_action, 'gh_ajax_' ) ) ) {
+        register_shutdown_function( function () {
+            $err = error_get_last();
+            if ( ! $err ) return;
+            $fatal_types = E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR | E_USER_ERROR | E_RECOVERABLE_ERROR;
+            if ( ! ( $err['type'] & $fatal_types ) ) return;
+
+            // Sempre in error_log — il dev puo trovare il fatal in wp-content/debug.log
+            // (se WP_DEBUG_LOG e attivo) anche se headers_sent() blocca la response.
+            $diag = sprintf(
+                'rp_em AJAX fatal [%s]: %s in %s:%d',
+                (string) ( $_REQUEST['action'] ?? '?' ),
+                (string) $err['message'],
+                (string) $err['file'],
+                (int) $err['line']
+            );
+            error_log( $diag );
+
+            if ( headers_sent() ) return;
+
+            while ( ob_get_level() > 0 ) { @ob_end_clean(); }
+            status_header( 500 );
+            header( 'Content-Type: application/json; charset=UTF-8' );
+            echo wp_json_encode( [
+                'success' => false,
+                'data'    => $diag,
+            ] );
+        } );
+    }
+    unset( $rp_em_is_our_ajax, $rp_em_action );
+}
+
+/**
+ * Guard interno: nonce + capability. Da chiamare all'inizio di ogni handler.
  */
 function rp_em_ajax_guard(): void {
     rp_em_check_nonce();
     if ( ! current_user_can( 'manage_woocommerce' ) ) {
         wp_send_json_error( 'Unauthorized', 403 );
     }
-    rp_em_install_ajax_failsafe();
 }
 
 /**
- * Fail-safe: converte fatal PHP in risposte JSON per gli handler AJAX email.
- * Evita che il frontend riceva la pagina HTML "Si e verificato un errore
- * critico" che rompe il JSON.parse() lato client.
+ * Legacy shim — manteniamo la firma per backward compatibility col vecchio
+ * flusso (pre-binding al load del file). No-op: il failsafe e gia installato.
  */
-function rp_em_install_ajax_failsafe(): void {
-    static $installed = false;
-    if ( $installed ) return;
-    $installed = true;
-
-    register_shutdown_function( function () {
-        $err = error_get_last();
-        if ( ! $err ) return;
-        $fatal_types = E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR | E_USER_ERROR | E_RECOVERABLE_ERROR;
-        if ( ! ( $err['type'] & $fatal_types ) ) return;
-        if ( headers_sent() ) return;
-
-        // Buffer output accumulato (HTML di WP) via sink.
-        while ( ob_get_level() > 0 ) { @ob_end_clean(); }
-
-        status_header( 500 );
-        header( 'Content-Type: application/json; charset=UTF-8' );
-        echo wp_json_encode( [
-            'success' => false,
-            'data'    => sprintf(
-                'PHP fatal: %s in %s:%d',
-                (string) $err['message'],
-                basename( (string) $err['file'] ),
-                (int) $err['line']
-            ),
-        ] );
-    } );
-}
+function rp_em_install_ajax_failsafe(): void {}
 
 /**
  * Sanitizza ricorsivamente le stringhe dentro un valore per garantire UTF-8

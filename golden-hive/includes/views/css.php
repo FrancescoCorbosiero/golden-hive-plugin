@@ -28,8 +28,8 @@
 #gh .tab-icon{font-size:13px;width:16px;text-align:center}
 #gh .tab-label{font-size:11px;font-weight:500;color:var(--dim)}
 #gh .tab-item.active .tab-label{color:var(--txt)}
-#gh .content{flex:1;display:flex;flex-direction:column;overflow:hidden}
-#gh .panel{display:none;flex-direction:column;flex:1;overflow:hidden}
+#gh .content{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+#gh .panel{display:none;flex-direction:column;flex:1;width:100%;min-width:0;min-height:0;overflow:hidden}
 #gh .panel.active{display:flex}
 
 /* Buttons */
@@ -214,6 +214,12 @@
 #gh .ie-var-input{background:var(--s3);border:1px solid var(--b1);border-radius:3px;padding:4px 6px;font-family:var(--mono);font-size:11px;color:var(--txt);outline:none;width:100%;min-width:70px}
 #gh .ie-var-input:focus{border-color:var(--acc)}
 #gh .ie-var-sale{color:var(--grn)}
+#gh .ie-var-cbcol{width:28px;padding:4px 6px;text-align:center}
+#gh .ie-var-cbcol input[type="checkbox"]{accent-color:var(--acc);cursor:pointer;margin:0}
+#gh .ie-var-row-sel{background:var(--acc-10)}
+#gh .ie-var-row-sel:hover{background:var(--acc-15)}
+#gh .ie-var-bulk{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 10px;margin-bottom:8px;background:var(--s2);border:1px solid var(--acc-30);border-radius:4px}
+#gh .ie-var-bulk-count{font-family:var(--mono);font-size:10px;color:var(--acc);text-transform:uppercase;letter-spacing:.08em;flex-shrink:0}
 
 /* Taxonomy tree */
 #gh .tax-wrap{flex:1;overflow-y:auto;padding:16px 20px}
@@ -569,8 +575,17 @@
 #gh .gh-job-chip-warn.is-active{border-color:var(--red);color:var(--red);background:rgba(232,93,93,.08)}
 #gh .gh-job-chip-warn.is-active .gh-job-chip-count{background:var(--red);color:#fff}
 
-/* List wrapper */
-#gh .gh-job-list{padding:14px 18px 24px;display:flex;flex-direction:column;gap:16px;overflow-y:auto}
+/* List / log view wrappers — fill remaining panel height so the inner
+   list scrolls independently and #jobs-editor (when open) never pushes
+   content off-screen. */
+#gh #jobs-list-view,#gh #jobs-log-view{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+
+/* Editor opens inline under the list. Cap its height so the list above
+   stays visible; the editor itself scrolls internally if content is tall. */
+#gh #jobs-editor{flex-shrink:0;max-height:50%;overflow-y:auto}
+
+/* List wrapper — the actual scroll container for job cards. */
+#gh .gh-job-list{flex:1;min-height:0;padding:14px 18px 24px;display:flex;flex-direction:column;gap:16px;overflow-y:auto}
 
 /* Group */
 #gh .gh-job-group{display:flex;flex-direction:column;gap:8px}
@@ -628,7 +643,7 @@
 #gh .gh-job-act-danger:hover{background:rgba(232,93,93,.08);border-color:var(--red)}
 
 /* ═══ JOBS — run log timeline ════════════════════════════════ */
-#gh .gh-joblog{padding:14px 18px 24px;overflow-y:auto}
+#gh .gh-joblog{flex:1;min-height:0;padding:14px 18px 24px;overflow-y:auto}
 #gh .gh-joblog-list{display:flex;flex-direction:column;gap:2px}
 #gh .gh-joblog-row{background:var(--s2);border:1px solid var(--b1);border-radius:5px;overflow:hidden}
 #gh .gh-joblog-row[data-status="error"],#gh .gh-joblog-row[data-status="crashed"]{border-color:rgba(232,93,93,.3)}

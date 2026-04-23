@@ -313,10 +313,20 @@ add_action( 'wp_ajax_rp_em_ajax_campaign_send', function () {
     $id = sanitize_text_field( (string) ( $_POST['id'] ?? '' ) );
     $c  = $id !== '' ? rp_em_get_campaign( $id ) : null;
     if ( ! $c ) wp_send_json_error( 'Campagna non trovata.' );
-    if ( ( $c['status'] ?? '' ) === RP_EM_STATUS_SENDING ) wp_send_json_error( 'Campagna gia in invio.' );
+
+    // Se lo status dice 'sending' ma il lock e scaduto (TTL), la run
+    // precedente e morta: permettiamo un retry. Senza questa logica la
+    // campagna restava bloccata in 'sending' per sempre dopo un PHP crash.
+    if ( ( $c['status'] ?? '' ) === RP_EM_STATUS_SENDING ) {
+        $lock_key = 'rp_em_camp_lock_' . md5( $id );
+        if ( get_transient( $lock_key ) ) {
+            wp_send_json_error( 'Campagna gia in invio (lock attivo). Attendi il completamento.' );
+        }
+        // Lock scaduto / mai acquisito → run abbandonata, procediamo.
+    }
 
     $result = rp_em_execute_campaign( $id );
-    wp_send_json_success( $result );
+    wp_send_json_success( rp_em_sanitize_utf8( $result ) );
 } );
 
 add_action( 'wp_ajax_rp_em_ajax_campaign_preview', function () {

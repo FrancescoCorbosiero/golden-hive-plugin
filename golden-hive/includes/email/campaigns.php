@@ -199,10 +199,26 @@ function rp_em_unschedule_campaign( string $campaign_id ): void {
 }
 
 /**
+ * TTL (sec) per il lock di execute_campaign. Oltre questa finestra, un
+ * 'sending' senza checkpoint recenti e considerato abbandonato (PHP crash
+ * o timeout hoster) e un nuovo send e permesso. Configurabile via filter.
+ */
+const RP_EM_CAMPAIGN_LOCK_TTL = 3600; // 1h
+
+/**
  * Esegue una campagna: valida, renderizza, risolve contatti, invia.
  *
+ * Protetto da un lock basato su transient per evitare doppio-send:
+ * - AJAX click + cron che scatta nello stesso istante
+ * - User che clicca "Invia ora" due volte
+ * - Due richieste AJAX in race su hoster a bassa concorrenza
+ *
+ * Il lock ha TTL finito: se una run precedente muore senza rilasciare il
+ * lock (fatal PHP, timeout del SAPI), dopo RP_EM_CAMPAIGN_LOCK_TTL la
+ * campagna e di nuovo eseguibile.
+ *
  * @param string $campaign_id
- * @return array { sent, failed, errors }
+ * @return array { sent, failed, errors, progress?, total?, skipped_reason? }
  */
 function rp_em_execute_campaign( string $campaign_id ): array {
     $campaign = rp_em_get_campaign( $campaign_id );
@@ -210,6 +226,58 @@ function rp_em_execute_campaign( string $campaign_id ): array {
         return [ 'sent' => 0, 'failed' => 0, 'errors' => [ 'Campagna non trovata.' ] ];
     }
 
+    // ── Concurrency lock — acquisizione atomica via transient.
+    $lock_key = 'rp_em_camp_lock_' . md5( $campaign_id );
+    $lock_ttl = (int) apply_filters( 'rp_em_campaign_lock_ttl', RP_EM_CAMPAIGN_LOCK_TTL );
+    if ( get_transient( $lock_key ) ) {
+        return [
+            'sent'           => 0,
+            'failed'         => 0,
+            'errors'         => [ 'Invio gia in corso per questa campagna. Aspetta il completamento o ritenta tra ' . $lock_ttl . 's.' ],
+            'skipped_reason' => 'locked',
+        ];
+    }
+    set_transient( $lock_key, (string) time(), $lock_ttl );
+
+    // Garantiamo rilascio del lock anche in caso di fatal PHP: register_shutdown.
+    register_shutdown_function( function () use ( $lock_key ) {
+        delete_transient( $lock_key );
+    } );
+
+    // Wrap tutto il resto in try/finally cosi il lock viene rilasciato
+    // anche su eccezione e lo status della campagna non resta 'sending'.
+    try {
+        return rp_em_execute_campaign_internal( $campaign_id, $campaign );
+    } catch ( \Throwable $e ) {
+        error_log( 'rp_em_execute_campaign: exception for ' . $campaign_id . ' — ' . $e->getMessage() );
+        rp_em_save_campaign( [
+            'id'     => $campaign_id,
+            'status' => RP_EM_STATUS_FAILED,
+            'stats'  => [
+                'sent'   => 0,
+                'failed' => 0,
+                'errors' => [ 'Fatal interno: ' . $e->getMessage() ],
+            ],
+        ] );
+        return [
+            'sent'   => 0,
+            'failed' => 0,
+            'errors' => [ 'Fatal interno: ' . $e->getMessage() ],
+        ];
+    } finally {
+        delete_transient( $lock_key );
+    }
+}
+
+/**
+ * Implementazione interna di execute_campaign. Separata da rp_em_execute_campaign
+ * per tenere chiaro il flusso lock/unlock.
+ *
+ * @param string $campaign_id
+ * @param array  $campaign
+ * @return array
+ */
+function rp_em_execute_campaign_internal( string $campaign_id, array $campaign ): array {
     // Validate first — se errori bloccanti, abort.
     $validation = rp_em_validate_campaign( $campaign_id );
     if ( ! $validation['ok'] ) {
@@ -222,7 +290,11 @@ function rp_em_execute_campaign( string $campaign_id ): array {
         return [ 'sent' => 0, 'failed' => 0, 'errors' => array_map( fn( $e ) => $e['message'], $validation['errors'] ) ];
     }
 
-    rp_em_save_campaign( [ 'id' => $campaign_id, 'status' => RP_EM_STATUS_SENDING ] );
+    rp_em_save_campaign( [
+        'id'         => $campaign_id,
+        'status'     => RP_EM_STATUS_SENDING,
+        'started_at' => current_time( 'mysql' ),
+    ] );
 
     $html = rp_em_render_campaign( $campaign_id );
     if ( $html === '' ) {
@@ -263,10 +335,11 @@ function rp_em_execute_campaign( string $campaign_id ): array {
         : RP_EM_STATUS_SENT;
 
     rp_em_save_campaign( [
-        'id'          => $campaign_id,
-        'status'      => $status,
-        'stats'       => $result,
-        'last_render' => $html,
+        'id'           => $campaign_id,
+        'status'       => $status,
+        'stats'        => $result,
+        'last_render'  => $html,
+        'completed_at' => current_time( 'mysql' ),
     ] );
 
     return $result;
@@ -299,7 +372,20 @@ function rp_em_resolve_campaign_contacts( array $campaign ): array {
 // ── WP-CRON HANDLER ───────────────────────────────────────────────────────────
 
 add_action( RP_EM_CRON_HOOK, function ( string $campaign_id ) {
-    rp_em_execute_campaign( $campaign_id );
+    // Il cron handler NON deve mai propagare exception: una risolleva qui
+    // ucciderebbe il runner cron per tutte le altre campagne in coda.
+    try {
+        rp_em_execute_campaign( $campaign_id );
+    } catch ( \Throwable $e ) {
+        error_log( 'rp_em_cron: execute_campaign threw for ' . $campaign_id . ' — ' . $e->getMessage() );
+        if ( function_exists( 'rp_em_save_campaign' ) ) {
+            rp_em_save_campaign( [
+                'id'     => $campaign_id,
+                'status' => RP_EM_STATUS_FAILED,
+                'stats'  => [ 'sent' => 0, 'failed' => 0, 'errors' => [ 'Cron fatal: ' . $e->getMessage() ] ],
+            ] );
+        }
+    }
 } );
 
 // ── INTERNAL HELPERS ──────────────────────────────────────────────────────────

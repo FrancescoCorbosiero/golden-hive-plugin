@@ -60,6 +60,11 @@ function rp_em_validate_campaign( string $campaign_id ): array {
         );
     }
 
+    // ── Step 0: HTML del template — blocca send se il body e rotto.
+    $html_check = rp_em_validate_template_html( (string) ( $template['html'] ?? '' ) );
+    foreach ( $html_check['errors'] as $e ) $errors[] = $e;
+    foreach ( $html_check['warnings'] as $w ) $warnings[] = $w;
+
     // ── Step 1: brand config
     $brand = rp_em_get_brand();
     foreach ( rp_em_get_brand_schema() as $section ) {
@@ -218,4 +223,84 @@ function rp_em_validation_result( array $errors, array $warnings ): array {
         'validated_at' => current_time( 'mysql' ),
         'ok'           => empty( $errors ),
     ];
+}
+
+/**
+ * Dimensione massima accettabile per un template HTML (byte). Oltre soglia,
+ * serialize/json_encode diventano lenti e rischiano memory limit.
+ */
+const RP_EM_TEMPLATE_HTML_MAX_BYTES = 512000; // 500 KB
+
+/**
+ * Valida il body HTML di un template email. Usato sia dal save (rifiuto in
+ * ingresso per non accumulare dati che fanno fatalare la render) sia dal
+ * validator campagna (per segnalarlo anche post-save).
+ *
+ * Controlli:
+ *   EMPTY_HTML        — stringa vuota.
+ *   INVALID_UTF8      — byte non validi: rompono json_encode e wp_mail.
+ *   HTML_TOO_LARGE    — oltre RP_EM_TEMPLATE_HTML_MAX_BYTES.
+ *   UNBALANCED_TABLE  — numero di <table> e </table> non coincide (email-safe
+ *                       HTML e basato su table, un mismatch rompe il render).
+ *   SCRIPT_TAG        — <script> non ammesso nei template email.
+ *
+ * @param string $html
+ * @return array [ 'errors' => [ { code, key:'html', message } ], 'warnings' => [...] ]
+ */
+function rp_em_validate_template_html( string $html ): array {
+    $errors   = [];
+    $warnings = [];
+
+    $trimmed = trim( $html );
+    if ( $trimmed === '' ) {
+        $errors[] = rp_em_err( 'EMPTY_HTML', 'html', 'Il body HTML del template e vuoto.' );
+        return [ 'errors' => $errors, 'warnings' => $warnings ];
+    }
+
+    if ( ! mb_check_encoding( $html, 'UTF-8' ) ) {
+        $errors[] = rp_em_err(
+            'INVALID_UTF8',
+            'html',
+            'Il body HTML contiene byte UTF-8 non validi. Questo rompe il rendering e l\'invio email. Ri-incolla l\'HTML da un editor UTF-8.'
+        );
+    }
+
+    $bytes = strlen( $html );
+    if ( $bytes > RP_EM_TEMPLATE_HTML_MAX_BYTES ) {
+        $errors[] = rp_em_err(
+            'HTML_TOO_LARGE',
+            'html',
+            sprintf(
+                'Template troppo grande: %d KB (massimo %d KB). Rimuovi asset inline o usa URL esterni.',
+                (int) ( $bytes / 1024 ),
+                (int) ( RP_EM_TEMPLATE_HTML_MAX_BYTES / 1024 )
+            )
+        );
+    }
+
+    // Email-safe HTML e table-based. Un mismatch apri/chiudi indica template
+    // troncato o copy-paste incompleto — spesso e la causa del "non arriva niente".
+    $open_tables  = preg_match_all( '/<table\b/i', $html );
+    $close_tables = preg_match_all( '/<\/table>/i', $html );
+    if ( $open_tables !== $close_tables ) {
+        $errors[] = rp_em_err(
+            'UNBALANCED_TABLE',
+            'html',
+            sprintf(
+                'Tag <table> sbilanciati: %d aperti, %d chiusi. Il template sembra troncato.',
+                (int) $open_tables,
+                (int) $close_tables
+            )
+        );
+    }
+
+    if ( preg_match( '/<script\b/i', $html ) ) {
+        $errors[] = rp_em_err(
+            'SCRIPT_TAG',
+            'html',
+            'Il template contiene <script>: non ammesso nei client email.'
+        );
+    }
+
+    return [ 'errors' => $errors, 'warnings' => $warnings ];
 }

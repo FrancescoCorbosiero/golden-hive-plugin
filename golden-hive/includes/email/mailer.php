@@ -84,21 +84,50 @@ function rp_em_send_campaign_rendered(
 
     $campaign_id   = (string) ( $meta['campaign_id']   ?? '' );
     $campaign_name = (string) ( $meta['campaign_name'] ?? '' );
+    $total         = count( $contacts );
 
-    foreach ( $contacts as $contact ) {
+    // Relax i limiti PHP per le campagne lunghe. wp_raise_memory_limit('admin')
+    // parte da 256M di default (filtrabile). set_time_limit(0) chiede al SAPI
+    // di non killare — l'hoster puo ignorarlo ma e il meglio che possiamo fare
+    // da user-land.
+    if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'admin' );
+    @set_time_limit( 0 );
+    @ignore_user_abort( true );
+
+    // Checkpoint frequenza: ogni N recipient (o almeno ogni 30s) scriviamo
+    // stats parziali a DB cosi un timeout/OOM lascia tracce visibili nell'UI
+    // invece di far sparire tutto il progresso.
+    $checkpoint_every  = 25;
+    $checkpoint_seconds = 30;
+    $last_checkpoint    = microtime( true );
+
+    foreach ( $contacts as $i => $contact ) {
         $email = is_object( $contact ) ? (string) ( $contact->email ?? '' ) : (string) ( $contact['email'] ?? '' );
         if ( $email === '' || ! is_email( $email ) ) {
             $failed++;
-            $errors[] = "(skipped) invalid email in contact row";
+            $errors[] = '(skipped) invalid email in contact row';
             continue;
         }
 
-        $ok = wp_mail( $email, $subject, $html, $headers );
+        // Ogni wp_mail wrapped in try/catch: un bug del mailer SMTP / SES
+        // o una eccezione in un plugin di logging NON deve interrompere
+        // l'invio agli altri destinatari. La campagna continua.
+        $ok      = false;
+        $err_msg = '';
+        try {
+            $ok = (bool) wp_mail( $email, $subject, $html, $headers );
+            if ( ! $ok ) $err_msg = 'wp_mail returned false';
+        } catch ( \Throwable $e ) {
+            $ok      = false;
+            $err_msg = 'exception: ' . $e->getMessage();
+            error_log( 'rp_em_send_campaign_rendered: wp_mail threw for ' . $email . ' — ' . $e->getMessage() );
+        }
+
         if ( $ok ) {
             $sent++;
         } else {
             $failed++;
-            $errors[] = "{$email}: wp_mail returned false";
+            $errors[] = $email . ': ' . $err_msg;
         }
 
         if ( function_exists( 'rp_em_log_email_safe' ) ) {
@@ -109,14 +138,46 @@ function rp_em_send_campaign_rendered(
                 'campaign_id'   => $campaign_id,
                 'campaign_name' => $campaign_name,
                 'status'        => $ok ? 'sent' : 'failed',
-                'error'         => $ok ? '' : 'wp_mail returned false',
+                'error'         => $ok ? '' : $err_msg,
             ] );
+        }
+
+        // Checkpoint: scrivi stats parziali al DB cosi l'UI (e un restart
+        // dopo timeout) vedono il progresso reale.
+        $elapsed = microtime( true ) - $last_checkpoint;
+        $is_last = ( $i + 1 ) >= $total;
+        if ( $campaign_id !== ''
+            && ( ( ( $i + 1 ) % $checkpoint_every ) === 0 || $elapsed >= $checkpoint_seconds || $is_last )
+            && function_exists( 'rp_em_save_campaign' )
+        ) {
+            try {
+                rp_em_save_campaign( [
+                    'id'    => $campaign_id,
+                    'stats' => [
+                        'sent'       => $sent,
+                        'failed'     => $failed,
+                        'errors'     => array_slice( $errors, -25 ), // solo le ultime 25 per non bloatare wp_options
+                        'progress'   => $i + 1,
+                        'total'      => $total,
+                        'checkpoint' => current_time( 'mysql' ),
+                    ],
+                ] );
+            } catch ( \Throwable $e ) {
+                error_log( 'rp_em_send_campaign_rendered: checkpoint save failed — ' . $e->getMessage() );
+            }
+            $last_checkpoint = microtime( true );
         }
 
         if ( $rate_limit > 0 ) usleep( $rate_limit );
     }
 
-    return [ 'sent' => $sent, 'failed' => $failed, 'errors' => $errors ];
+    return [
+        'sent'     => $sent,
+        'failed'   => $failed,
+        'errors'   => $errors,
+        'progress' => $total,
+        'total'    => $total,
+    ];
 }
 
 /**

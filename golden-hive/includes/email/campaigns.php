@@ -52,7 +52,12 @@ function rp_em_get_campaigns(): array {
     $all = get_option( RP_EM_CAMPAIGNS_KEY, [] );
     if ( ! is_array( $all ) ) return [];
 
-    usort( $all, fn( $a, $b ) => strcmp( $b['created_at'] ?? '', $a['created_at'] ?? '' ) );
+    // Difensivo: se wp_options fosse corrotto e contenesse un valore
+    // non-array, usort/foreach andrebbero in TypeError su PHP 8. Filtriamo
+    // qui una volta per tutti i caller a valle.
+    $all = array_values( array_filter( $all, 'is_array' ) );
+
+    usort( $all, fn( $a, $b ) => strcmp( (string) ( $b['created_at'] ?? '' ), (string) ( $a['created_at'] ?? '' ) ) );
     return $all;
 }
 

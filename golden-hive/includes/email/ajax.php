@@ -32,12 +32,76 @@ if ( has_action( 'wp_ajax_rp_em_ajax_brand_get' ) ) return;
 
 /**
  * Guard interno: nonce + capability. Da chiamare all'inizio di ogni handler.
+ *
+ * Installa anche uno shutdown handler fail-safe: se un fatal error avviene
+ * dopo il guard (during rendering, option loading, ecc.), convertiamo la
+ * response HTML di WP in una response JSON cosi il frontend puo mostrare un
+ * messaggio utile invece di un "Unexpected token '<'" al parse.
  */
 function rp_em_ajax_guard(): void {
     rp_em_check_nonce();
     if ( ! current_user_can( 'manage_woocommerce' ) ) {
         wp_send_json_error( 'Unauthorized', 403 );
     }
+    rp_em_install_ajax_failsafe();
+}
+
+/**
+ * Fail-safe: converte fatal PHP in risposte JSON per gli handler AJAX email.
+ * Evita che il frontend riceva la pagina HTML "Si e verificato un errore
+ * critico" che rompe il JSON.parse() lato client.
+ */
+function rp_em_install_ajax_failsafe(): void {
+    static $installed = false;
+    if ( $installed ) return;
+    $installed = true;
+
+    register_shutdown_function( function () {
+        $err = error_get_last();
+        if ( ! $err ) return;
+        $fatal_types = E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR | E_USER_ERROR | E_RECOVERABLE_ERROR;
+        if ( ! ( $err['type'] & $fatal_types ) ) return;
+        if ( headers_sent() ) return;
+
+        // Buffer output accumulato (HTML di WP) via sink.
+        while ( ob_get_level() > 0 ) { @ob_end_clean(); }
+
+        status_header( 500 );
+        header( 'Content-Type: application/json; charset=UTF-8' );
+        echo wp_json_encode( [
+            'success' => false,
+            'data'    => sprintf(
+                'PHP fatal: %s in %s:%d',
+                (string) $err['message'],
+                basename( (string) $err['file'] ),
+                (int) $err['line']
+            ),
+        ] );
+    } );
+}
+
+/**
+ * Sanitizza ricorsivamente le stringhe dentro un valore per garantire UTF-8
+ * valido prima di json_encode. Senza questo, un byte corrotto dentro
+ * last_render / csv_contacts / subject fa fallire wp_send_json_success
+ * silenziosamente e il client riceve una risposta vuota o un warning PHP.
+ *
+ * @param mixed $v
+ * @return mixed
+ */
+function rp_em_sanitize_utf8( mixed $v ): mixed {
+    if ( is_string( $v ) ) {
+        if ( $v === '' ) return $v;
+        // Rimuove sequenze di byte non valide senza alterare l'ASCII.
+        $clean = @iconv( 'UTF-8', 'UTF-8//IGNORE', $v );
+        return $clean === false ? '' : $clean;
+    }
+    if ( is_array( $v ) ) {
+        foreach ( $v as $k => $val ) {
+            $v[ $k ] = rp_em_sanitize_utf8( $val );
+        }
+    }
+    return $v;
 }
 
 // ═══ BRAND ══════════════════════════════════════════════════════════════════
@@ -78,7 +142,7 @@ add_action( 'wp_ajax_rp_em_ajax_template_get', function () {
     $id = sanitize_text_field( (string) ( $_POST['id'] ?? '' ) );
     $t  = $id !== '' ? rp_em_get_template( $id ) : null;
     if ( ! $t ) wp_send_json_error( 'Template non trovato.' );
-    wp_send_json_success( $t );
+    wp_send_json_success( rp_em_sanitize_utf8( $t ) );
 } );
 
 add_action( 'wp_ajax_rp_em_ajax_template_save', function () {
@@ -95,8 +159,20 @@ add_action( 'wp_ajax_rp_em_ajax_template_save', function () {
     ];
     if ( $clean['name'] === '' ) wp_send_json_error( 'Nome template obbligatorio.' );
 
+    // HTML validation — blocca save se il body e rotto (UTF-8 invalido,
+    // table sbilanciate, script, troppo grande). Senza questo il save passa
+    // e il bug esplode dopo, quando la campagna tenta il render.
+    $html_check = rp_em_validate_template_html( $clean['html'] );
+    if ( ! empty( $html_check['errors'] ) ) {
+        $msgs = array_map( fn( $e ) => (string) ( $e['message'] ?? '' ), $html_check['errors'] );
+        wp_send_json_error( [
+            'message' => implode( ' ', $msgs ),
+            'errors'  => $html_check['errors'],
+        ] );
+    }
+
     $id = rp_em_save_template( $clean );
-    wp_send_json_success( rp_em_get_template( $id ) );
+    wp_send_json_success( rp_em_sanitize_utf8( rp_em_get_template( $id ) ) );
 } );
 
 add_action( 'wp_ajax_rp_em_ajax_template_delete', function () {
@@ -175,7 +251,7 @@ add_action( 'wp_ajax_rp_em_ajax_preview_product_in_email', function () {
 
 add_action( 'wp_ajax_rp_em_ajax_campaign_list', function () {
     rp_em_ajax_guard();
-    wp_send_json_success( rp_em_get_campaigns() );
+    wp_send_json_success( rp_em_sanitize_utf8( rp_em_get_campaigns() ) );
 } );
 
 add_action( 'wp_ajax_rp_em_ajax_campaign_get', function () {
@@ -183,7 +259,7 @@ add_action( 'wp_ajax_rp_em_ajax_campaign_get', function () {
     $id = sanitize_text_field( (string) ( $_POST['id'] ?? '' ) );
     $c  = $id !== '' ? rp_em_get_campaign( $id ) : null;
     if ( ! $c ) wp_send_json_error( 'Campagna non trovata.' );
-    wp_send_json_success( $c );
+    wp_send_json_success( rp_em_sanitize_utf8( $c ) );
 } );
 
 add_action( 'wp_ajax_rp_em_ajax_campaign_save', function () {
@@ -388,10 +464,10 @@ add_action( 'wp_ajax_rp_em_ajax_get_log', function () {
         'status' => sanitize_key( (string) ( $_POST['status'] ?? '' ) ),
         'search' => sanitize_text_field( (string) ( $_POST['search'] ?? '' ) ),
     ];
-    wp_send_json_success( [
+    wp_send_json_success( rp_em_sanitize_utf8( [
         'entries' => rp_em_get_email_log( $args ),
         'stats'   => rp_em_email_log_stats(),
-    ] );
+    ] ) );
 } );
 
 add_action( 'wp_ajax_rp_em_ajax_clear_log', function () {

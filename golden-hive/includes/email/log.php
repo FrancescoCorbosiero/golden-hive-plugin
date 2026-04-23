@@ -83,6 +83,12 @@ function rp_em_get_email_log( array $args = [] ): array {
     $log = get_option( RP_EM_LOG_KEY, [] );
     if ( ! is_array( $log ) ) return [];
 
+    // Difensivo: scarta entry non-array (wp_options corrotto, migrazioni
+    // parziali). Senza questo filter, un qualsiasi accesso $e['...']
+    // propaga un warning/TypeError che finisce nel body della response JSON
+    // e rompe .json() lato client.
+    $log = array_values( array_filter( $log, 'is_array' ) );
+
     $type   = (string) ( $args['type']   ?? '' );
     $status = (string) ( $args['status'] ?? '' );
     $search = strtolower( trim( (string) ( $args['search'] ?? '' ) ) );
@@ -93,7 +99,7 @@ function rp_em_get_email_log( array $args = [] ): array {
             if ( $type   !== '' && ( $e['type']   ?? '' ) !== $type )   return false;
             if ( $status !== '' && ( $e['status'] ?? '' ) !== $status ) return false;
             if ( $search !== '' ) {
-                $hay = strtolower( ( $e['to'] ?? '' ) . ' ' . ( $e['subject'] ?? '' ) . ' ' . ( $e['campaign_name'] ?? '' ) );
+                $hay = strtolower( (string) ( $e['to'] ?? '' ) . ' ' . (string) ( $e['subject'] ?? '' ) . ' ' . (string) ( $e['campaign_name'] ?? '' ) );
                 if ( strpos( $hay, $search ) === false ) return false;
             }
             return true;
@@ -115,6 +121,9 @@ function rp_em_email_log_stats(): array {
 
     $log = get_option( RP_EM_LOG_KEY, [] );
     if ( ! is_array( $log ) ) $log = [];
+
+    // Difensivo: stesso filter di rp_em_get_email_log.
+    $log = array_values( array_filter( $log, 'is_array' ) );
 
     $sent   = 0;
     $failed = 0;

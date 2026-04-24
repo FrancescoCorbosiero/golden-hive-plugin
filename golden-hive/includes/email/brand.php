@@ -11,9 +11,10 @@
 
 defined( 'ABSPATH' ) || exit;
 
-if ( defined( 'RP_EM_BRAND_KEY' ) ) return;
+// Costante PRIMA del guard (vedi nota in validator.php sul PHP hoisting).
+defined( 'RP_EM_BRAND_KEY' ) || define( 'RP_EM_BRAND_KEY', 'rp_em_brand' );
 
-const RP_EM_BRAND_KEY = 'rp_em_brand';
+if ( function_exists( 'rp_em_get_brand' ) ) return;
 
 /**
  * Ritorna la configurazione brand completa, con defaults per le chiavi

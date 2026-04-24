@@ -32,16 +32,21 @@
 
 defined( 'ABSPATH' ) || exit;
 
-if ( defined( 'RP_EM_CAMPAIGNS_KEY' ) ) return;
+// Costanti PRIMA del guard — `const` non sopravvive a early-return del file
+// mentre le function declarations si (PHP hoisting). Vedi nota in validator.php.
+defined( 'RP_EM_CAMPAIGNS_KEY' )     || define( 'RP_EM_CAMPAIGNS_KEY',     'rp_em_campaigns' );
+defined( 'RP_EM_CRON_HOOK' )         || define( 'RP_EM_CRON_HOOK',         'rp_em_cron_send_campaign' );
+defined( 'RP_EM_STATUS_DRAFT' )      || define( 'RP_EM_STATUS_DRAFT',      'draft' );
+defined( 'RP_EM_STATUS_SCHEDULED' )  || define( 'RP_EM_STATUS_SCHEDULED',  'scheduled' );
+defined( 'RP_EM_STATUS_SENDING' )    || define( 'RP_EM_STATUS_SENDING',    'sending' );
+defined( 'RP_EM_STATUS_SENT' )       || define( 'RP_EM_STATUS_SENT',       'sent' );
+defined( 'RP_EM_STATUS_FAILED' )     || define( 'RP_EM_STATUS_FAILED',     'failed' );
+defined( 'RP_EM_CAMPAIGN_LOCK_TTL' ) || define( 'RP_EM_CAMPAIGN_LOCK_TTL', 3600 ); // 1h
 
-const RP_EM_CAMPAIGNS_KEY = 'rp_em_campaigns';
-const RP_EM_CRON_HOOK     = 'rp_em_cron_send_campaign';
-
-const RP_EM_STATUS_DRAFT     = 'draft';
-const RP_EM_STATUS_SCHEDULED = 'scheduled';
-const RP_EM_STATUS_SENDING   = 'sending';
-const RP_EM_STATUS_SENT      = 'sent';
-const RP_EM_STATUS_FAILED    = 'failed';
+// Guard: se le funzioni sono gia state dichiarate (es. da rp-email-marketing
+// standalone), non le ri-dichiariamo. Usiamo function_exists invece di
+// defined(constant) per non accoppiare le due cose.
+if ( function_exists( 'rp_em_save_campaign' ) ) return;
 
 /**
  * Ritorna tutte le campagne ordinate per created_at DESC.
@@ -197,13 +202,6 @@ function rp_em_unschedule_campaign( string $campaign_id ): void {
     $ts = wp_next_scheduled( RP_EM_CRON_HOOK, [ $campaign_id ] );
     if ( $ts ) wp_unschedule_event( $ts, RP_EM_CRON_HOOK, [ $campaign_id ] );
 }
-
-/**
- * TTL (sec) per il lock di execute_campaign. Oltre questa finestra, un
- * 'sending' senza checkpoint recenti e considerato abbandonato (PHP crash
- * o timeout hoster) e un nuovo send e permesso. Configurabile via filter.
- */
-const RP_EM_CAMPAIGN_LOCK_TTL = 3600; // 1h
 
 /**
  * Esegue una campagna: valida, renderizza, risolve contatti, invia.

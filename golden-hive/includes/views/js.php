@@ -7,7 +7,26 @@ const GH = (function() {
     async function ajax(action, body={}) {
         const fd=new FormData(); fd.append('action',action); fd.append('nonce',NONCE);
         Object.entries(body).forEach(([k,v])=>fd.append(k,v));
-        return (await fetch(AJAX,{method:'POST',body:fd})).json();
+        // Non far throw-are il Promise: ogni chiamante si aspetta { success, data }.
+        // Se fetch o .json() falliscono (es. server risponde HTML/PHP notice o
+        // 500 con body non-JSON), parsiamo il testo e ritorniamo success:false
+        // con il body raw in .data. Senza questo, TUTTI i bottoni che fanno
+        // `await ajax(...)` muoiono silenziosamente con una unhandled promise
+        // rejection — sintomo classico di "ho cliccato e non succede niente".
+        let res;
+        try { res = await fetch(AJAX, { method:'POST', body: fd, credentials:'same-origin' }); }
+        catch (e) {
+            console.error('[GH.ajax] network failure', action, e);
+            return { success:false, data:'network: ' + (e && e.message || 'fetch failed') };
+        }
+        const text = await res.text();
+        try { return JSON.parse(text); }
+        catch (e) {
+            console.error('[GH.ajax] non-JSON response', action, 'status=' + res.status, text.slice(0, 500));
+            // Strippa eventuale HTML per leggibilita nel toast.
+            const plain = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+            return { success:false, data:'server returned non-JSON (HTTP ' + res.status + '): ' + (plain || '(empty body)') };
+        }
     }
     function toast(msg,type='ok',ms=3000) {
         const t=document.createElement('div'); t.className='toast '+type; t.textContent=msg;

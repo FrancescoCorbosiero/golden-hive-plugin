@@ -355,10 +355,28 @@
         if (!await GH.confirm('Invio IMMEDIATO a tutti i contatti della sorgente.\nNon si puo annullare una volta partiti gli invii. Procedere?', { title:'Invia campagna', danger:true, okLabel:'Invia ora' })) return;
         const sp = $('em-camp-send-spin'); sp.style.display = '';
         try {
-            const r = await ajax('rp_em_ajax_campaign_send', { id: editing.id });
-            if (!r.success) { toast('Errore: ' + (r.data || 'invio fallito'), 'err'); return; }
-            const d = r.data || {};
-            toast('Inviate: ' + (d.sent|0) + ' · Fallite: ' + (d.failed|0), d.failed ? 'err' : 'ok');
+            let r;
+            try { r = await ajax('rp_em_ajax_campaign_send', { id: editing.id }); }
+            catch (e) { toast('Errore di rete: ' + (e.message || 'fetch fallita'), 'err', 0); return; }
+            if (!r || !r.success) {
+                const msg = (r && r.data) ? (typeof r.data === 'string' ? r.data : JSON.stringify(r.data)) : 'invio fallito';
+                toast('Errore invio: ' + msg, 'err', 0);
+                return;
+            }
+            const d   = r.data || {};
+            const sent   = d.sent|0;
+            const failed = d.failed|0;
+            const errs   = Array.isArray(d.errors) ? d.errors : [];
+            // Se il server ha restituito errori, mostrali in una sticky
+            // red toast: il vecchio comportamento "Inviate: 0 · Fallite: 0"
+            // verde era indistinguibile da un successo reale.
+            if (errs.length) {
+                toast('Errore campagna: ' + errs.slice(0, 3).join(' | '), 'err', 0);
+            } else if (sent === 0 && failed === 0) {
+                toast('Nessun invio effettuato (0 sent, 0 failed). Controlla la sorgente contatti.', 'err', 0);
+            } else {
+                toast('Inviate: ' + sent + ' · Fallite: ' + failed, failed ? 'err' : 'ok', failed ? 0 : 3000);
+            }
         } finally { sp.style.display = 'none'; }
     };
 
@@ -366,8 +384,15 @@
         if (!editing?.id) { toast('Salva prima la campagna', 'err'); return; }
         const to = $('em-camp-test-to').value.trim();
         if (!to) { toast('Destinatario test?', 'err'); return; }
-        const r = await ajax('rp_em_ajax_campaign_send_test', { id: editing.id, to });
-        if (!r.success) { toast('Errore', 'err'); return; }
-        toast(r.data.message || 'Test inviato', r.data.success ? 'ok' : 'err');
+        let r;
+        try { r = await ajax('rp_em_ajax_campaign_send_test', { id: editing.id, to }); }
+        catch (e) { toast('Errore di rete: ' + (e.message || 'fetch fallita'), 'err', 0); return; }
+        if (!r || !r.success) {
+            const msg = (r && r.data) ? (typeof r.data === 'string' ? r.data : JSON.stringify(r.data)) : 'test fallito';
+            toast('Errore test: ' + msg, 'err', 0);
+            return;
+        }
+        const d = r.data || {};
+        toast(d.message || 'Test inviato', d.success ? 'ok' : 'err', d.success ? 3000 : 0);
     };
 })();

@@ -109,7 +109,12 @@ function rp_em_build_demo_values( array $keys ): array {
     // ── CAMPAIGN_* + qualsiasi fallback: per ogni chiave ancora senza valore,
     //    applica euristica o visual marker.
     foreach ( $keys as $k ) {
-        if ( isset( $values[ $k ] ) && $values[ $k ] !== '' ) continue;
+        // Se la chiave e gia stata scritta da un resolver autorevole
+        // (BRAND / META / PRODUCT / ORDER / RECIPIENT), la teniamo cosi
+        // com'e — anche se e stringa vuota. Esempio: PRICE_ORIGINAL vuoto
+        // significa "prodotto non in saldo", e un valore valido, non un
+        // placeholder non coperto.
+        if ( array_key_exists( $k, $values ) ) continue;
 
         $ns = rp_em_extract_namespace( $k );
         $fallback = rp_em_demo_fallback_value( $k, $ns );

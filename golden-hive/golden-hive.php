@@ -120,6 +120,11 @@ require_once GH_DIR . 'includes/email/_seed/seeder.php';
 require_once GH_DIR . 'includes/email/ajax.php';
 require_once GH_DIR . 'includes/email/transactional-ajax.php';
 
+// Email Lite — dev-first standalone campaign tool. Zero dipendenze dal
+// sistema email multi-layer qui sopra. Se la UI complessa si rompe, questa
+// pagina sotto Tools → Campaign Email continua a funzionare.
+require_once GH_DIR . 'includes/email-lite/campaign-tool.php';
+
 // Tools
 require_once GH_DIR . 'includes/tools/nuclear-cleanup.php';
 require_once GH_DIR . 'includes/tools/ajax.php';

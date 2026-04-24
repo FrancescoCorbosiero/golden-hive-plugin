@@ -180,6 +180,7 @@
                         <span class="cfg-label">Schedule</span>
                         <input class="cfg-input" id="em-camp-scheduled" type="datetime-local" />
                         <button class="btn btn-ghost" onclick="GH.emCampaignSchedule()">Schedula</button>
+                        <button class="btn btn-ghost" onclick="GH.emCampaignDiagnose()" title="Esegue lo stesso checklist di Invia ora ma senza inviare. Mostra contatti risolti, render, lock, blockers."><span class="spin" id="em-camp-diag-spin" style="display:none"></span> Diagnose</button>
                         <button class="btn btn-warn" onclick="GH.emCampaignSend()"><span class="spin" id="em-camp-send-spin" style="display:none"></span> Invia ora</button>
                     </div>
                     <div class="cfg-row">

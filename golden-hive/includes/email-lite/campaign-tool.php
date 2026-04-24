@@ -132,7 +132,27 @@ class RP_Campaign_Tool {
                 </span>
             </h1>
 
-            <?php if ( $preview_html ): ?>
+            <?php if ( $preview_html ):
+                $preview_unresolved = get_transient( 'rp_preview_unresolved' );
+                $preview_unresolved = is_array( $preview_unresolved ) ? $preview_unresolved : [];
+            ?>
+            <?php if ( $preview_unresolved ): ?>
+            <div class="notice notice-error" style="padding:16px;">
+                <strong>⚠ Placeholder non risolti — NON inviare cosi</strong>
+                <p style="margin:8px 0 0;">
+                    Questi token sono nel body e verrebbero spediti letterali al cliente:
+                </p>
+                <ul style="margin:8px 0 0 20px;font-family:monospace;font-size:12px;">
+                    <?php foreach ( $preview_unresolved as $tok ): ?>
+                        <li><?php echo esc_html( $tok ); ?></li>
+                    <?php endforeach; ?>
+                </ul>
+                <p class="description" style="margin-top:8px;">
+                    Il bottone <em>Invia Campagna</em> bloccherebbe l'invio automaticamente.
+                    Sostituisci i token con valori reali nel body.
+                </p>
+            </div>
+            <?php endif; ?>
             <div class="notice notice-info" style="padding:16px;">
                 <strong>👁 Anteprima — prima email della lista</strong>
                 <p class="description" style="margin-top:4px;">
@@ -315,11 +335,39 @@ class RP_Campaign_Tool {
             $first        = $subscribers[0] ?? null;
             $preview_body = $first ? $this->personalize( $body, $first ) : $body;
             set_transient( 'rp_preview_html', $preview_body, 5 * MINUTE_IN_SECONDS );
+
+            // Calcola anche i placeholder non risolti sul preview — e cio
+            // che verrebbe spedito al primo destinatario.
+            $unresolved = $this->find_unresolved_placeholders( $preview_body );
+            set_transient( 'rp_preview_unresolved', $unresolved, 5 * MINUTE_IN_SECONDS );
+
             wp_redirect( add_query_arg(
                 [ 'page' => 'rp-campaign-tool', 'rp_preview' => '1', 'module_id' => $module_id ],
                 admin_url( 'tools.php' )
             ) );
             exit;
+        }
+
+        // ── SAFETY CHECK (solo send) ──
+        // Pre-render sul primo destinatario e abort se restano placeholder
+        // non risolti ({RECIPIENT_*}, {BRAND_*}, {PRODUCT_N_*}, {{qualsiasi}},
+        // ecc.). Meglio bloccare 1 campagna in draft che spedire a N clienti
+        // un'email con "Ciao {RECIPIENT_FIRST_NAME}".
+        if ( ! empty( $subscribers ) ) {
+            $sample     = $this->personalize( $body, $subscribers[0] );
+            $unresolved = $this->find_unresolved_placeholders( $sample );
+            if ( ! empty( $unresolved ) ) {
+                wp_redirect( add_query_arg(
+                    [
+                        'page'        => 'rp-campaign-tool',
+                        'rp_error'    => 'unresolved',
+                        'rp_unres'    => rawurlencode( implode( ',', array_slice( $unresolved, 0, 10 ) ) ),
+                        'module_id'   => $module_id,
+                    ],
+                    admin_url( 'tools.php' )
+                ) );
+                exit;
+            }
         }
 
         // ── SEND ──
@@ -333,6 +381,13 @@ class RP_Campaign_Tool {
 
         foreach ( $subscribers as $subscriber ) {
             $personalized = $this->personalize( $body, $subscriber );
+            // Safety net per-destinatario: se un utente ha un display_name
+            // che contiene '{' e rompe qualcosa, non spediamo.
+            if ( $this->find_unresolved_placeholders( $personalized ) ) {
+                $failed++;
+                if ( $rate_limit > 0 ) usleep( $rate_limit );
+                continue;
+            }
             $ok = wp_mail( $subscriber->email, $subject, $personalized, $headers );
             $ok ? $sent++ : $failed++;
             if ( $rate_limit > 0 ) usleep( $rate_limit );
@@ -403,18 +458,98 @@ class RP_Campaign_Tool {
         if ( isset( $_GET['rp_error'] ) && $_GET['rp_error'] === 'empty_fields' ) {
             echo "<div class='notice notice-error is-dismissible'><p>❌ Oggetto o corpo email mancante.</p></div>";
         }
+
+        if ( isset( $_GET['rp_error'] ) && $_GET['rp_error'] === 'unresolved' ) {
+            $list = isset( $_GET['rp_unres'] ) ? sanitize_text_field( rawurldecode( (string) $_GET['rp_unres'] ) ) : '';
+            $toks = array_filter( array_map( 'trim', explode( ',', $list ) ) );
+            echo "<div class='notice notice-error is-dismissible'><p><strong>🛑 Invio ABORTITO — placeholder non risolti</strong><br>";
+            echo "Il body contiene token che verrebbero inviati letterali ai clienti:</p>";
+            if ( $toks ) {
+                echo "<ul style='margin:0 0 0 20px;font-family:monospace;font-size:12px;'>";
+                foreach ( $toks as $t ) echo '<li>' . esc_html( $t ) . '</li>';
+                echo "</ul>";
+            }
+            echo "<p>Sostituiscili con valori reali nel body (o usa <code>{{first_name}}</code> / <code>{RECIPIENT_FIRST_NAME}</code> che sono auto-risolti), poi clicca <em>Anteprima</em> per verificare.</p></div>";
+        }
     }
 
     // ── HELPERS ───────────────────────────────────────────────────────────────
 
     /**
      * Sostituisce i placeholder nel corpo email.
+     *
+     * Accetta entrambe le convenzioni in uso nel plugin:
+     *  - {{first_name}} / {{email}}  (sintassi Lite, Handlebars-like)
+     *  - {RECIPIENT_FIRST_NAME} / {RECIPIENT_EMAIL} / ...  (sintassi multi-layer,
+     *    quella che esce da Golden Hive → Templates → "Scarica demo")
+     *
+     * Cosi l'utente puo incollare l'HTML demo senza find/replace manuale.
      */
     private function personalize( string $body, object $subscriber ): string {
-        $name = ! empty( $subscriber->display_name )
-            ? esc_html( $subscriber->display_name )
-            : 'Amico';
-        return str_replace( '{{first_name}}', $name, $body );
+        $display = (string) ( $subscriber->display_name ?? '' );
+        $email   = (string) ( $subscriber->email ?? '' );
+
+        $name = $display !== '' ? $display : 'Amico';
+        // Un display_name puo contenere '<' o '&' che, se incollati raw nel
+        // body HTML, bucano il rendering. Escape di sicurezza.
+        $name_esc  = esc_html( $name );
+        $email_esc = esc_html( $email );
+
+        // Split heuristico: se l'utente ha nome + cognome lo dividiamo in
+        // first/last. Non e infallibile ma copre il 90% dei casi Hustle
+        // dove 'display_name' e in realta first_name o last_name.
+        $parts = preg_split( '/\s+/', trim( $name ), 2 );
+        $first = $parts[0] ?? $name;
+        $last  = $parts[1] ?? '';
+        $first_esc = esc_html( $first );
+        $last_esc  = esc_html( $last );
+
+        $map = [
+            // Lite syntax (Handlebars-like)
+            '{{first_name}}'          => $first_esc,
+            '{{last_name}}'           => $last_esc,
+            '{{full_name}}'           => $name_esc,
+            '{{email}}'               => $email_esc,
+
+            // Multi-layer syntax — quello che esce da "Scarica demo"
+            '{RECIPIENT_FIRST_NAME}'  => $first_esc,
+            '{RECIPIENT_LAST_NAME}'   => $last_esc,
+            '{RECIPIENT_FULL_NAME}'   => $name_esc,
+            '{RECIPIENT_EMAIL}'       => $email_esc,
+        ];
+
+        return strtr( $body, $map );
+    }
+
+    /**
+     * Scan per placeholder rimasti non risolti. Se qualcosa match-a queste
+     * regex dopo personalize(), QUELLA email non va spedita: significa che
+     * il body ha un token tipo {BRAND_NAME} o {CAMPAIGN_CTA_URL} che e
+     * scappato alla sostituzione e arriverebbe letterale al cliente.
+     *
+     * Cerca:
+     *  - {{anything}}           — sintassi Lite non coperta da personalize()
+     *  - {UPPERCASE_TOKEN}      — sintassi multi-layer del plugin
+     *    (NON matcha {color} CSS minuscoli ne {0} / {123} numerici)
+     *
+     * @return string[] Lista univoca di token trovati (max 50 per sanita).
+     */
+    private function find_unresolved_placeholders( string $body ): array {
+        $found = [];
+
+        // {{anything}} non sostituito
+        if ( preg_match_all( '/\{\{[^{}\s][^{}]*\}\}/', $body, $m1 ) ) {
+            $found = array_merge( $found, $m1[0] );
+        }
+        // {UPPERCASE_WITH_UNDERSCORES_OR_DIGITS}, deve iniziare con lettera
+        // per escludere CSS {color: ...} o altro; deve avere almeno 2 char
+        // per escludere glob {A}.
+        if ( preg_match_all( '/\{([A-Z][A-Z0-9_]{1,})\}/', $body, $m2 ) ) {
+            foreach ( $m2[0] as $token ) $found[] = $token;
+        }
+
+        $found = array_values( array_unique( $found ) );
+        return array_slice( $found, 0, 50 );
     }
 }
 

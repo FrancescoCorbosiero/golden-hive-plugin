@@ -482,11 +482,25 @@ function gh_fc_post_process( int $product_id, array $data, bool $sideload = true
         }
     }
 
-    // Provenance meta
-    update_post_meta( $product_id, '_gh_import_source', $data['_gh_import_source'] ?? 'config' );
+    // Provenance meta (legacy — preservato per backward compat)
+    $legacy_src = (string) ( $data['_gh_import_source'] ?? 'config' );
+    update_post_meta( $product_id, '_gh_import_source', $legacy_src );
     update_post_meta( $product_id, '_gh_import_date', current_time( 'mysql' ) );
     if ( ! empty( $data['_gh_import_feed_id'] ) ) {
         update_post_meta( $product_id, '_gh_import_feed_id', $data['_gh_import_feed_id'] );
+    }
+
+    // Provenance multi-source (nuovo, usato dal conflict engine)
+    if ( function_exists( 'gh_conflict_record_source' ) ) {
+        $canonical_src = function_exists( 'gh_conflict_map_legacy_source' )
+            ? gh_conflict_map_legacy_source( $legacy_src )
+            : $legacy_src;
+        gh_conflict_record_source( $product_id, $canonical_src, [
+            'catalog' => $canonical_src,
+            'pricing' => $canonical_src,
+            'stock'   => $canonical_src,
+            'media'   => $canonical_src,
+        ] );
     }
 
     // Images: prefer pre-imported media map, fallback to sideload if explicitly requested

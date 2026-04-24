@@ -53,6 +53,15 @@ require_once GH_DIR . 'includes/media/cleaner.php';
 require_once GH_DIR . 'includes/media/browser.php';
 require_once GH_DIR . 'includes/media/ajax.php';
 
+// Conflict — multi-source provenance + conflict resolution engine.
+// Caricato PRIMA dei feed per esporre gh_conflict_record_source() ai feed
+// esistenti (GS, SF, CSV) che lo chiamano post-create/update.
+require_once GH_DIR . 'includes/conflict/provenance.php';
+require_once GH_DIR . 'includes/conflict/storage.php';
+require_once GH_DIR . 'includes/conflict/engine.php';
+require_once GH_DIR . 'includes/conflict/migrate.php';
+require_once GH_DIR . 'includes/conflict/ajax.php';
+
 // Feeds — HTTP client, GS feed, SF feed, config engine, CSV feed, media pre-import
 require_once GH_DIR . 'includes/feeds/media-preimport.php';
 require_once GH_DIR . 'includes/feeds/http-client.php';
@@ -66,6 +75,18 @@ require_once GH_DIR . 'includes/feeds/feed-config-engine.php';
 require_once GH_DIR . 'includes/feeds/scheduler.php';
 require_once GH_DIR . 'includes/feeds/reimport.php';
 require_once GH_DIR . 'includes/feeds/ajax.php';
+
+// KicksDB — lookup/enrichment service + search discovery + batch pricing refresh.
+// NON e un feed push: i SKU vengono da (a) input manuale, (b) search, (c)
+// refresh su catalog esistente. Ordine: settings → client → cache → pricing →
+// normalizer → feed orchestrator → ajax.
+require_once GH_DIR . 'includes/feeds/kicksdb/settings.php';
+require_once GH_DIR . 'includes/feeds/kicksdb/client.php';
+require_once GH_DIR . 'includes/feeds/kicksdb/cache.php';
+require_once GH_DIR . 'includes/feeds/kicksdb/pricing.php';
+require_once GH_DIR . 'includes/feeds/kicksdb/normalizer.php';
+require_once GH_DIR . 'includes/feeds/kicksdb/feed.php';
+require_once GH_DIR . 'includes/feeds/kicksdb/ajax.php';
 
 // Jobs — unified scheduler (cron-expression based, chunked, pluggable)
 require_once GH_DIR . 'includes/jobs/cron-expr.php';
@@ -131,3 +152,15 @@ require_once GH_DIR . 'includes/tools/ajax.php';
 
 // Admin UI
 require_once GH_DIR . 'includes/admin-page.php';
+
+/**
+ * Activation: installa le default conflict rules e avvia la prima passata di
+ * backfill provenance. Idempotente: re-attivare il plugin non rompe niente,
+ * le rule esistenti sono preservate e la migration skippa i prodotti gia
+ * taggati.
+ */
+register_activation_hook( __FILE__, function () {
+    if ( function_exists( 'gh_conflict_on_activate' ) ) {
+        gh_conflict_on_activate();
+    }
+} );

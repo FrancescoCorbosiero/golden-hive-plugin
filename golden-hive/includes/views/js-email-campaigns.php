@@ -355,21 +355,20 @@
         if (!await GH.confirm('Invio IMMEDIATO a tutti i contatti della sorgente.\nNon si puo annullare una volta partiti gli invii. Procedere?', { title:'Invia campagna', danger:true, okLabel:'Invia ora' })) return;
         const sp = $('em-camp-send-spin'); sp.style.display = '';
         try {
-            let r;
-            try { r = await ajax('rp_em_ajax_campaign_send', { id: editing.id }); }
-            catch (e) { toast('Errore di rete: ' + (e.message || 'fetch fallita'), 'err', 0); return; }
-            if (!r || !r.success) {
-                const msg = (r && r.data) ? (typeof r.data === 'string' ? r.data : JSON.stringify(r.data)) : 'invio fallito';
+            const r = await ajax('rp_em_ajax_campaign_send', { id: editing.id });
+            if (!r.success) {
+                const msg = typeof r.data === 'string' ? r.data : 'invio fallito';
                 toast('Errore invio: ' + msg, 'err', 0);
                 return;
             }
-            const d   = r.data || {};
+            const d      = r.data || {};
             const sent   = d.sent|0;
             const failed = d.failed|0;
             const errs   = Array.isArray(d.errors) ? d.errors : [];
-            // Se il server ha restituito errori, mostrali in una sticky
-            // red toast: il vecchio comportamento "Inviate: 0 · Fallite: 0"
-            // verde era indistinguibile da un successo reale.
+            // Il server puo rispondere success:true con errors[] non vuoto e
+            // sent=0: e un fallimento logico (es. "Nessun contatto trovato").
+            // Senza questo branch l'UI mostrerebbe un toast verde "Inviate: 0
+            // · Fallite: 0" indistinguibile da un successo reale.
             if (errs.length) {
                 toast('Errore campagna: ' + errs.slice(0, 3).join(' | '), 'err', 0);
             } else if (sent === 0 && failed === 0) {
@@ -380,58 +379,13 @@
         } finally { sp.style.display = 'none'; }
     };
 
-    // Diagnostic: read-only, esegue gli stessi check di Invia ora ma senza
-    // inviare nulla. Mostra contatti risolti, render, lock, blockers nel
-    // pannello validation cosi non devi leggere debug.log per capire perche
-    // Invia fallisce.
-    GH.emCampaignDiagnose = async function() {
-        if (!editing?.id) { toast('Salva prima la campagna', 'err'); return; }
-        const sp = $('em-camp-diag-spin'); if (sp) sp.style.display = '';
-        try {
-            const r = await ajax('rp_em_ajax_campaign_diagnose', { id: editing.id });
-            if (!r || !r.success) {
-                const msg = (r && r.data) ? (typeof r.data === 'string' ? r.data : JSON.stringify(r.data)) : 'diagnose fallita';
-                toast('Errore diagnose: ' + msg, 'err', 0);
-                return;
-            }
-            const d = r.data || {};
-            const c = $('em-camp-validation');
-            const blockers = Array.isArray(d.blockers) ? d.blockers : [];
-            const rows = [
-                ['Status campagna',      esc(d.campaign_status || '(vuoto)')],
-                ['Template esiste',      d.template_exists ? 'si' : 'NO'],
-                ['Render HTML',          d.render_ok ? (d.render_bytes|0) + ' bytes' : 'FALLITO · ' + esc(d.render_error || '')],
-                ['Sorgente contatti',    esc(d.source_type || '')],
-                ['Contatti risolti',     (d.contacts_count|0) + ' (sample: ' + (Array.isArray(d.contacts_sample) ? d.contacts_sample.map(esc).join(', ') : '') + ')'],
-                ['Hustle installato',    d.hustle_installed ? 'si · tot subs ' + (d.hustle_subs_total|0) : 'NO'],
-                ['Hustle moduli',        Array.isArray(d.hustle_modules) ? d.hustle_modules.length + ' (' + d.hustle_modules.map(m => '#' + m.module_id + ' ' + esc(m.module_name)).join(', ') + ')' : '0'],
-                ['CSV contenuto',        d.csv_has_content ? 'si' : 'no'],
-                ['Lock transient',       d.lock_active ? 'ATTIVO — blocca Invia' : 'libero'],
-            ];
-            let h = '<div class="rpem-v-errors"><div class="rpem-v-head">Diagnose campagna ' + esc(d.campaign_id || '') + '</div>';
-            h += rows.map(([k, v]) => '<div class="rpem-v-row"><code>' + esc(k) + '</code><span>' + v + '</span></div>').join('');
-            h += '</div>';
-            if (blockers.length) {
-                h += '<div class="rpem-v-errors"><div class="rpem-v-head">Blockers (' + blockers.length + ') — questi fermerebbero Invia ora</div>';
-                h += blockers.map(b => '<div class="rpem-v-row"><code>BLOCK</code><span>' + esc(b) + '</span></div>').join('');
-                h += '</div>';
-            } else {
-                h += '<div class="rpem-v-ok">Nessun blocker — Invia ora dovrebbe partire.</div>';
-            }
-            c.innerHTML = h;
-            toast(blockers.length ? 'Diagnose: ' + blockers.length + ' blocker(s)' : 'Diagnose OK', blockers.length ? 'err' : 'ok', blockers.length ? 0 : 3000);
-        } finally { if (sp) sp.style.display = 'none'; }
-    };
-
     GH.emCampaignSendTest = async function() {
         if (!editing?.id) { toast('Salva prima la campagna', 'err'); return; }
         const to = $('em-camp-test-to').value.trim();
         if (!to) { toast('Destinatario test?', 'err'); return; }
-        let r;
-        try { r = await ajax('rp_em_ajax_campaign_send_test', { id: editing.id, to }); }
-        catch (e) { toast('Errore di rete: ' + (e.message || 'fetch fallita'), 'err', 0); return; }
-        if (!r || !r.success) {
-            const msg = (r && r.data) ? (typeof r.data === 'string' ? r.data : JSON.stringify(r.data)) : 'test fallito';
+        const r = await ajax('rp_em_ajax_campaign_send_test', { id: editing.id, to });
+        if (!r.success) {
+            const msg = typeof r.data === 'string' ? r.data : 'test fallito';
             toast('Errore test: ' + msg, 'err', 0);
             return;
         }

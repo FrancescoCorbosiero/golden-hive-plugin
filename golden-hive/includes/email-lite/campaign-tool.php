@@ -135,9 +135,15 @@ class RP_Campaign_Tool {
             <?php if ( $preview_html ): ?>
             <div class="notice notice-info" style="padding:16px;">
                 <strong>👁 Anteprima — prima email della lista</strong>
-                <div style="margin-top:12px;padding:16px;border:1px solid #ddd;background:#fff;border-radius:4px;">
-                    <?php echo $preview_html; // gia passato da wp_kses_post al save ?>
-                </div>
+                <p class="description" style="margin-top:4px;">
+                    Rendering isolato in iframe (sandbox). Il body puo contenere DOCTYPE,
+                    &lt;html&gt;, &lt;style&gt; — non rompe la pagina admin.
+                </p>
+                <iframe
+                    srcdoc="<?php echo esc_attr( $preview_html ); ?>"
+                    sandbox="allow-same-origin"
+                    style="width:100%;height:600px;margin-top:12px;border:1px solid #ddd;background:#fff;border-radius:4px;"
+                    title="Anteprima email"></iframe>
             </div>
             <?php endif; ?>
 
@@ -183,24 +189,17 @@ class RP_Campaign_Tool {
                                     </td>
                                 </tr>
                                 <tr>
-                                    <th><label>Corpo *</label></th>
+                                    <th><label for="rp_body">Corpo * (HTML raw)</label></th>
                                     <td>
-                                        <?php
-                                        wp_editor(
-                                            $last_body,
-                                            'rp_body',
-                                            [
-                                                'textarea_name' => 'body',
-                                                'media_buttons' => false,
-                                                'teeny'         => false,
-                                                'textarea_rows' => 14,
-                                                'quicktags'     => true,
-                                            ]
-                                        );
-                                        ?>
+                                        <textarea id="rp_body" name="body"
+                                                  rows="20"
+                                                  style="width:100%;font-family:'JetBrains Mono',Menlo,Consolas,monospace;font-size:12px;line-height:1.5;white-space:pre;"
+                                                  spellcheck="false"
+                                                  placeholder="<!DOCTYPE html>&#10;<html>&#10;  <head><meta charset='UTF-8'></head>&#10;  <body>&#10;    <h1>Ciao {{first_name}}</h1>&#10;    <p>Il tuo coupon: DEMO20</p>&#10;  </body>&#10;</html>"><?php echo esc_textarea( $last_body ); ?></textarea>
                                         <p class="description" style="margin-top:6px;">
+                                            HTML completo accettato (DOCTYPE, &lt;style&gt;, table-based layouts, tutto).
                                             Usa <code>{{first_name}}</code> per personalizzare il nome del destinatario.
-                                            Supporta HTML completo.
+                                            Puoi incollare l'HTML scaricato da Golden Hive → Templates → "Scarica demo".
                                         </p>
                                     </td>
                                 </tr>
@@ -289,7 +288,12 @@ class RP_Campaign_Tool {
         $action_type = sanitize_key( $_POST['action_type'] ?? 'send' );
         $module_id   = intval( $_POST['module_id'] ?? 0 );
         $subject     = sanitize_text_field( $_POST['subject'] ?? '' );
-        $body        = wp_kses_post( $_POST['body'] ?? '' );
+        // Raw HTML: niente wp_kses_post qui. Il body puo contenere DOCTYPE,
+        // <html>, <head>, <style>, <table> inline CSS — tutto cio che serve
+        // per un email template reale. La pagina e gated da manage_options
+        // + nonce: solo admin autenticati possono POSTare qui. Il body non
+        // viene mai renderizzato nel contesto del sito (va dritto a wp_mail).
+        $body        = wp_unslash( (string) ( $_POST['body'] ?? '' ) );
         $rate_limit  = intval( $_POST['rate_limit'] ?? 200000 );
 
         if ( empty( $subject ) || empty( $body ) ) {

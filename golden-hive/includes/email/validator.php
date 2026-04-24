@@ -25,10 +25,19 @@
 
 defined( 'ABSPATH' ) || exit;
 
-if ( function_exists( 'rp_em_validate_campaign' ) ) return;
+// Costanti: dichiarate con defined()/define() PRIMA del double-load guard
+// perche `const` al top-level NON sopravvive a un `return` anticipato del
+// file, ma le function declarations SI (PHP hoisting). Se un altro plugin
+// (es. rp-email-marketing standalone) ha gia definito rp_em_validate_campaign,
+// il guard sotto ritorna e i `const` non verrebbero mai eseguiti — ma le
+// funzioni qui sotto restano chiamabili e crascerebbero con "Undefined
+// constant" al primo uso. Usare define() condizionale e safe in entrambi
+// gli ordini di load.
+defined( 'RP_EM_SUBJECT_MAX' )             || define( 'RP_EM_SUBJECT_MAX', 60 );
+defined( 'RP_EM_PREHEADER_MAX' )           || define( 'RP_EM_PREHEADER_MAX', 110 );
+defined( 'RP_EM_TEMPLATE_HTML_MAX_BYTES' ) || define( 'RP_EM_TEMPLATE_HTML_MAX_BYTES', 512000 ); // 500 KB
 
-const RP_EM_SUBJECT_MAX   = 60;
-const RP_EM_PREHEADER_MAX = 110;
+if ( function_exists( 'rp_em_validate_campaign' ) ) return;
 
 /**
  * Valida una campagna.
@@ -224,12 +233,6 @@ function rp_em_validation_result( array $errors, array $warnings ): array {
         'ok'           => empty( $errors ),
     ];
 }
-
-/**
- * Dimensione massima accettabile per un template HTML (byte). Oltre soglia,
- * serialize/json_encode diventano lenti e rischiano memory limit.
- */
-const RP_EM_TEMPLATE_HTML_MAX_BYTES = 512000; // 500 KB
 
 /**
  * Validator RILASSATO per il send: ritorna solo errori VERAMENTE bloccanti

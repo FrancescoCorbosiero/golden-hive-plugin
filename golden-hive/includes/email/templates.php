@@ -22,9 +22,10 @@
 
 defined( 'ABSPATH' ) || exit;
 
-if ( defined( 'RP_EM_TEMPLATES_KEY' ) ) return;
+// Costante PRIMA del guard (vedi nota in validator.php sul PHP hoisting).
+defined( 'RP_EM_TEMPLATES_KEY' ) || define( 'RP_EM_TEMPLATES_KEY', 'rp_em_templates' );
 
-const RP_EM_TEMPLATES_KEY = 'rp_em_templates';
+if ( function_exists( 'rp_em_get_template' ) ) return;
 
 /**
  * Ritorna tutti i template, ordinati per updated_at DESC.

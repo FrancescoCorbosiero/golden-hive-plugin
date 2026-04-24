@@ -53,11 +53,12 @@
 
 defined( 'ABSPATH' ) || exit;
 
-if ( function_exists( 'rp_em_resolve_order_fields' ) ) return;
+// Costanti PRIMA del guard (vedi nota in validator.php sul PHP hoisting).
+defined( 'RP_EM_ORDER_META_TRACKING_CODE' ) || define( 'RP_EM_ORDER_META_TRACKING_CODE', '_rp_em_tracking_code' );
+defined( 'RP_EM_ORDER_META_TRACKING_URL' )  || define( 'RP_EM_ORDER_META_TRACKING_URL',  '_rp_em_tracking_url' );
+defined( 'RP_EM_ORDER_META_CARRIER' )       || define( 'RP_EM_ORDER_META_CARRIER',       '_rp_em_carrier' );
 
-const RP_EM_ORDER_META_TRACKING_CODE = '_rp_em_tracking_code';
-const RP_EM_ORDER_META_TRACKING_URL  = '_rp_em_tracking_url';
-const RP_EM_ORDER_META_CARRIER       = '_rp_em_carrier';
+if ( function_exists( 'rp_em_resolve_order_fields' ) ) return;
 
 /**
  * Risolve un order_id WooCommerce in una mappa ORDER_* => string.

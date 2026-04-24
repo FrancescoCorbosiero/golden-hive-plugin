@@ -49,9 +49,10 @@
 
 defined( 'ABSPATH' ) || exit;
 
-if ( defined( 'RP_EM_TRANSACTIONAL_KEY' ) ) return;
+// Costante PRIMA del guard (vedi nota in validator.php sul PHP hoisting).
+defined( 'RP_EM_TRANSACTIONAL_KEY' ) || define( 'RP_EM_TRANSACTIONAL_KEY', 'rp_em_transactional' );
 
-const RP_EM_TRANSACTIONAL_KEY = 'rp_em_transactional';
+if ( function_exists( 'rp_em_get_transactional_binding' ) ) return;
 
 // ═══ EVENT REGISTRY ═════════════════════════════════════════════════════════
 

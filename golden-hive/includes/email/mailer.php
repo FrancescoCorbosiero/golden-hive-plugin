@@ -60,10 +60,15 @@ function rp_em_send_test_email( string $to, string $subject = '', string $body =
 
 /**
  * Invia una campagna a una lista di contatti usando HTML gia renderizzato.
- * L'HTML puo contenere {RECIPIENT_*} letterali: verranno sostituiti dall'ESP.
+ *
+ * Per ogni destinatario, sostituisce i placeholder {RECIPIENT_*} con i
+ * valori reali PRIMA di wp_mail — il vecchio design lasciava quei token
+ * letterali assumendo che l'ESP (SES) li sostituisse, ma WP Mail SMTP
+ * instrada come SMTP raw, non via SES Template API: i merge tag non
+ * vengono toccati e finirebbero letterali nell'inbox del cliente.
  *
  * @param array  $contacts   Lista di contatti (oggetti con ->email).
- * @param string $subject    Oggetto email (puo contenere {RECIPIENT_*} letterali).
+ * @param string $subject    Oggetto email (puo contenere {RECIPIENT_*}).
  * @param string $html       Corpo HTML gia renderizzato.
  * @param int    $rate_limit Microsecondi di pausa tra invii.
  * @param array  $meta       { campaign_id, campaign_name } per il logging.
@@ -108,6 +113,14 @@ function rp_em_send_campaign_rendered(
             $errors[] = '(skipped) invalid email in contact row';
             continue;
         }
+        $display_name = is_object( $contact )
+            ? (string) ( $contact->display_name ?? '' )
+            : (string) ( $contact['display_name'] ?? '' );
+
+        // Sostituzione per-destinatario dei {RECIPIENT_*}. Applicata sia al
+        // body HTML sia al subject (che puo usare "Ciao {RECIPIENT_FIRST_NAME}").
+        $subject_r = rp_em_substitute_recipient( $subject, $email, $display_name );
+        $html_r    = rp_em_substitute_recipient( $html,    $email, $display_name );
 
         // Ogni wp_mail wrapped in try/catch: un bug del mailer SMTP / SES
         // o una eccezione in un plugin di logging NON deve interrompere
@@ -115,7 +128,7 @@ function rp_em_send_campaign_rendered(
         $ok      = false;
         $err_msg = '';
         try {
-            $ok = (bool) wp_mail( $email, $subject, $html, $headers );
+            $ok = (bool) wp_mail( $email, $subject_r, $html_r, $headers );
             if ( ! $ok ) $err_msg = 'wp_mail returned false';
         } catch ( \Throwable $e ) {
             $ok      = false;
@@ -178,6 +191,48 @@ function rp_em_send_campaign_rendered(
         'progress' => $total,
         'total'    => $total,
     ];
+}
+
+/**
+ * Sostituisce i placeholder {RECIPIENT_*} nel testo (subject o body) con i
+ * valori del destinatario. Usato da rp_em_send_campaign_rendered e dal test
+ * email della campagna.
+ *
+ * Chiavi risolte:
+ *   {RECIPIENT_EMAIL}       → email del destinatario
+ *   {RECIPIENT_FIRST_NAME}  → prima parola di display_name, oppure local-part dell'email
+ *   {RECIPIENT_LAST_NAME}   → resto di display_name dopo il primo spazio (o '')
+ *   {RECIPIENT_FULL_NAME}   → display_name, oppure local-part dell'email
+ *
+ * Fallback: se display_name e vuoto, usiamo la local-part dell'email come
+ * nome — meglio "Ciao mario" che "Ciao ,". I valori vengono escapati con
+ * esc_html perche iniettati in HTML.
+ *
+ * @param string $text         Testo con placeholder.
+ * @param string $email        Email destinatario.
+ * @param string $display_name Nome completo (da Hustle/CSV), puo essere vuoto.
+ * @return string              Testo con {RECIPIENT_*} sostituiti.
+ */
+function rp_em_substitute_recipient( string $text, string $email, string $display_name = '' ): string {
+    if ( $text === '' ) return $text;
+
+    $name = trim( $display_name );
+    if ( $name === '' ) {
+        // Fallback: local-part dell'email ("mario.rossi@example.com" → "mario.rossi")
+        $at   = strpos( $email, '@' );
+        $name = $at !== false ? substr( $email, 0, $at ) : $email;
+    }
+
+    $parts = preg_split( '/\s+/', $name, 2 );
+    $first = (string) ( $parts[0] ?? $name );
+    $last  = (string) ( $parts[1] ?? '' );
+
+    return strtr( $text, [
+        '{RECIPIENT_EMAIL}'       => esc_html( $email ),
+        '{RECIPIENT_FIRST_NAME}'  => esc_html( $first ),
+        '{RECIPIENT_LAST_NAME}'   => esc_html( $last ),
+        '{RECIPIENT_FULL_NAME}'   => esc_html( $name ),
+    ] );
 }
 
 /**

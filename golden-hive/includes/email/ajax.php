@@ -375,8 +375,19 @@ add_action( 'wp_ajax_rp_em_ajax_campaign_send_test', function () {
     if ( ! $c ) wp_send_json_error( 'Campagna non trovata.' );
     if ( ! is_email( $to ) ) wp_send_json_error( 'Indirizzo email non valido.' );
 
+    // Usa il display_name dell'utente WP corrispondente all'email se esiste,
+    // altrimenti fallback alla local-part dell'email dentro substitute_recipient.
+    $wp_user      = get_user_by( 'email', $to );
+    $display_name = $wp_user ? (string) $wp_user->display_name : '';
+
     $html    = rp_em_render_campaign( $id );
     $subject = (string) ( $c['subject'] ?? '' );
+
+    // Sostituisce {RECIPIENT_*} col destinatario di test — stesso path del
+    // send reale, cosi il test riflette davvero cosa arrivera all'inbox.
+    $subject = rp_em_substitute_recipient( $subject, $to, $display_name );
+    $html    = rp_em_substitute_recipient( $html,    $to, $display_name );
+
     $result  = rp_em_send_test_email( $to, $subject, $html );
     wp_send_json_success( $result );
 } );

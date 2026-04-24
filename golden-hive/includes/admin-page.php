@@ -56,6 +56,7 @@ html.wp-toolbar,body.wp-admin.toplevel_page_golden-hive{background:#0c0d10}
             <div class="tab-item" onclick="GH.switchTab('gsfeed',this)"><span class="tab-icon">&#9733;</span><span class="tab-label">GS Feed</span></div>
             <div class="tab-item" onclick="GH.switchTab('sffeed',this)"><span class="tab-icon">&#9879;</span><span class="tab-label">SF Feed</span></div>
             <div class="tab-item" onclick="GH.switchTab('csvfeed',this);GH.csvLoadFeeds()"><span class="tab-icon">&#9783;</span><span class="tab-label">CSV Feed</span></div>
+            <div class="tab-item" data-kdb-tab="lookup" onclick="GH.switchTab('kicksdb',this);GH.kdbInit()"><span class="tab-icon">&#9883;</span><span class="tab-label">KicksDB</span></div>
             <div class="tab-item" onclick="GH.switchTab('bulkimport',this)"><span class="tab-icon">&#8615;</span><span class="tab-label">Bulk JSON</span></div>
             <div class="tab-item" onclick="GH.switchTab('roundtrip',this)"><span class="tab-icon">&#8644;</span><span class="tab-label">Roundtrip</span></div>
             <div class="tab-section">JOBS</div>
@@ -80,6 +81,7 @@ html.wp-toolbar,body.wp-admin.toplevel_page_golden-hive{background:#0c0d10}
             <?php include GH_DIR . 'includes/views/panels-mapper.php'; ?>
             <?php include GH_DIR . 'includes/views/panels-jobs.php'; ?>
             <?php include GH_DIR . 'includes/views/panels-email.php'; ?>
+            <?php include GH_DIR . 'includes/views/panels-kicksdb.php'; ?>
         </div>
     </div>
     <div id="gh-toasts" class="toast-wrap"></div>
@@ -98,6 +100,7 @@ html.wp-toolbar,body.wp-admin.toplevel_page_golden-hive{background:#0c0d10}
 <?php include GH_DIR . 'includes/views/js-email.php'; ?>
 <?php include GH_DIR . 'includes/views/js-email-campaigns.php'; ?>
 <?php include GH_DIR . 'includes/views/js-email-transactional.php'; ?>
+<?php include GH_DIR . 'includes/views/js-kicksdb.php'; ?>
 </script>
 <?php
 }

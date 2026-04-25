@@ -24,11 +24,13 @@
 
 defined( 'ABSPATH' ) || exit;
 
-if ( function_exists( 'gh_conflict_migrate_run' ) ) return;
+// Const SOPRA il guard (idempotenti). Internal-only nella pratica, ma
+// uniformiamo il pattern per evitare la stessa classe di bug.
+defined( 'GH_CONFLICT_MIGRATION_CURSOR' )   || define( 'GH_CONFLICT_MIGRATION_CURSOR',   'gh_conflict_migration_cursor' );
+defined( 'GH_CONFLICT_MIGRATION_COMPLETE' ) || define( 'GH_CONFLICT_MIGRATION_COMPLETE', 'gh_conflict_migration_complete' );
+defined( 'GH_CONFLICT_MIGRATION_BATCH' )    || define( 'GH_CONFLICT_MIGRATION_BATCH',    200 );
 
-const GH_CONFLICT_MIGRATION_CURSOR   = 'gh_conflict_migration_cursor';
-const GH_CONFLICT_MIGRATION_COMPLETE = 'gh_conflict_migration_complete';
-const GH_CONFLICT_MIGRATION_BATCH    = 200;
+if ( function_exists( 'gh_conflict_migrate_run' ) ) return;
 
 /**
  * Mappa _gh_import_source legacy → source canonico.

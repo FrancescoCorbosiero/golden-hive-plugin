@@ -8,9 +8,9 @@
 
 defined( 'ABSPATH' ) || exit;
 
-if ( function_exists( 'gh_kicksdb_get_settings' ) ) return;
+defined( 'GH_KICKSDB_SETTINGS_KEY' ) || define( 'GH_KICKSDB_SETTINGS_KEY', 'gh_kicksdb_settings' );
 
-const GH_KICKSDB_SETTINGS_KEY = 'gh_kicksdb_settings';
+if ( function_exists( 'gh_kicksdb_get_settings' ) ) return;
 
 /**
  * Default settings shape. Rispecchia la "Pricing Formula" del repo woo-importer

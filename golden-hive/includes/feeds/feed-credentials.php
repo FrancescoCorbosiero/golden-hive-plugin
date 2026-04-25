@@ -42,9 +42,9 @@
 
 defined( 'ABSPATH' ) || exit;
 
-if ( function_exists( 'gh_feed_credentials_schema' ) ) return;
+defined( 'GH_FEED_CREDS_PREFIX' ) || define( 'GH_FEED_CREDS_PREFIX', 'gh_feed_settings_' );
 
-const GH_FEED_CREDS_PREFIX = 'gh_feed_settings_';
+if ( function_exists( 'gh_feed_credentials_schema' ) ) return;
 
 /**
  * Schema dei feed con credenziali persistabili. Whitelist canonica.

@@ -182,6 +182,35 @@ function gh_get_condition_definitions(): array {
             'value_type' => 'select',
             'options'    => [ 'stockfirmati', 'goldensneakers', 'config', 'csv' ],
         ],
+
+        // ── KICKSDB / PROVENANCE ───────────────────────
+        // Condizioni che leggono i meta scritti dal conflict engine (Phase 2)
+        // e dal feed KicksDB (Phase 1). Tutte memory-phase.
+        'kicksdb_tracked' => [
+            'label'      => 'KicksDB tracked',
+            'group'      => 'kicksdb',
+            'operators'  => [ 'is' ],
+            'value_type' => 'boolean',
+        ],
+        'kicksdb_last_sync_age' => [
+            'label'      => 'KicksDB ultimo sync (giorni)',
+            'group'      => 'kicksdb',
+            'operators'  => [ 'gt', 'lt', 'between', 'never' ],
+            'value_type' => 'number_range',
+        ],
+        'provenance_source' => [
+            'label'      => 'Source provenance',
+            'group'      => 'kicksdb',
+            'operators'  => [ 'contains', 'not_contains', 'primary_is', 'primary_is_not' ],
+            'value_type' => 'select',
+            'options'    => [ 'manual', 'kicksdb', 'goldensneakers', 'stockfirmati', 'csv' ],
+        ],
+        'provenance_multi_source' => [
+            'label'      => 'Multi-source (>1 source)',
+            'group'      => 'kicksdb',
+            'operators'  => [ 'is' ],
+            'value_type' => 'boolean',
+        ],
     ];
 }
 
@@ -271,6 +300,12 @@ function gh_evaluate_condition( WC_Product $product, array $condition, array &$c
 
         // ── IMPORT ─────────────────────────────────────
         'import_source' => gh_eval_import_source( $pid, $operator, (string) $value ),
+
+        // ── KICKSDB / PROVENANCE ───────────────────────
+        'kicksdb_tracked'           => gh_eval_kicksdb_tracked( $pid, (bool) $value ),
+        'kicksdb_last_sync_age'     => gh_eval_kicksdb_last_sync_age( $pid, $operator, $value ),
+        'provenance_source'         => gh_eval_provenance_source( $pid, $operator, (string) $value ),
+        'provenance_multi_source'   => gh_eval_provenance_multi_source( $pid, (bool) $value ),
 
         default => true,
     };
@@ -535,4 +570,92 @@ function gh_eval_import_source( int $product_id, string $operator, string $value
         'not_exists' => $source === '' || $source === false,
         default      => true,
     };
+}
+
+/**
+ * KicksDB tracked flag — _gh_kicksdb_tracked === '1'.
+ *
+ * Operatore unico 'is' (boolean): value=true → solo tracked; false → solo
+ * non-tracked.
+ */
+function gh_eval_kicksdb_tracked( int $product_id, bool $value ): bool {
+    $tracked = get_post_meta( $product_id, '_gh_kicksdb_tracked', true ) === '1';
+    return $tracked === $value;
+}
+
+/**
+ * Eta dell'ultimo sync KicksDB in giorni.
+ *
+ * Sources:
+ * - _gh_kicksdb_last_sync       → full enrichment
+ * - _gh_kicksdb_last_price_sync → solo prezzo
+ * Si prende la piu recente delle due. Se entrambi mancanti → "mai sincronizzato",
+ * che matcha SOLO l'operatore 'never'.
+ *
+ * @param mixed $value Per gt/lt: numero (giorni). Per between: { from, to }.
+ *                     Per never: ignorato.
+ */
+function gh_eval_kicksdb_last_sync_age( int $product_id, string $operator, $value ): bool {
+
+    $a = (string) get_post_meta( $product_id, '_gh_kicksdb_last_sync', true );
+    $b = (string) get_post_meta( $product_id, '_gh_kicksdb_last_price_sync', true );
+
+    $latest = '';
+    if ( $a !== '' && $b !== '' )      $latest = strcmp( $a, $b ) >= 0 ? $a : $b;
+    elseif ( $a !== '' )               $latest = $a;
+    elseif ( $b !== '' )               $latest = $b;
+
+    if ( $operator === 'never' ) return $latest === '';
+    if ( $latest === '' )         return false; // gli altri operatori richiedono un valore
+
+    $ts = strtotime( $latest );
+    if ( ! $ts ) return false;
+    $age_days = (int) floor( ( time() - $ts ) / DAY_IN_SECONDS );
+
+    return gh_eval_numeric( (float) $age_days, $operator, $value );
+}
+
+/**
+ * Provenance-aware source check.
+ *
+ * Operators:
+ * - contains       → la lista _gh_sources contiene $value
+ * - not_contains   → non la contiene
+ * - primary_is     → _gh_primary_source === $value (con fallback a first-in)
+ * - primary_is_not → diverso
+ */
+function gh_eval_provenance_source( int $product_id, string $operator, string $value ): bool {
+
+    if ( $value === '' ) return true;
+
+    if ( $operator === 'primary_is' || $operator === 'primary_is_not' ) {
+        $primary = function_exists( 'gh_conflict_get_primary_source' )
+            ? gh_conflict_get_primary_source( $product_id )
+            : (string) get_post_meta( $product_id, '_gh_primary_source', true );
+        return $operator === 'primary_is' ? $primary === $value : $primary !== $value;
+    }
+
+    $names = function_exists( 'gh_conflict_get_source_names' )
+        ? gh_conflict_get_source_names( $product_id )
+        : [];
+
+    $has = in_array( $value, $names, true );
+    return match ( $operator ) {
+        'contains'     => $has,
+        'not_contains' => ! $has,
+        default        => true,
+    };
+}
+
+/**
+ * Multi-source: il prodotto ha piu di una source registrata in _gh_sources.
+ * Utile per identificare prodotti contesi tra feed (es. presenti sia su GS
+ * che su KicksDB) — bersaglio naturale di conflict rules dedicate.
+ */
+function gh_eval_provenance_multi_source( int $product_id, bool $value ): bool {
+    $names = function_exists( 'gh_conflict_get_source_names' )
+        ? gh_conflict_get_source_names( $product_id )
+        : [];
+    $multi = count( $names ) > 1;
+    return $multi === $value;
 }

@@ -63,6 +63,9 @@
                         <option value="delete_product">Elimina prodotto (+ varianti)</option>
                         <option value="delete_with_media">Elimina prodotto + media</option>
                     </optgroup>
+                    <optgroup label="KicksDB">
+                        <option value="kicksdb_refresh_pricing">Refresh prezzi KicksDB</option>
+                    </optgroup>
                 </select>
 
                 <!-- Dynamic param inputs -->

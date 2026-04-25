@@ -85,6 +85,29 @@ add_action( 'gh_jobs_register', function () {
         'handler'     => 'gh_jobs_handler_config_feed',
     ] );
 
+    gh_jobs_register_kind( 'kicksdb_refresh_pricing', [
+        'label'       => 'KicksDB Refresh Pricing',
+        'description' => 'Aggiorna i prezzi dei prodotti tracked KicksDB via il batch endpoint /stockx/prices (50 SKU per call). Rispetta le conflict rules sulla slice pricing.',
+        'params'      => [
+            'source' => [
+                'type'    => 'enum',
+                'label'   => 'Sorgente SKU',
+                'options' => [ 'all_tracked', 'sku_list' ],
+                'default' => 'all_tracked',
+            ],
+            'sku_list' => [
+                'type'  => 'string',
+                'label' => 'SKU list (JSON array o CSV — solo se source=sku_list)',
+            ],
+            'max_skus' => [
+                'type'    => 'string',
+                'label'   => 'Cap massimo SKU per run',
+                'default' => '1000',
+            ],
+        ],
+        'handler'     => 'gh_jobs_handler_kicksdb_refresh_pricing',
+    ] );
+
     gh_jobs_register_kind( 'force_reimport', [
         'label'       => 'Force Re-Import (selected SKUs)',
         'description' => 'Ri-scarica un elenco di SKU da un feed (GS/SF) e ricrea i prodotti WC — opzionalmente cancellando le media esistenti prima del sideload.',
@@ -323,5 +346,75 @@ function gh_jobs_handler_force_reimport( array $job, array $context ): array {
             'errors'       => $cursor['errors_total'],
             'missing_skus' => $cursor['missing_skus'],
         ],
+    ];
+}
+
+/**
+ * Handler: kicksdb_refresh_pricing.
+ *
+ * Esegue un refresh-prezzi batch sui prodotti tracked KicksDB. Due modi:
+ * - source=all_tracked → query meta _gh_kicksdb_tracked=1 → estrae SKU
+ * - source=sku_list    → lista esplicita (JSON o CSV)
+ *
+ * Safety cap max_skus (default 1000) per evitare run enormi non supervisionati.
+ * Delega la work reale a gh_kicksdb_refresh_pricing() che gia fa:
+ * - chunking 50 SKU per call
+ * - tracked-filter (double-check lato orchestrator)
+ * - conflict-engine respect
+ * - sync log via jobs/log.php (indirettamente)
+ */
+function gh_jobs_handler_kicksdb_refresh_pricing( array $job, array $context ): array {
+
+    $params   = $job['params'] ?? [];
+    $source   = (string) ( $params['source'] ?? 'all_tracked' );
+    $max_skus = max( 1, min( 10000, (int) ( $params['max_skus'] ?? 1000 ) ) );
+
+    if ( ! function_exists( 'gh_kicksdb_refresh_pricing' ) ) {
+        return [ 'status' => 'error', 'error' => 'KicksDB module non caricato.' ];
+    }
+
+    $skus = [];
+
+    if ( $source === 'sku_list' ) {
+        $raw = (string) ( $params['sku_list'] ?? '' );
+        if ( $raw === '' ) return [ 'status' => 'error', 'error' => 'sku_list vuota.' ];
+
+        $decoded = json_decode( $raw, true );
+        if ( is_array( $decoded ) ) {
+            $skus = array_map( 'strval', $decoded );
+        } else {
+            $skus = array_filter( array_map( 'trim', preg_split( '/[\s,;]+/', $raw ) ?: [] ) );
+        }
+    } else {
+        global $wpdb;
+        $ids = $wpdb->get_col(
+            "SELECT p.ID FROM {$wpdb->posts} p
+             INNER JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
+             WHERE p.post_type = 'product' AND p.post_status IN ('publish','draft','private')
+             AND pm.meta_key = '_gh_kicksdb_tracked' AND pm.meta_value = '1'"
+        );
+        foreach ( (array) $ids as $pid ) {
+            $sku = get_post_meta( (int) $pid, '_sku', true );
+            if ( $sku !== '' ) $skus[] = (string) $sku;
+        }
+    }
+
+    $skus = array_values( array_unique( array_filter( $skus ) ) );
+    if ( empty( $skus ) ) {
+        return [ 'status' => 'done', 'summary' => [ 'updated' => 0, 'skipped' => 0, 'errors' => 0, 'note' => 'nessuno SKU tracked' ] ];
+    }
+
+    if ( count( $skus ) > $max_skus ) {
+        $skus = array_slice( $skus, 0, $max_skus );
+    }
+
+    $result = gh_kicksdb_refresh_pricing( $skus );
+
+    return [
+        'status'  => 'done',
+        'summary' => array_merge(
+            $result['summary'] ?? [],
+            [ 'source' => $source, 'total_skus' => count( $skus ) ]
+        ),
     ];
 }

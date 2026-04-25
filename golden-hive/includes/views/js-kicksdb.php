@@ -31,6 +31,7 @@
         }
         if (name === 'settings') kdbLoadSettings();
         if (name === 'rules')    kdbRulesReload();
+        if (name === 'mapping')  kdbMappingReload();
         if (name === 'provenance') kdbMigrateStatus();
     }
 
@@ -650,6 +651,243 @@
         if (r.success) kdbRulesReload();
     }
 
+    // ── Field Mapping (profiles) ────────────────────────────────
+
+    let _mappingCache = { profiles: [], active_id: '', fields: {} };
+    let _mappingEditing = null;   // profile being edited (deep-cloned)
+    let _mappingSampleCache = null; // { sku, paths, values } for live preview
+
+    async function kdbMappingReload() {
+        const r = await ajax('gh_kicksdb_profiles_list');
+        if (!r.success) { toast('Errore caricamento profiles', 'err'); return; }
+        _mappingCache = r.data;
+        renderMappingList();
+    }
+
+    function renderMappingList() {
+        const wrap = document.getElementById('kdb-m-list');
+        const profiles = _mappingCache.profiles || [];
+        if (!profiles.length) {
+            wrap.innerHTML = GH.emptyState('&#9881;', 'Nessun profile. Click "+ Nuovo profile" per iniziare.');
+            return;
+        }
+        const rows = profiles.map(p => {
+            const req = (p.required_fields || []).join(', ') || '—';
+            const tmpl = (p.description_template || '').slice(0, 80).replace(/\n/g, ' ');
+            return `<tr>
+                <td>${p.active ? '<span class="gh-status gh-status--ok">ACTIVE</span>' : '<button class="btn btn-ghost" onclick="GH.kdbMappingSetActive(\'' + esc(p.id) + '\')">Attiva</button>'}</td>
+                <td><b>${esc(p.name)}</b><br/><span style="font-size:10px;color:var(--dim)">${esc(p.id)}</span></td>
+                <td style="font-size:10px;font-family:var(--mono);color:var(--dim)">${esc(req)}</td>
+                <td style="font-size:10px;font-family:var(--mono);color:var(--dim)">${esc(tmpl || '—')}${tmpl && tmpl.length >= 80 ? '…' : ''}</td>
+                <td>
+                    <button class="btn btn-ghost" onclick="GH.kdbMappingEdit('${esc(p.id)}')">Edit</button>
+                    <button class="btn btn-ghost" style="color:var(--red)" onclick="GH.kdbMappingDelete('${esc(p.id)}')">&#10005;</button>
+                </td>
+            </tr>`;
+        }).join('');
+        wrap.innerHTML = `<table class="data-table"><thead><tr><th>State</th><th>Name</th><th>Required</th><th>Description template</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    }
+
+    function kdbMappingNew() {
+        _mappingEditing = {
+            id: '', name: 'New profile', active: false,
+            required_fields: [],
+            description_template: '',
+            gallery_opts: { include_main: true, include_360: false, every_nth_360: 6 },
+        };
+        _mappingSampleCache = null;
+        renderMappingEditor();
+    }
+
+    function kdbMappingEdit(id) {
+        const p = (_mappingCache.profiles || []).find(x => x.id === id);
+        if (!p) return;
+        _mappingEditing = JSON.parse(JSON.stringify(p));
+        _mappingEditing.gallery_opts = _mappingEditing.gallery_opts || { include_main: true, include_360: false, every_nth_360: 6 };
+        _mappingEditing.required_fields = _mappingEditing.required_fields || [];
+        _mappingSampleCache = null;
+        renderMappingEditor();
+    }
+
+    function renderMappingEditor() {
+        const p = _mappingEditing;
+        const fields = _mappingCache.fields || {};
+        const ed = document.getElementById('kdb-m-editor');
+        ed.style.display = '';
+        document.getElementById('kdb-m-list').style.display = 'none';
+
+        const reqBoxes = Object.entries(fields).map(([key, meta]) => {
+            const checked = (p.required_fields || []).includes(key) ? 'checked' : '';
+            const ph = meta.placeholder ? ' <span style="color:var(--dim);font-family:var(--mono);font-size:10px">' + esc(meta.placeholder) + '</span>' : '';
+            return `<label style="display:flex;align-items:center;gap:6px;font-size:11px;padding:2px 0">
+                <input type="checkbox" data-req="${esc(key)}" ${checked} />
+                <b>${esc(meta.label)}</b>${ph}
+                <span style="color:var(--dim);font-family:var(--mono);font-size:10px">${esc(meta.path || '')}</span>
+            </label>`;
+        }).join('');
+
+        const placeholderHints = Object.entries(fields)
+            .filter(([k, m]) => m.placeholder)
+            .map(([k, m]) => `<button type="button" class="btn btn-ghost" style="font-size:10px;padding:2px 6px" onclick="GH.kdbMappingInsertPlaceholder('${esc(m.placeholder)}')">${esc(m.placeholder)}</button>`)
+            .join(' ');
+
+        ed.innerHTML = `
+            <div class="config-form" style="border-top:1px solid var(--brd);margin-top:6px">
+                <div class="cfg-row"><span class="cfg-label">Name</span>
+                    <input class="cfg-input" id="me-name" value="${esc(p.name)}" />
+                    <label style="font-family:var(--mono);font-size:10px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="me-active" ${p.active?'checked':''}/> Set active</label>
+                </div>
+
+                <div class="cfg-row" style="border-top:1px solid var(--brd);padding-top:10px">
+                    <span class="cfg-label" style="color:var(--acc)">Data model</span>
+                    <input class="cfg-input" id="me-sample-sku" placeholder="Inserisci uno SKU reale per introspezione" style="flex:1" />
+                    <button class="btn btn-ghost" onclick="GH.kdbMappingLoadSample()"><span class="spin" id="me-sample-spin" style="display:none"></span> Carica sample</button>
+                </div>
+                <div id="me-tree-wrap" style="display:none">
+                    <div class="cfg-row" style="padding-top:4px">
+                        <span class="cfg-label">Paths</span>
+                        <div style="flex:1;font-family:var(--mono);font-size:10px;color:var(--dim)">
+                            Field paths (dot-notation) estratti dal sample. Informativo — il binding e hardcoded nel normalizer.
+                        </div>
+                    </div>
+                    <div id="me-tree" style="max-height:260px;overflow:auto;background:var(--bg,#0c0d10);border:1px solid var(--brd);border-radius:4px;padding:8px;font-family:var(--mono);font-size:10px;line-height:1.5"></div>
+                </div>
+
+                <div class="cfg-row" style="border-top:1px solid var(--brd);padding-top:10px">
+                    <span class="cfg-label" style="color:var(--acc)">Required fields</span>
+                    <span style="font-size:10px;color:var(--dim)">Se uno di questi e vuoto nella response KicksDB, l'import del prodotto fallisce (WP_Error).</span>
+                </div>
+                <div class="cfg-row" style="padding-top:0">
+                    <div style="flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px 16px">${reqBoxes}</div>
+                </div>
+
+                <div class="cfg-row" style="border-top:1px solid var(--brd);padding-top:10px">
+                    <span class="cfg-label" style="color:var(--acc)">Description template</span>
+                    <div style="display:flex;gap:4px;flex-wrap:wrap">${placeholderHints}</div>
+                </div>
+                <div class="cfg-row" style="padding-top:0">
+                    <textarea class="cfg-input" id="me-tmpl" rows="4" placeholder="Es. {brand} {model} — colorway {colorway}. {description}">${esc(p.description_template || '')}</textarea>
+                </div>
+                <div class="cfg-row">
+                    <button class="btn btn-ghost" onclick="GH.kdbMappingPreviewTemplate()">Preview (usa sample SKU)</button>
+                    <div id="me-preview-out" style="flex:1;font-family:var(--sans);font-size:11px;color:var(--dim);padding:6px 8px;background:var(--bg,#0c0d10);border:1px solid var(--brd);border-radius:4px;white-space:pre-wrap"></div>
+                </div>
+
+                <div class="cfg-row" style="border-top:1px solid var(--brd);padding-top:10px">
+                    <span class="cfg-label" style="color:var(--acc)">Gallery</span>
+                    <label style="font-family:var(--mono);font-size:10px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="me-gal-main" ${p.gallery_opts.include_main?'checked':''}/> Main image</label>
+                    <label style="font-family:var(--mono);font-size:10px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="me-gal-360" ${p.gallery_opts.include_360?'checked':''}/> 360-frames</label>
+                    <span class="cfg-label">Every</span>
+                    <input class="cfg-input" id="me-gal-every" type="number" min="1" max="60" value="${p.gallery_opts.every_nth_360 || 6}" style="max-width:70px" />
+                </div>
+
+                <div class="cfg-row">
+                    <div style="flex:1"></div>
+                    <button class="btn btn-ghost" onclick="GH.kdbMappingCancel()">Annulla</button>
+                    <button class="btn btn-primary" onclick="GH.kdbMappingSave()">Salva profile</button>
+                </div>
+            </div>`;
+    }
+
+    function kdbMappingCancel() {
+        document.getElementById('kdb-m-editor').style.display = 'none';
+        document.getElementById('kdb-m-list').style.display = '';
+        _mappingEditing = null;
+    }
+
+    async function kdbMappingLoadSample() {
+        const sku = document.getElementById('me-sample-sku').value.trim();
+        if (!sku) { toast('Inserisci uno SKU reale per introspezione', 'warn'); return; }
+        const spin = document.getElementById('me-sample-spin');
+        spin.style.display = '';
+        try {
+            const r = await ajax('gh_kicksdb_profile_sample_paths', { sku });
+            if (!r.success) {
+                toast('Sample fetch fallito: ' + (r.data && r.data.error ? r.data.error : ''), 'err', 6000);
+                return;
+            }
+            _mappingSampleCache = { sku, paths: r.data.paths, values: r.data.sample };
+            renderSampleTree(r.data.paths);
+        } finally {
+            spin.style.display = 'none';
+        }
+    }
+
+    function renderSampleTree(paths) {
+        const wrap = document.getElementById('me-tree-wrap');
+        const tree = document.getElementById('me-tree');
+        wrap.style.display = '';
+        if (!paths || !paths.length) {
+            tree.innerHTML = '<i style="color:var(--dim)">Nessun path estratto</i>';
+            return;
+        }
+        tree.innerHTML = paths.map(p => {
+            const sample = p.sample === null || p.sample === undefined ? 'null' : String(p.sample).slice(0, 80);
+            const type = `<span style="color:var(--dim)">(${esc(p.type)})</span>`;
+            return `<div><b style="color:var(--acc)">${esc(p.path)}</b> ${type} <span style="color:var(--dim)">→ ${esc(sample)}</span></div>`;
+        }).join('');
+    }
+
+    async function kdbMappingPreviewTemplate() {
+        const sku  = document.getElementById('me-sample-sku').value.trim();
+        const tmpl = document.getElementById('me-tmpl').value;
+        if (!sku) { toast('Inserisci uno SKU nel campo sample e premi "Carica sample"', 'warn'); return; }
+        if (!tmpl) { toast('Il template e vuoto', 'warn'); return; }
+        const r = await ajax('gh_kicksdb_profile_preview_description', { sku, template: tmpl });
+        if (!r.success) { toast('Preview fallita', 'err'); return; }
+        document.getElementById('me-preview-out').textContent = r.data.rendered || '(vuoto)';
+    }
+
+    function kdbMappingInsertPlaceholder(ph) {
+        const ta = document.getElementById('me-tmpl');
+        if (!ta) return;
+        const start = ta.selectionStart || 0;
+        const end   = ta.selectionEnd || 0;
+        ta.value = ta.value.slice(0, start) + ph + ta.value.slice(end);
+        ta.focus();
+        ta.selectionStart = ta.selectionEnd = start + ph.length;
+    }
+
+    async function kdbMappingSave() {
+        const $ = id => document.getElementById(id);
+        const required = [];
+        document.querySelectorAll('#kdb-m-editor input[data-req]:checked').forEach(cb => required.push(cb.dataset.req));
+
+        const payload = {
+            id: _mappingEditing.id,
+            name: $('me-name').value,
+            active: $('me-active').checked,
+            required_fields: required,
+            description_template: $('me-tmpl').value,
+            gallery_opts: {
+                include_main:  $('me-gal-main').checked,
+                include_360:   $('me-gal-360').checked,
+                every_nth_360: parseInt($('me-gal-every').value, 10) || 6,
+            },
+        };
+        const r = await GH.ajaxWithToast('gh_kicksdb_profile_save', {
+            profile: JSON.stringify(payload),
+        }, { okMsg: 'Profile salvato' });
+        if (r.success) {
+            _mappingEditing = null;
+            await kdbMappingReload();
+            document.getElementById('kdb-m-editor').style.display = 'none';
+            document.getElementById('kdb-m-list').style.display = '';
+        }
+    }
+
+    async function kdbMappingDelete(id) {
+        const ok = await conf('Eliminare questo profile? L\'operazione e immediata.', { title: 'Conferma', danger: true });
+        if (!ok) return;
+        const r = await GH.ajaxWithToast('gh_kicksdb_profile_delete', { id }, { okMsg: 'Profile eliminato' });
+        if (r.success) kdbMappingReload();
+    }
+
+    async function kdbMappingSetActive(id) {
+        const r = await GH.ajaxWithToast('gh_kicksdb_profile_set_active', { id }, { okMsg: 'Profile attivato' });
+        if (r.success) kdbMappingReload();
+    }
+
     // ── Public API ──────────────────────────────────────────────
 
     Object.assign(GH, {
@@ -679,6 +917,17 @@
         kdbDiscoverSelectAll,
         kdbDiscoverSelectNone,
         kdbDiscoverImport,
+        // Field Mapping
+        kdbMappingReload,
+        kdbMappingNew,
+        kdbMappingEdit,
+        kdbMappingDelete,
+        kdbMappingSetActive,
+        kdbMappingCancel,
+        kdbMappingSave,
+        kdbMappingLoadSample,
+        kdbMappingPreviewTemplate,
+        kdbMappingInsertPlaceholder,
     });
 
 })();

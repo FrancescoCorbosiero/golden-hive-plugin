@@ -61,6 +61,47 @@ function gh_kicksdb_normalize( array $full_response, array $opts = [] ): array|W
     $kicksdb_id  = (string) ( $data['id'] ?? '' );
     $kicksdb_slug= (string) ( $data['slug'] ?? '' );
 
+    // ── Mapping profile (Phase 4) ──────────────────────────
+    // Se c'e una profile attiva, applica:
+    // 1. Required-field check (fail-fast con WP_Error)
+    // 2. description_template override
+    // 3. gallery_opts override (usato in post_process)
+    $profile = function_exists( 'gh_kicksdb_profile_active' ) ? gh_kicksdb_profile_active() : null;
+
+    if ( $profile ) {
+        $values_for_profile = [
+            'sku'         => $sku,
+            'title'       => $name,
+            'brand'       => $brand,
+            'model'       => $model,
+            'gender'      => $gender,
+            'colorway'    => $colorway,
+            'description' => $description,
+            'image'       => $main_image,
+            'release'     => $release,
+            'variants'    => $data['variants'] ?? [],
+        ];
+
+        // Required check
+        $missing = gh_kicksdb_profile_check_required(
+            (array) ( $profile['required_fields'] ?? [] ),
+            $values_for_profile
+        );
+        if ( ! empty( $missing ) ) {
+            return new WP_Error(
+                'kdb_required_missing',
+                sprintf( 'Campi required mancanti: %s', implode( ', ', $missing ) ),
+                [ 'missing' => $missing, 'sku' => $sku ]
+            );
+        }
+
+        // Description template override
+        $tmpl = (string) ( $profile['description_template'] ?? '' );
+        if ( $tmpl !== '' ) {
+            $description = gh_kicksdb_profile_render_template( $tmpl, $values_for_profile );
+        }
+    }
+
     // Category: Shoes → sneakers, Clothing → abbigliamento, altro → sneakers.
     $product_type = strtolower( (string) ( $data['product_type'] ?? '' ) );
     $gs_category  = str_contains( $product_type, 'cloth' ) || str_contains( $product_type, 'apparel' )
@@ -143,6 +184,8 @@ function gh_kicksdb_normalize( array $full_response, array $opts = [] ): array|W
         '_kdb_slug'     => $kicksdb_slug,
         '_kdb_image'    => $main_image,
         '_kdb_category' => $gs_category,
+        // Propagato al post-process per override gallery settings
+        '_kdb_gallery_opts' => $profile['gallery_opts'] ?? null,
     ];
 
     $attrs = [];

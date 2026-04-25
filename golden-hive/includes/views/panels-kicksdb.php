@@ -134,6 +134,7 @@ defined( 'ABSPATH' ) || exit;
                 <button class="btn btn-ghost"           data-kdb-subtab="lookup"     onclick="GH.kdbSubtab('lookup',this)">Lookup</button>
                 <button class="btn btn-ghost"           data-kdb-subtab="refresh"    onclick="GH.kdbSubtab('refresh',this)">Refresh Pricing</button>
                 <button class="btn btn-ghost"           data-kdb-subtab="provenance" onclick="GH.kdbSubtab('provenance',this)">Provenance</button>
+                <button class="btn btn-ghost"           data-kdb-subtab="mapping"    onclick="GH.kdbSubtab('mapping',this)">Field Mapping</button>
                 <button class="btn btn-ghost"           data-kdb-subtab="rules"      onclick="GH.kdbSubtab('rules',this)">Conflict Rules</button>
                 <div style="flex:1"></div>
                 <button class="btn btn-ghost"           data-kdb-subtab="settings"   onclick="GH.kdbSubtab('settings',this)" title="Settings">&#9881; Settings</button>
@@ -307,6 +308,21 @@ defined( 'ABSPATH' ) || exit;
             </div>
         </div>
         <div class="preview-wrap" id="kdb-prov-preview"><div class="empty-state"><div class="empty-icon">&#9740;</div><div class="empty-text">Esegui un batch di backfill o cerca un prodotto per ID</div></div></div>
+    </div>
+
+    <!-- ── Sub: FIELD MAPPING ─────────────────────────────────────────── -->
+    <div class="kdb-sub" data-kdb-section="mapping" style="display:none">
+        <div class="config-form">
+            <div class="cfg-row">
+                <span class="cfg-label">Mapping profiles</span>
+                <span style="font-size:10px;color:var(--dim)">Solo una profile puo essere active; l'active viene applicata a ogni import/refresh (required fields + description template + gallery).</span>
+                <div style="flex:1"></div>
+                <button class="btn btn-ghost" onclick="GH.kdbMappingReload()">Ricarica</button>
+                <button class="btn btn-primary" onclick="GH.kdbMappingNew()">+ Nuovo profile</button>
+            </div>
+        </div>
+        <div class="preview-wrap" id="kdb-m-list"><div class="empty-state"><div class="empty-icon">&#9881;</div><div class="empty-text">Carica i profiles</div></div></div>
+        <div id="kdb-m-editor" style="display:none"></div>
     </div>
 
     <!-- ── Sub: RULES ─────────────────────────────────────────────────── -->

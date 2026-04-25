@@ -84,6 +84,7 @@ require_once GH_DIR . 'includes/feeds/kicksdb/settings.php';
 require_once GH_DIR . 'includes/feeds/kicksdb/client.php';
 require_once GH_DIR . 'includes/feeds/kicksdb/cache.php';
 require_once GH_DIR . 'includes/feeds/kicksdb/pricing.php';
+require_once GH_DIR . 'includes/feeds/kicksdb/profiles.php';
 require_once GH_DIR . 'includes/feeds/kicksdb/normalizer.php';
 require_once GH_DIR . 'includes/feeds/kicksdb/feed.php';
 require_once GH_DIR . 'includes/feeds/kicksdb/ajax.php';

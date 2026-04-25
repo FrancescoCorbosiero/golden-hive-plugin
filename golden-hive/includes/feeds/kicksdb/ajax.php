@@ -253,3 +253,103 @@ add_action( 'wp_ajax_gh_kicksdb_refresh_pricing', function () {
     $result = gh_kicksdb_refresh_pricing( $skus );
     wp_send_json_success( $result );
 } );
+
+// ── Mapping profiles (Phase 4) ──────────────────────────────
+
+add_action( 'wp_ajax_gh_kicksdb_profiles_list', function () {
+    gh_ajax_guard();
+    wp_send_json_success( [
+        'profiles'    => gh_kicksdb_profiles_all(),
+        'active_id'   => gh_kicksdb_profile_active()['id'] ?? '',
+        'fields'      => gh_kicksdb_profile_fields(),
+    ] );
+} );
+
+add_action( 'wp_ajax_gh_kicksdb_profile_save', function () {
+    gh_ajax_guard();
+    $data = gh_ajax_json( 'profile', [] );
+    if ( empty( $data ) ) wp_send_json_error( 'Payload profile mancante.', 400 );
+
+    $id = gh_kicksdb_profile_upsert( $data );
+    wp_send_json_success( [ 'profile' => gh_kicksdb_profiles_find( $id ) ] );
+} );
+
+add_action( 'wp_ajax_gh_kicksdb_profile_delete', function () {
+    gh_ajax_guard();
+    $id = gh_ajax_text( 'id' );
+    if ( $id === '' ) wp_send_json_error( 'ID mancante.', 400 );
+    wp_send_json_success( [ 'removed' => gh_kicksdb_profile_remove( $id ) ] );
+} );
+
+add_action( 'wp_ajax_gh_kicksdb_profile_set_active', function () {
+    gh_ajax_guard();
+    $id = gh_ajax_text( 'id' );
+    if ( $id === '' ) wp_send_json_error( 'ID mancante.', 400 );
+    wp_send_json_success( [ 'set' => gh_kicksdb_profile_set_active( $id ) ] );
+} );
+
+/**
+ * Fetch un sample live da KicksDB + estrai tutti i dot-notation path.
+ * Usato dall'editor del profile per mostrare la tree view del data model.
+ *
+ * Input: sku (required).
+ * Output: { sample: raw_response, paths: [ { path, type, sample } ] }.
+ */
+add_action( 'wp_ajax_gh_kicksdb_profile_sample_paths', function () {
+    gh_ajax_guard();
+    $sku = gh_ajax_text( 'sku' );
+    if ( $sku === '' ) wp_send_json_error( 'SKU richiesto.', 400 );
+
+    $resp = gh_kicksdb_get_product_cached( $sku );
+    if ( ( $resp['status'] ?? 0 ) !== 200 || empty( $resp['body']['data'] ) ) {
+        wp_send_json_error( [
+            'error' => $resp['error'] ?? ( 'HTTP ' . ( $resp['status'] ?? 0 ) ),
+        ], 502 );
+    }
+
+    if ( ! function_exists( 'gh_mapper_extract_paths' ) ) {
+        wp_send_json_error( 'Modulo mapper non disponibile.', 500 );
+    }
+
+    $paths = gh_mapper_extract_paths( $resp['body'] );
+    wp_send_json_success( [
+        'sku'    => $sku,
+        'paths'  => $paths,
+        'sample' => $resp['body'],
+        'cached' => ! empty( $resp['_cached'] ),
+    ] );
+} );
+
+/**
+ * Preview del template di descrizione renderizzato contro un sample SKU.
+ * Risolve i placeholder noti (brand, model, colorway, ecc) usando la
+ * response KicksDB e ritorna la stringa finale.
+ */
+add_action( 'wp_ajax_gh_kicksdb_profile_preview_description', function () {
+    gh_ajax_guard();
+    $sku  = gh_ajax_text( 'sku' );
+    $tmpl = gh_ajax_textarea( 'template' );
+    if ( $sku === '' ) wp_send_json_error( 'SKU richiesto.', 400 );
+
+    $resp = gh_kicksdb_get_product_cached( $sku );
+    if ( ( $resp['status'] ?? 0 ) !== 200 || empty( $resp['body']['data'] ) ) {
+        wp_send_json_error( [ 'error' => 'KicksDB lookup fallito per ' . $sku ], 502 );
+    }
+
+    $d = $resp['body']['data'];
+    $values = [
+        'sku'         => (string) ( $d['sku'] ?? '' ),
+        'title'       => (string) ( $d['title'] ?? '' ),
+        'brand'       => (string) ( $d['brand'] ?? '' ),
+        'model'       => (string) ( $d['model'] ?? '' ),
+        'gender'      => (string) ( $d['gender'] ?? '' ),
+        'colorway'    => (string) ( $d['colorway'] ?? '' ),
+        'description' => (string) ( $d['description'] ?? '' ),
+        'release'     => (string) ( $d['release_date'] ?? '' ),
+    ];
+
+    wp_send_json_success( [
+        'rendered' => gh_kicksdb_profile_render_template( $tmpl, $values ),
+        'values'   => $values,
+    ] );
+} );

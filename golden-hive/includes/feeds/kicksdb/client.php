@@ -26,13 +26,16 @@
 
 defined( 'ABSPATH' ) || exit;
 
-if ( function_exists( 'gh_kicksdb_base_url' ) ) return;
+// Const SOPRA il guard: GH_KICKSDB_BASE_URL_DEFAULT e DEFAULT_CONCUR sono
+// referenziate da settings.php (default settings); le altre internal ma
+// uniformiamo per coerenza.
+defined( 'GH_KICKSDB_BASE_URL_DEFAULT' ) || define( 'GH_KICKSDB_BASE_URL_DEFAULT', 'https://api.kicks.dev/v3' );
+defined( 'GH_KICKSDB_DEFAULT_TIMEOUT' )  || define( 'GH_KICKSDB_DEFAULT_TIMEOUT',  10 );
+defined( 'GH_KICKSDB_DEFAULT_CONCUR' )   || define( 'GH_KICKSDB_DEFAULT_CONCUR',   8 );
+defined( 'GH_KICKSDB_MAX_ATTEMPTS' )     || define( 'GH_KICKSDB_MAX_ATTEMPTS',     3 );
+defined( 'GH_KICKSDB_PRICES_CHUNK' )     || define( 'GH_KICKSDB_PRICES_CHUNK',     50 );
 
-const GH_KICKSDB_BASE_URL_DEFAULT = 'https://api.kicks.dev/v3';
-const GH_KICKSDB_DEFAULT_TIMEOUT  = 10;
-const GH_KICKSDB_DEFAULT_CONCUR   = 8;
-const GH_KICKSDB_MAX_ATTEMPTS     = 3;
-const GH_KICKSDB_PRICES_CHUNK     = 50;
+if ( function_exists( 'gh_kicksdb_base_url' ) ) return;
 
 /**
  * Ritorna base URL (override via settings).

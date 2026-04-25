@@ -16,13 +16,14 @@
 
 defined( 'ABSPATH' ) || exit;
 
+// Const SOPRA il guard: usate cross-file (storage.php sanitize, engine.php
+// resolve loop) — devono essere definite anche se il guard fa return early.
+defined( 'GH_CONFLICT_SOURCES_META' )       || define( 'GH_CONFLICT_SOURCES_META',       '_gh_sources' );
+defined( 'GH_CONFLICT_FIELD_SOURCES_META' ) || define( 'GH_CONFLICT_FIELD_SOURCES_META', '_gh_field_sources' );
+defined( 'GH_CONFLICT_PRIMARY_META' )       || define( 'GH_CONFLICT_PRIMARY_META',       '_gh_primary_source' );
+defined( 'GH_CONFLICT_SLICES' )             || define( 'GH_CONFLICT_SLICES',             [ 'catalog', 'pricing', 'stock', 'media' ] );
+
 if ( function_exists( 'gh_conflict_get_sources' ) ) return;
-
-const GH_CONFLICT_SOURCES_META       = '_gh_sources';
-const GH_CONFLICT_FIELD_SOURCES_META = '_gh_field_sources';
-const GH_CONFLICT_PRIMARY_META       = '_gh_primary_source';
-
-const GH_CONFLICT_SLICES = [ 'catalog', 'pricing', 'stock', 'media' ];
 
 /**
  * Ritorna la lista di source che hanno "toccato" il prodotto.

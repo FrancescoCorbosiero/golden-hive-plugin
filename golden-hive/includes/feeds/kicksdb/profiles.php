@@ -20,9 +20,9 @@
 
 defined( 'ABSPATH' ) || exit;
 
-if ( function_exists( 'gh_kicksdb_profiles_all' ) ) return;
+defined( 'GH_KICKSDB_PROFILES_KEY' ) || define( 'GH_KICKSDB_PROFILES_KEY', 'gh_kicksdb_profiles' );
 
-const GH_KICKSDB_PROFILES_KEY = 'gh_kicksdb_profiles';
+if ( function_exists( 'gh_kicksdb_profiles_all' ) ) return;
 
 /**
  * Campi canonici esposti dal normalizer che il profile puo marcare come

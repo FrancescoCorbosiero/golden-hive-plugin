@@ -11,9 +11,9 @@
 
 defined( 'ABSPATH' ) || exit;
 
-if ( function_exists( 'gh_kicksdb_cache_get' ) ) return;
+defined( 'GH_KICKSDB_CACHE_PREFIX' ) || define( 'GH_KICKSDB_CACHE_PREFIX', 'gh_kdb_prd_' );
 
-const GH_KICKSDB_CACHE_PREFIX = 'gh_kdb_prd_';
+if ( function_exists( 'gh_kicksdb_cache_get' ) ) return;
 
 /**
  * Transient key per SKU.

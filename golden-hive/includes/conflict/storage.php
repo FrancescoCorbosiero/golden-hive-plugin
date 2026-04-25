@@ -33,9 +33,13 @@
 
 defined( 'ABSPATH' ) || exit;
 
-if ( function_exists( 'gh_conflict_rules_all' ) ) return;
+// Const SOPRA il guard: ogni inclusione del file deve garantire che la
+// costante esista — anche se un'inclusione successiva trova il guard
+// soddisfatto e ritorna early. Usato cross-file da migrate.php (vedi
+// gh_conflict_install_default_rules), quindi non puo essere "internal".
+defined( 'GH_CONFLICT_RULES_KEY' ) || define( 'GH_CONFLICT_RULES_KEY', 'gh_conflict_rules' );
 
-const GH_CONFLICT_RULES_KEY = 'gh_conflict_rules';
+if ( function_exists( 'gh_conflict_rules_all' ) ) return;
 
 /**
  * Ritorna tutte le rule ordinate per priority asc.

@@ -18,6 +18,111 @@
 defined( 'ABSPATH' ) || exit;
 ?>
 
+<style>
+#gh .kdb-d-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 10px;
+    padding: 10px;
+}
+#gh .kdb-d-card {
+    background: var(--bg2, #15161a);
+    border: 1px solid var(--brd, #26272c);
+    border-radius: 6px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform .12s ease, border-color .12s ease, background .12s ease;
+    display: flex;
+    flex-direction: column;
+}
+#gh .kdb-d-card:hover {
+    border-color: var(--acc, #6ca0ff);
+    transform: translateY(-1px);
+}
+#gh .kdb-d-card.is-selected {
+    border-color: var(--acc, #6ca0ff);
+    background: var(--acc-10, rgba(108,160,255,.10));
+    box-shadow: 0 0 0 1px var(--acc-30, rgba(108,160,255,.30));
+}
+#gh .kdb-d-card-img {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    background: var(--bg, #0c0d10);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+#gh .kdb-d-card-img img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+#gh .kdb-d-card-noimg {
+    font-size: 32px;
+    color: var(--dim, #6b6d73);
+}
+#gh .kdb-d-card-check {
+    position: absolute;
+    top: 6px; left: 6px;
+    width: 18px; height: 18px;
+    accent-color: var(--acc, #6ca0ff);
+    cursor: pointer;
+}
+#gh .kdb-d-card-badge {
+    position: absolute;
+    top: 6px; right: 6px;
+    font-size: 9px;
+}
+#gh .kdb-d-card-body {
+    padding: 8px 10px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    flex: 1;
+}
+#gh .kdb-d-card-title {
+    font-family: var(--sans, 'DM Sans', sans-serif);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.3;
+    color: var(--fg, #e8e9ec);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+#gh .kdb-d-card-meta {
+    font-family: var(--mono, 'JetBrains Mono', monospace);
+    font-size: 10px;
+    color: var(--dim, #6b6d73);
+}
+#gh .kdb-d-card-brand {
+    color: var(--acc, #6ca0ff);
+    font-weight: 500;
+}
+#gh .kdb-d-card-sku {
+    font-family: var(--mono, 'JetBrains Mono', monospace);
+    font-size: 10px;
+    color: var(--dim, #6b6d73);
+    margin-top: auto;
+}
+#gh .kdb-d-card-sku .dim { opacity: .7; }
+
+#gh .kdb-grid-wrap {
+    min-height: 200px;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+@media (max-width: 768px) {
+    #gh .kdb-d-grid {
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 8px;
+        padding: 8px;
+    }
+}
+</style>
+
 <!-- ═══ KICKSDB ═══════════════════════════════════════════════════════════ -->
 <div class="panel" id="panel-kicksdb" style="position:relative">
 
@@ -25,13 +130,72 @@ defined( 'ABSPATH' ) || exit;
     <div class="config-form" style="padding-bottom:0">
         <div class="cfg-row" style="border-bottom:none;padding-bottom:6px">
             <div style="display:flex;gap:4px;flex-wrap:wrap">
-                <button class="btn btn-ghost is-active" data-kdb-subtab="lookup"     onclick="GH.kdbSubtab('lookup',this)">Lookup</button>
+                <button class="btn btn-ghost is-active" data-kdb-subtab="discover"   onclick="GH.kdbSubtab('discover',this)" title="Cerca su KicksDB e importa">&#128269; Discover</button>
+                <button class="btn btn-ghost"           data-kdb-subtab="lookup"     onclick="GH.kdbSubtab('lookup',this)">Lookup</button>
                 <button class="btn btn-ghost"           data-kdb-subtab="refresh"    onclick="GH.kdbSubtab('refresh',this)">Refresh Pricing</button>
                 <button class="btn btn-ghost"           data-kdb-subtab="provenance" onclick="GH.kdbSubtab('provenance',this)">Provenance</button>
                 <button class="btn btn-ghost"           data-kdb-subtab="rules"      onclick="GH.kdbSubtab('rules',this)">Conflict Rules</button>
                 <div style="flex:1"></div>
                 <button class="btn btn-ghost"           data-kdb-subtab="settings"   onclick="GH.kdbSubtab('settings',this)" title="Settings">&#9881; Settings</button>
             </div>
+        </div>
+    </div>
+
+    <!-- ── Sub: DISCOVER (search browser) ─────────────────────────────── -->
+    <div class="kdb-sub" data-kdb-section="discover">
+        <div class="config-form">
+            <div class="cfg-row">
+                <span class="cfg-label">Query</span>
+                <input class="cfg-input" id="kdb-d-query" placeholder="es. 'Nike Dunk Low' / 'Jordan 1' / 'Yeezy'" onkeydown="if(event.key==='Enter'){GH.kdbDiscoverSearch(1)}" />
+                <span class="cfg-label">Brand</span>
+                <input class="cfg-input" id="kdb-d-brand" placeholder="Nike, Adidas, ..." style="max-width:140px" />
+            </div>
+            <div class="cfg-row">
+                <span class="cfg-label">Sort</span>
+                <select class="cfg-select" id="kdb-d-sort" style="max-width:160px">
+                    <option value="">Default (relevance)</option>
+                    <option value="rank">Rank</option>
+                    <option value="release_date">Release date</option>
+                </select>
+                <select class="cfg-select" id="kdb-d-order" style="max-width:80px">
+                    <option value="desc">desc</option>
+                    <option value="asc">asc</option>
+                </select>
+                <span class="cfg-label">Limit</span>
+                <input class="cfg-input" id="kdb-d-limit" type="number" min="10" max="100" value="50" style="max-width:80px" />
+                <div style="flex:1"></div>
+                <button class="btn btn-primary" onclick="GH.kdbDiscoverSearch(1)"><span class="spin" id="kdb-d-spin" style="display:none"></span> Cerca</button>
+            </div>
+        </div>
+
+        <div class="stats-bar" id="kdb-d-stats" style="display:none">
+            <div class="stat">Risultati: <span class="blue" id="kdb-d-count">0</span></div>
+            <div class="stat">Selezionati: <span id="kdb-d-selcount">0</span></div>
+            <div class="stat">Pagina: <span id="kdb-d-page">1</span></div>
+            <div class="stat">Tempo: <span id="kdb-d-duration">0</span> ms</div>
+        </div>
+
+        <!-- Bulk action toolbar (shown when items selected) -->
+        <div class="gs-sel-bar" id="kdb-d-selbar" style="display:none">
+            <button class="btn btn-ghost" onclick="GH.kdbDiscoverSelectAll()">Tutti (nuovi)</button>
+            <button class="btn btn-ghost" onclick="GH.kdbDiscoverSelectNone()">Nessuno</button>
+            <label style="font-family:var(--mono);font-size:10px;color:var(--dim);display:flex;align-items:center;gap:4px;margin-left:8px">
+                <input type="checkbox" id="kdb-d-include-existing" /> Includi anche prodotti gia in catalogo
+            </label>
+            <div style="flex:1"></div>
+            <button class="btn btn-warn" onclick="GH.kdbDiscoverImport()"><span class="spin" id="kdb-d-import-spin" style="display:none"></span> Importa selezionati</button>
+        </div>
+
+        <!-- Results grid -->
+        <div class="kdb-grid-wrap" id="kdb-d-results">
+            <div class="empty-state"><div class="empty-icon">&#128269;</div><div class="empty-text">Cerca prodotti su KicksDB — seleziona e importa in bulk.</div></div>
+        </div>
+
+        <!-- Pagination -->
+        <div id="kdb-d-pager" style="display:none;padding:8px;text-align:center;font-family:var(--mono);font-size:11px">
+            <button class="btn btn-ghost" id="kdb-d-prev" onclick="GH.kdbDiscoverPage(-1)">&larr; Prec</button>
+            <span style="padding:0 12px">Pagina <b id="kdb-d-pageinfo">1</b></span>
+            <button class="btn btn-ghost" id="kdb-d-next" onclick="GH.kdbDiscoverPage(+1)">Succ &rarr;</button>
         </div>
     </div>
 
@@ -81,7 +245,7 @@ defined( 'ABSPATH' ) || exit;
     </div>
 
     <!-- ── Sub: LOOKUP ────────────────────────────────────────────────── -->
-    <div class="kdb-sub" data-kdb-section="lookup">
+    <div class="kdb-sub" data-kdb-section="lookup" style="display:none">
         <div class="config-form">
             <div class="cfg-row"><span class="cfg-label">SKU(s)</span>
                 <textarea class="cfg-input" id="kdb-lookup-skus" rows="2" placeholder="Uno SKU per riga, o separati da virgola — es. DD1873-102, BQ6817-010"></textarea>

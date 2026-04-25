@@ -8,7 +8,13 @@
     const conf  = GH.confirm;
 
     let lastDiff = null;          // ultimo diff lookup, usato da Apply
-    let currentSubtab = 'lookup';
+    let currentSubtab = 'discover';
+
+    // Discover state
+    let dItems    = [];           // ultimo set di risultati
+    let dSelected = new Set();    // SKU selezionati
+    let dPage     = 1;
+    let dLastQuery = null;        // snapshot dei params per paginazione
 
     // ── Sub-tab switching ───────────────────────────────────────
 
@@ -31,6 +37,206 @@
     function kdbInit() {
         // Lazy: la prima entrata carica le settings (per popolare Test connection)
         kdbLoadSettings();
+    }
+
+    // ── Discover ───────────────────────────────────────────────
+
+    async function kdbDiscoverSearch(page) {
+        const $ = id => document.getElementById(id);
+        const q = {
+            query: $('kdb-d-query').value.trim(),
+            brand: $('kdb-d-brand').value.trim(),
+            sort:  $('kdb-d-sort').value,
+            order: $('kdb-d-order').value,
+            limit: parseInt($('kdb-d-limit').value, 10) || 50,
+            page:  Math.max(1, parseInt(page, 10) || 1),
+        };
+        if (!q.query && !q.brand) {
+            toast('Inserisci una query o un brand', 'warn');
+            return;
+        }
+        dLastQuery = q;
+        dPage = q.page;
+
+        const spin = $('kdb-d-spin');
+        spin.style.display = '';
+        try {
+            const r = await ajax('gh_kicksdb_search', q);
+            if (!r.success) {
+                toast('Search fallita: ' + (r.data && r.data.error ? r.data.error : ''), 'err', 6000);
+                return;
+            }
+            dItems = r.data.items || [];
+            // Seleziona default "nuovi" della pagina precedente se esistono ancora?
+            // No: ogni pagina reset della selezione per evitare selezioni "invisibili"
+            // che l'utente non vede.
+            dSelected = new Set(
+                [...dSelected].filter(sku => dItems.some(i => i.sku === sku))
+            );
+            renderDiscoverStats(r.data);
+            renderDiscoverGrid();
+            renderDiscoverPager();
+            updateDiscoverSelBar();
+        } finally {
+            spin.style.display = 'none';
+        }
+    }
+
+    function renderDiscoverStats(data) {
+        const $ = id => document.getElementById(id);
+        $('kdb-d-stats').style.display = '';
+        $('kdb-d-count').textContent    = data.count || 0;
+        $('kdb-d-page').textContent     = dPage;
+        $('kdb-d-duration').textContent = data.duration_ms || 0;
+        $('kdb-d-selcount').textContent = dSelected.size;
+    }
+
+    function renderDiscoverGrid() {
+        const wrap = document.getElementById('kdb-d-results');
+        if (!dItems.length) {
+            wrap.innerHTML = GH.emptyState('&#128269;', 'Nessun risultato per questa ricerca.');
+            return;
+        }
+
+        const cards = dItems.map(item => {
+            const stateBadge = renderDiscoverStateBadge(item.state);
+            const checked = dSelected.has(item.sku) ? 'checked' : '';
+            const img = item.image
+                ? `<img src="${esc(item.image)}" loading="lazy" />`
+                : `<div class="kdb-d-card-noimg">&#128247;</div>`;
+            const safeSku = esc(item.sku);
+            return `
+                <div class="kdb-d-card ${dSelected.has(item.sku) ? 'is-selected' : ''}"
+                     data-sku="${safeSku}"
+                     data-state="${esc(item.state)}"
+                     onclick="GH.kdbDiscoverToggle('${safeSku.replace(/'/g, "\\'")}')">
+                    <div class="kdb-d-card-img">${img}
+                        <input type="checkbox" class="kdb-d-card-check" ${checked}
+                               onclick="event.stopPropagation();GH.kdbDiscoverToggle('${safeSku.replace(/'/g, "\\'")}')" />
+                        <div class="kdb-d-card-badge">${stateBadge}</div>
+                    </div>
+                    <div class="kdb-d-card-body">
+                        <div class="kdb-d-card-title">${esc(item.title)}</div>
+                        <div class="kdb-d-card-meta">
+                            <span class="kdb-d-card-brand">${esc(item.brand || '')}</span>
+                            ${item.colorway ? ` · <span class="dim">${esc(item.colorway)}</span>` : ''}
+                        </div>
+                        <div class="kdb-d-card-sku">${safeSku}${item.release ? ' · <span class="dim">' + esc(item.release) + '</span>' : ''}</div>
+                    </div>
+                </div>`;
+        }).join('');
+
+        wrap.innerHTML = `<div class="kdb-d-grid">${cards}</div>`;
+    }
+
+    function renderDiscoverStateBadge(state) {
+        const map = {
+            new:         { label: 'Nuovo',       cls: 'ok'   },
+            in_catalog:  { label: 'In catalogo', cls: 'info' },
+            tracked:     { label: 'Tracked',     cls: 'warn' },
+        };
+        const m = map[state] || { label: state, cls: 'dim' };
+        return `<span class="gh-status gh-status--${m.cls}">${esc(m.label)}</span>`;
+    }
+
+    function renderDiscoverPager() {
+        const pager = document.getElementById('kdb-d-pager');
+        if (!dItems.length) { pager.style.display = 'none'; return; }
+
+        // L'endpoint non ritorna total/has_next. Usiamo euristica: se la pagina
+        // e piena (==limit), assumiamo che ci sia una prossima. Prev abilitato
+        // se page > 1.
+        const limit = (dLastQuery && dLastQuery.limit) || 50;
+        const hasNext = dItems.length >= limit;
+
+        pager.style.display = '';
+        document.getElementById('kdb-d-pageinfo').textContent = dPage;
+        document.getElementById('kdb-d-prev').disabled = dPage <= 1;
+        document.getElementById('kdb-d-next').disabled = !hasNext;
+    }
+
+    function kdbDiscoverPage(delta) {
+        const next = dPage + delta;
+        if (next < 1) return;
+        kdbDiscoverSearch(next);
+    }
+
+    function kdbDiscoverToggle(sku) {
+        if (!sku) return;
+        if (dSelected.has(sku)) dSelected.delete(sku);
+        else                    dSelected.add(sku);
+        // Aggiorna UI del card senza re-render completo
+        const card = document.querySelector(`#kdb-d-results .kdb-d-card[data-sku="${CSS.escape(sku)}"]`);
+        if (card) {
+            card.classList.toggle('is-selected', dSelected.has(sku));
+            const cb = card.querySelector('input.kdb-d-card-check');
+            if (cb) cb.checked = dSelected.has(sku);
+        }
+        updateDiscoverSelBar();
+    }
+
+    function kdbDiscoverSelectAll() {
+        // Solo "new" di default — evita di selezionare prodotti gia in catalogo
+        dItems.forEach(i => { if (i.state === 'new') dSelected.add(i.sku); });
+        renderDiscoverGrid();
+        updateDiscoverSelBar();
+    }
+
+    function kdbDiscoverSelectNone() {
+        dSelected.clear();
+        renderDiscoverGrid();
+        updateDiscoverSelBar();
+    }
+
+    function updateDiscoverSelBar() {
+        const bar = document.getElementById('kdb-d-selbar');
+        const count = dSelected.size;
+        bar.style.display = count > 0 ? '' : 'none';
+        const el = document.getElementById('kdb-d-selcount');
+        if (el) el.textContent = count;
+    }
+
+    async function kdbDiscoverImport() {
+        if (!dSelected.size) { toast('Nessun prodotto selezionato', 'warn'); return; }
+
+        const includeExisting = document.getElementById('kdb-d-include-existing').checked;
+
+        // Split by state: safe-to-create vs already-in-catalog
+        const selected = [...dSelected];
+        const bySku = Object.fromEntries(dItems.map(i => [i.sku, i]));
+        const newOnes   = selected.filter(s => (bySku[s]?.state || 'new') === 'new');
+        const existing  = selected.filter(s => (bySku[s]?.state || 'new') !== 'new');
+
+        const skusToImport = includeExisting ? selected : newOnes;
+        if (!skusToImport.length) {
+            toast('Selezione contiene solo prodotti esistenti. Abilita "Includi anche prodotti gia in catalogo" per procedere.', 'warn', 6000);
+            return;
+        }
+
+        const msg = includeExisting
+            ? `Importare ${skusToImport.length} prodotti? (${newOnes.length} nuovi, ${existing.length} aggiornamenti — rispettano le conflict rules)`
+            : `Creare ${newOnes.length} nuovi prodotti? I ${existing.length} gia in catalogo verranno skippati (abilita checkbox per includerli).`;
+
+        const ok = await conf(msg, { title: 'Importa da Discover', okLabel: 'Importa' });
+        if (!ok) return;
+
+        const spin = document.getElementById('kdb-d-import-spin');
+        spin.style.display = '';
+        try {
+            const r = await ajax('gh_kicksdb_apply', {
+                skus:            JSON.stringify(skusToImport),
+                create_new:      '1',
+                update_existing: includeExisting ? '1' : '0',
+            });
+            if (!r.success) { toast('Import fallito', 'err'); return; }
+            const s = r.data.summary || {};
+            toast(`Created ${s.created||0} · Updated ${s.updated||0} · Skipped ${s.skipped||0} · Errors ${s.errors||0}`, s.errors > 0 ? 'warn' : 'ok', 6000);
+            // Re-search per mostrare il nuovo stato (quelli appena importati diventano 'tracked')
+            dSelected.clear();
+            await kdbDiscoverSearch(dPage);
+        } finally {
+            spin.style.display = 'none';
+        }
     }
 
     // ── Settings ────────────────────────────────────────────────
@@ -466,6 +672,13 @@
         kdbRuleCancel,
         kdbRuleSave,
         kdbRuleDelete,
+        // Discover
+        kdbDiscoverSearch,
+        kdbDiscoverPage,
+        kdbDiscoverToggle,
+        kdbDiscoverSelectAll,
+        kdbDiscoverSelectNone,
+        kdbDiscoverImport,
     });
 
 })();

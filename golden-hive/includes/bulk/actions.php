@@ -173,6 +173,14 @@ function gh_get_bulk_action_definitions(): array {
             'description' => 'Elimina il prodotto (varianti incluse) e poi tenta di eliminare featured, gallery e thumbnail delle varianti. Le immagini in whitelist o ancora usate da altri prodotti vengono preservate.',
             'params'      => [],
         ],
+
+        // ── KICKSDB ─────────────────────────────────────
+        'kicksdb_refresh_pricing' => [
+            'label'       => 'Refresh prezzi KicksDB',
+            'group'       => 'kicksdb',
+            'description' => 'Aggiorna i prezzi tramite l\'endpoint batch KicksDB /stockx/prices (50 SKU per call). Solo prodotti con _gh_kicksdb_tracked=1 vengono toccati; gli altri sono skippati silenziosamente. Rispetta le conflict rules sulla slice "pricing".',
+            'params'      => [],
+        ],
     ];
 }
 
@@ -200,6 +208,13 @@ function gh_get_bulk_action_definitions(): array {
  *   gh_execute_bulk_action( 'assign_categories', [101, 102], [ 'category_ids' => [15, 22] ] );
  */
 function gh_execute_bulk_action( string $action, array $product_ids, array $params = [] ): array {
+
+    // ── BATCH-NATIVE ACTIONS ────────────────────────────
+    // Alcune azioni operano in batch nativo (una sola call esterna per tutto
+    // il set, non una per prodotto). Bypass del per-product loop.
+    if ( $action === 'kicksdb_refresh_pricing' && function_exists( 'gh_kicksdb_refresh_pricing' ) ) {
+        return gh_bulk_dispatch_kicksdb_refresh( $product_ids );
+    }
 
     $results = [];
     $success = 0;
@@ -337,6 +352,15 @@ function gh_apply_bulk_action( WC_Product $product, string $action, array $param
         // ── DELETE ──────────────────────────────────────
         'delete_product'    => gh_bulk_delete_product( $product, false ),
         'delete_with_media' => gh_bulk_delete_product( $product, true ),
+
+        // ── KICKSDB ─────────────────────────────────────
+        // Non usa la pipeline per-prodotto perche il batch endpoint KicksDB
+        // accetta 50 SKU per call: fare una call per prodotto sarebbe stupido.
+        // Si appoggia a gh_kicksdb_refresh_pricing() che gestisce internamente
+        // chunking + tracked-filter + conflict rules. Il dispatcher per-prodotto
+        // ritorna 'ok' immediatamente; la vera esecuzione la fa il wrapper bulk
+        // (vedi sotto).
+        'kicksdb_refresh_pricing' => 'ok',
 
         default => "Azione sconosciuta: {$action}",
     };
@@ -746,4 +770,76 @@ function gh_collect_product_attachment_ids( WC_Product $product ): array {
     }
 
     return array_values( array_unique( array_filter( $ids ) ) );
+}
+
+/**
+ * Bulk dispatch per kicksdb_refresh_pricing — batch nativo (50 SKU per call
+ * lato KicksDB, conflict-rules-aware lato applicazione).
+ *
+ * Resolva product_ids → SKU, chiama gh_kicksdb_refresh_pricing() una volta
+ * sola, mappa i risultati per-prodotto nello shape che gh_execute_bulk_action
+ * deve ritornare (compatibile con la UI Filter results table).
+ *
+ * NOTA: prodotti senza SKU o con _gh_kicksdb_tracked != '1' sono skippati e
+ * marcati come 'skipped' nei risultati (non come error).
+ */
+function gh_bulk_dispatch_kicksdb_refresh( array $product_ids ): array {
+
+    $results = [];
+    $skus    = [];
+    $sku_to_pid = [];
+
+    foreach ( $product_ids as $pid ) {
+        $pid = (int) $pid;
+        $product = wc_get_product( $pid );
+        if ( ! $product ) {
+            $results[ $pid ] = "Prodotto #{$pid} non trovato.";
+            continue;
+        }
+        $sku = $product->get_sku();
+        if ( $sku === '' ) {
+            $results[ $pid ] = 'SKU vuoto — skip';
+            continue;
+        }
+        $skus[]            = $sku;
+        $sku_to_pid[ $sku ] = $pid;
+    }
+
+    $success = 0;
+    $failed  = 0;
+
+    if ( ! empty( $skus ) ) {
+        $resp = gh_kicksdb_refresh_pricing( $skus );
+
+        foreach ( ( $resp['details'] ?? [] ) as $d ) {
+            $sku = (string) ( $d['sku'] ?? '' );
+            $pid = $sku_to_pid[ $sku ] ?? 0;
+            if ( ! $pid ) continue;
+
+            switch ( $d['action'] ?? '' ) {
+                case 'updated':
+                    $sizes = ! empty( $d['sizes'] ) ? ' (' . implode( ',', $d['sizes'] ) . ')' : '';
+                    $results[ $pid ] = 'ok' . $sizes;
+                    $success++;
+                    break;
+                case 'skipped':
+                    $results[ $pid ] = 'skip: ' . ( $d['reason'] ?? 'n/a' );
+                    break;
+                default:
+                    $results[ $pid ] = 'error: ' . ( $d['reason'] ?? 'n/a' );
+                    $failed++;
+            }
+        }
+    }
+
+    $total = count( $product_ids );
+
+    return [
+        'action'  => 'kicksdb_refresh_pricing',
+        'total'   => $total,
+        'success' => $success,
+        'failed'  => $failed,
+        'results' => $results,
+        'summary' => "{$success}/{$total} prezzi aggiornati" . ( $failed ? ", {$failed} errori" : '' ),
+    ];
 }

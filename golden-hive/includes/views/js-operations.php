@@ -749,7 +749,7 @@
     // ── HELPERS ──────────────────────────────────────────────────
     function esc(s) { if(!s)return''; const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
     function opLabel(op) {
-        return {'is':'uguale a','is_not':'diverso da','in':'uno di','not_in':'nessuno di','contains':'contiene','not_contains':'non contiene','starts_with':'inizia con','matches':'regex','gt':'maggiore di','lt':'minore di','between':'tra','after':'dopo','before':'prima','exists':'presente','not_exists':'assente','has_value':'ha valore','not_has_value':'non ha valore','has_attribute':'ha attributo','not_has_attribute':'non ha attributo'}[op]||op;
+        return {'is':'uguale a','is_not':'diverso da','in':'uno di','not_in':'nessuno di','contains':'contiene','not_contains':'non contiene','starts_with':'inizia con','matches':'regex','gt':'maggiore di','lt':'minore di','between':'tra','after':'dopo','before':'prima','exists':'presente','not_exists':'assente','has_value':'ha valore','not_has_value':'non ha valore','has_attribute':'ha attributo','not_has_attribute':'non ha attributo','never':'mai sincronizzato','primary_is':'primary e','primary_is_not':'primary non e'}[op]||op;
     }
     const origSwitch = GH.switchTab;
     GH.switchTab = function(tab, el) { origSwitch(tab, el); if (tab==='filter'||tab==='sorting') loadFilterMeta(); };

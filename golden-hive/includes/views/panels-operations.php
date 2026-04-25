@@ -63,6 +63,9 @@
                         <option value="delete_product">Elimina prodotto (+ varianti)</option>
                         <option value="delete_with_media">Elimina prodotto + media</option>
                     </optgroup>
+                    <optgroup label="KicksDB">
+                        <option value="kicksdb_refresh_pricing">Refresh prezzi KicksDB</option>
+                    </optgroup>
                 </select>
 
                 <!-- Dynamic param inputs -->
@@ -81,9 +84,8 @@
             </div>
         </div>
     </div>
-</div>
 
-    <!-- Bulk JSON Editor overlay (inside panel-filter) -->
+    <!-- Bulk JSON Editor overlay (inside panel-filter; assorbito da position:relative del parent) -->
     <div id="bulk-json-overlay" style="display:none;position:absolute;inset:0;z-index:50;background:var(--bg);flex-direction:column;overflow:hidden;">
         <div class="toolbar" style="flex-shrink:0;">
             <button class="btn btn-ghost" onclick="GH.closeBulkJson()">&larr; Torna ai risultati</button>

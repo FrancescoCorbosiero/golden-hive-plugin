@@ -99,7 +99,7 @@
         return { price_mode: mode, sale_mult: mult };
     }
     async function gsFetch(){const ov=document.getElementById('gs-overlay'),ot=document.getElementById('gs-overlay-text'),btn=document.getElementById('btn-gs-fetch'),sp=document.getElementById('gs-fetch-spin');ot.textContent='Fetch feed...';ov.classList.add('visible');btn.disabled=true;sp.style.display='';try{const cfg={url:document.getElementById('gs-url').value,token:document.getElementById('gs-token').value,cookie:document.getElementById('gs-cookie').value,format:document.getElementById('gs-format').value};const r=await ajax('rp_rc_ajax_gs_fetch',{config:JSON.stringify(cfg)});if(!r.success){toast('Errore: '+r.data,'err');return}gsProducts=r.data.products;toast(r.data.product_count+' prodotti','ok');ot.textContent='Confronto WooCommerce...';const po=gsGetPriceOpts();const dr=await ajax('rp_rc_ajax_gs_preview',{products:JSON.stringify(gsProducts),price_mode:po.price_mode,sale_mult:po.sale_mult});if(!dr.success){toast('Errore diff','err');return}renderGsPreview(dr.data)}catch(e){toast('Errore','err')}finally{ov.classList.remove('visible');btn.disabled=false;sp.style.display='none'}}
-    function renderGsPreview(d){const s=d.summary;gsDiffData=d;document.getElementById('gs-stats').style.display='flex';document.getElementById('gs-total').textContent=s.total;document.getElementById('gs-new').textContent=s.new;document.getElementById('gs-update').textContent=s.update;document.getElementById('gs-unchanged').textContent=s.unchanged;const all=[...d.new.map(p=>({...p,_a:'new'})),...d.update.map(p=>({...p,_a:'update'})),...d.unchanged.map(p=>({...p,_a:'unchanged'}))];gsSelected=new Set(all.filter(p=>p._a!=='unchanged').map(p=>p.sku));let h='<table class="ptable"><thead><tr><th style="width:28px"><input type="checkbox" class="gs-check" id="gs-check-all" onchange="GH.gsToggleAll(this.checked)" /></th><th>Azione</th><th>SKU</th><th>Nome</th><th>Brand</th><th>Modello</th><th>Taglie</th><th>Disp.</th></tr></thead><tbody>';for(const p of all){const cls=p._a==='new'?'st-new':p._a==='update'?'st-update':'st-unchanged';const lb=p._a==='new'?'+ Nuovo':p._a==='update'?'\u21bb Agg.':'\u2713';const sz=p.sizes?p.sizes.length:(p.variations?p.variations.length:0);const ck=gsSelected.has(p.sku)?'checked':'';h+='<tr><td><input type="checkbox" class="gs-check" data-sku="'+esc(p.sku)+'" data-type="'+p._a+'" '+ck+' onchange="GH.gsToggle(this)" /></td><td class="'+cls+'">'+lb+'</td><td>'+esc(p.sku||'')+'</td><td>'+esc(p.name||'')+'</td><td>'+esc(p.brand||p._gs_brand||'')+'</td><td>'+esc(p.model||p._gs_model||'')+'</td><td>'+sz+'</td><td>'+(p.total_available??'?')+'</td></tr>'}h+='</tbody></table>';document.getElementById('gs-preview').innerHTML=h;document.getElementById('gs-sel-bar').style.display='flex';gsUpdateSelCount();gsUpdateConfirm()}
+    function renderGsPreview(d){const s=d.summary;gsDiffData=d;document.getElementById('gs-stats').style.display='flex';document.getElementById('gs-total').textContent=s.total;document.getElementById('gs-new').textContent=s.new;document.getElementById('gs-update').textContent=s.update;document.getElementById('gs-unchanged').textContent=s.unchanged;const all=[...d.new.map(p=>({...p,_a:'new'})),...d.update.map(p=>({...p,_a:'update'})),...d.unchanged.map(p=>({...p,_a:'unchanged'}))];gsSelected=new Set(all.filter(p=>p._a!=='unchanged').map(p=>p.sku));let h='<table class="ptable"><thead><tr><th style="width:28px"><input type="checkbox" class="gs-check" id="gs-check-all" onchange="GH.gsToggleAll(this.checked)" /></th><th>Azione</th><th>SKU</th><th>Nome</th><th>Brand</th><th>Modello</th><th>Taglie</th><th>Disp.</th><th style="width:60px" title="Hand-off al tab KicksDB Refresh Pricing per la SKU di questa riga">KDB</th></tr></thead><tbody>';for(const p of all){const cls=p._a==='new'?'st-new':p._a==='update'?'st-update':'st-unchanged';const lb=p._a==='new'?'+ Nuovo':p._a==='update'?'\u21bb Agg.':'\u2713';const sz=p.sizes?p.sizes.length:(p.variations?p.variations.length:0);const ck=gsSelected.has(p.sku)?'checked':'';const skuJs=(p.sku||'').replace(/'/g,"\\'");h+='<tr><td><input type="checkbox" class="gs-check" data-sku="'+esc(p.sku)+'" data-type="'+p._a+'" '+ck+' onchange="GH.gsToggle(this)" /></td><td class="'+cls+'">'+lb+'</td><td>'+esc(p.sku||'')+'</td><td>'+esc(p.name||'')+'</td><td>'+esc(p.brand||p._gs_brand||'')+'</td><td>'+esc(p.model||p._gs_model||'')+'</td><td>'+sz+'</td><td>'+(p.total_available??'?')+'</td><td><button class="btn btn-ghost" style="font-size:9px;padding:2px 6px" title="Refresh prezzo KicksDB (rispetta conflict rules e tracked flag)" onclick="GH.kdbRefreshSelected([\''+skuJs+'\'])">\u21bb KDB</button></td></tr>'}h+='</tbody></table>';document.getElementById('gs-preview').innerHTML=h;document.getElementById('gs-sel-bar').style.display='flex';gsUpdateSelCount();gsUpdateConfirm()}
     function gsToggle(cb){if(cb.checked)gsSelected.add(cb.dataset.sku);else gsSelected.delete(cb.dataset.sku);document.getElementById('gs-check-all').checked=gsSelected.size===document.querySelectorAll('#gs-preview .gs-check[data-sku]').length;gsUpdateSelCount();gsUpdateConfirm()}
     function gsToggleAll(on){document.querySelectorAll('#gs-preview .gs-check[data-sku]').forEach(c=>{c.checked=on;if(on)gsSelected.add(c.dataset.sku);else gsSelected.delete(c.dataset.sku)});gsUpdateSelCount();gsUpdateConfirm()}
     function gsSelectAll(){document.querySelectorAll('#gs-preview .gs-check[data-sku]').forEach(c=>{c.checked=true;gsSelected.add(c.dataset.sku)});document.getElementById('gs-check-all').checked=true;gsUpdateSelCount();gsUpdateConfirm()}
@@ -148,8 +148,58 @@
 
     async function sfSaveSettings() {
         const s = { url: document.getElementById('sf-url').value };
-        await ajax('gh_ajax_feed_save_settings', { feed_key: 'stockfirmati', settings: JSON.stringify(s) });
+        const r = await ajax('gh_ajax_feed_save_settings', { feed_key: 'stockfirmati', settings: JSON.stringify(s) });
+        if (!r.success) {
+            const errs = (r.data && r.data.errors) ? Object.entries(r.data.errors).map(([k,v])=>k+': '+v).join(', ') : 'errore';
+            toast('Salvataggio fallito — ' + errs, 'err', 6000);
+            return;
+        }
         toast('Impostazioni salvate', 'ok');
+    }
+
+    // ── GOLDEN SNEAKERS settings (URL + Bearer token + cookie) ─
+    // Pattern identico a SF ma con campi secret. Il server ritorna il token
+    // gia REDATTO (••••XXXX). Quel placeholder viene popolato nel form e
+    // sopravvive ai roundtrip: quando l'utente clicca Salva senza ri-incollare
+    // il token, il backend rileva il prefix '•' e PRESERVA il valore stored
+    // invece di sovrascriverlo. Quando l'utente clicca Fetch, il backend
+    // hidrata di nuovo dal valore stored prima di chiamare l'API upstream.
+    async function gsLoadSettings() {
+        const r = await ajax('gh_ajax_feed_load_settings', { feed_key: 'goldensneakers' });
+        if (!r.success || !r.data) return;
+        const d = r.data;
+        const $ = id => document.getElementById(id);
+        if ($('gs-url'))    $('gs-url').value    = d.url    || '';
+        if ($('gs-token'))  $('gs-token').value  = d.token  || '';
+        if ($('gs-cookie')) $('gs-cookie').value = d.cookie || '';
+        if ($('gs-format') && d.format) $('gs-format').value = d.format;
+    }
+
+    async function gsSaveSettings() {
+        const $ = id => document.getElementById(id);
+        const s = {
+            url:    $('gs-url').value,
+            token:  $('gs-token').value,
+            cookie: $('gs-cookie').value,
+            format: $('gs-format').value,
+        };
+        // Non inviare placeholder redatti — il backend li droppa comunque, ma
+        // evitiamoglielo come noise. Vuoto e' meglio (significa 'unchanged').
+        if (/^•+/.test(s.token))  delete s.token;
+        if (/^•+/.test(s.cookie)) delete s.cookie;
+
+        const r = await ajax('gh_ajax_feed_save_settings', { feed_key: 'goldensneakers', settings: JSON.stringify(s) });
+        if (!r.success) {
+            const errs = (r.data && r.data.errors) ? Object.entries(r.data.errors).map(([k,v])=>k+': '+v).join(', ') : 'errore';
+            toast('Salvataggio fallito — ' + errs, 'err', 6000);
+            return;
+        }
+        toast('Credenziali GS salvate', 'ok');
+        // Refresh inputs con i valori redatti restituiti dal server
+        if (r.data) {
+            if (r.data.token  !== undefined) $('gs-token').value  = r.data.token;
+            if (r.data.cookie !== undefined) $('gs-cookie').value = r.data.cookie;
+        }
     }
 
     function sfMarkupModeChange() {
@@ -269,7 +319,7 @@
     }
 
     function sfRenderTable(items) {
-        let h = '<table class="ptable"><thead><tr><th style="width:28px"><input type="checkbox" id="sf-check-all" onchange="GH.sfToggleAll(this.checked)" /></th><th>Azione</th><th>SKU</th><th>Nome</th><th>Brand</th><th>Cat</th><th>Taglie</th><th>Qty</th><th>Costo</th><th>Listino</th></tr></thead><tbody>';
+        let h = '<table class="ptable"><thead><tr><th style="width:28px"><input type="checkbox" id="sf-check-all" onchange="GH.sfToggleAll(this.checked)" /></th><th>Azione</th><th>SKU</th><th>Nome</th><th>Brand</th><th>Cat</th><th>Taglie</th><th>Qty</th><th>Costo</th><th>Listino</th><th style="width:60px" title="Hand-off al tab KicksDB Refresh Pricing per la SKU di questa riga">KDB</th></tr></thead><tbody>';
         for (const p of items) {
             const cls = p._a === 'new' ? 'st-new' : p._a === 'update' ? 'st-update' : 'st-unchanged';
             const lb = p._a === 'new' ? '+ Nuovo' : p._a === 'update' ? '\u21bb Agg.' : '\u2713';
@@ -280,13 +330,15 @@
             const qty = p.stock_quantity ?? (p.variations ? p.variations.reduce((a, v) => a + (v.stock_quantity || 0), 0) : '?');
             const sale = p.sale_price || (p.variations?.[0]?.sale_price || '');
             const reg = p.regular_price || (p.variations?.[0]?.regular_price || '');
+            const skuJs = (p.sku || '').replace(/'/g, "\\'");
             h += '<tr><td><input type="checkbox" class="sf-check" data-sku="' + esc(p.sku) + '" data-type="' + p._a + '" ' + ck + ' onchange="GH.sfToggle(this)" /></td>';
             h += '<td class="' + cls + '">' + lb + '</td><td style="font-size:10px">' + esc(p.sku || '') + '</td>';
             h += '<td>' + esc(p.name || '') + '</td><td>' + esc(brand) + '</td>';
             h += '<td style="font-size:10px">' + esc(cat) + '</td><td>' + sz + '</td><td>' + qty + '</td>';
-            h += '<td>' + (sale ? sale + '\u20ac' : '\u2013') + '</td><td style="text-decoration:line-through;color:var(--dim)">' + (reg ? reg + '\u20ac' : '') + '</td></tr>';
+            h += '<td>' + (sale ? sale + '\u20ac' : '\u2013') + '</td><td style="text-decoration:line-through;color:var(--dim)">' + (reg ? reg + '\u20ac' : '') + '</td>';
+            h += '<td><button class="btn btn-ghost" style="font-size:9px;padding:2px 6px" title="Refresh prezzo KicksDB (rispetta conflict rules e tracked flag)" onclick="GH.kdbRefreshSelected([\'' + skuJs + '\'])">\u21bb KDB</button></td></tr>';
         }
-        if (!items.length) h += '<tr><td colspan="10" style="text-align:center;color:var(--dim);padding:20px">Nessun risultato</td></tr>';
+        if (!items.length) h += '<tr><td colspan="11" style="text-align:center;color:var(--dim);padding:20px">Nessun risultato</td></tr>';
         h += '</tbody></table>';
         document.getElementById('sf-preview').innerHTML = h;
     }
@@ -1357,5 +1409,5 @@
         await dispatchReimport('sf', cfg, skus, overwriteMedia, 'sf-reimport-status');
     }
 
-    return{ajax,ajaxWithToast,toast,esc,emptyState,statusChip,confirm:ghConfirm,markDirty,clearDirty,isDirty,registerShortcuts,clearShortcuts,registerDeepOpener,updateHash,copyJSON,copyToClipboard,wireDirtyInputs,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,gsPriceModeChange,gsReimportDispatch,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,sfMarkupModeChange,sfReimportDispatch,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvScheduleFeed,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog,nucPreview,nucExecute,feedCleanup};
+    return{ajax,ajaxWithToast,toast,esc,emptyState,statusChip,confirm:ghConfirm,markDirty,clearDirty,isDirty,registerShortcuts,clearShortcuts,registerDeepOpener,updateHash,copyJSON,copyToClipboard,wireDirtyInputs,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,gsPriceModeChange,gsReimportDispatch,gsLoadSettings,gsSaveSettings,sfLoadSettings,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,sfMarkupModeChange,sfReimportDispatch,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvScheduleFeed,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog,nucPreview,nucExecute,feedCleanup};
 })();

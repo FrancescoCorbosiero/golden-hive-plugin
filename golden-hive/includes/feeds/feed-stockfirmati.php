@@ -317,9 +317,19 @@ function gh_sf_create_product( array $data, bool $sideload = true, array $tax_ma
         if ( ! empty( $data['_sf_cost_price'] ) )  update_post_meta( $product_id, '_sf_cost_price', $data['_sf_cost_price'] );
         if ( ! empty( $data['_sf_source_url'] ) )  update_post_meta( $product_id, '_sf_source_url', $data['_sf_source_url'] );
 
-        // Provenance meta
+        // Provenance meta (legacy — preservato per backward compat)
         update_post_meta( $product_id, '_gh_import_source', 'stockfirmati' );
         update_post_meta( $product_id, '_gh_import_date', current_time( 'mysql' ) );
+
+        // Provenance multi-source (nuovo, usato dal conflict engine)
+        if ( function_exists( 'gh_conflict_record_source' ) ) {
+            gh_conflict_record_source( $product_id, 'stockfirmati', [
+                'catalog' => 'stockfirmati',
+                'pricing' => 'stockfirmati',
+                'stock'   => 'stockfirmati',
+                'media'   => 'stockfirmati',
+            ] );
+        }
 
         // Images: prefer pre-imported media map, fallback to sideload
         if ( ! empty( $data['_sf_images'] ) ) {

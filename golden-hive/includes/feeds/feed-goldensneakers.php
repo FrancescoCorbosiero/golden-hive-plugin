@@ -463,9 +463,19 @@ function rp_rc_gs_create_product( array $data, bool $sideload = true ): array {
             rp_rc_gs_sideload_image( $product_id, $data['_gs_image_url'], $data['sku'] ?? '' );
         }
 
-        // Provenance meta
+        // Provenance meta (legacy — preservato per backward compat)
         update_post_meta( $product_id, '_gh_import_source', 'goldensneakers' );
         update_post_meta( $product_id, '_gh_import_date', current_time( 'mysql' ) );
+
+        // Provenance multi-source (nuovo, usato dal conflict engine)
+        if ( function_exists( 'gh_conflict_record_source' ) ) {
+            gh_conflict_record_source( $product_id, 'goldensneakers', [
+                'catalog' => 'goldensneakers',
+                'pricing' => 'goldensneakers',
+                'stock'   => 'goldensneakers',
+                'media'   => 'goldensneakers',
+            ] );
+        }
 
         return [
             'action' => 'created',

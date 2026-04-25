@@ -63,21 +63,38 @@ golden-hive/
     │   └── ajax.php              ← include rp_mm_ajax_set_featured (usato da hand-off Media row → Featured)
     ├── feeds/                   ← Da rp-rest-caller (prefix: rp_rc_ / gh_*)
     │   ├── http-client.php, response-parser.php, saved-endpoints.php
+    │   ├── feed-credentials.php ← gh_feed_credentials_* (storage CENTRALIZZATO con whitelist+sanitize+redact per credenziali GS/SF)
     │   ├── feed-goldensneakers.php, feed-stockfirmati.php, feed-csv.php
     │   ├── csv-presets.php, feed-config-engine.php, media-preimport.php
     │   ├── scheduler.php, reimport.php
-    │   └── ajax.php
+    │   ├── ajax.php
+    │   └── kicksdb/             ← KicksDB lookup/enrichment + discovery (NON un feed push)
+    │       ├── client.php       ← gh_kicksdb_request + _request_multi (curl_multi sliding-window 8x), get_product_full / _multi, search_products, get_prices_batch
+    │       ├── settings.php     ← gh_kicksdb_get_settings/_save_settings/_get_settings_redacted (api_key redatta + pricing formula)
+    │       ├── cache.php        ← gh_kicksdb_cache_get/_set/_purge + gh_kicksdb_get_product_cached (transient 24h, no-cache su 404)
+    │       ├── pricing.php      ← gh_kicksdb_extract_standard_prices (filter type=='standard' + MIN per size), gh_kicksdb_apply_markup (margin/floor/round)
+    │       ├── normalizer.php   ← gh_kicksdb_normalize → WC shape (EU sizes only) + post_process (taxonomy, meta, sideload), legge active mapping profile
+    │       ├── profiles.php     ← gh_kicksdb_profiles_* (mapping profiles con required_fields + description_template + gallery_opts)
+    │       ├── feed.php         ← orchestrator: fetch_skus → diff → apply (passa per conflict engine), refresh_pricing path dedicato (batch endpoint)
+    │       └── ajax.php         ← gh_kicksdb_settings/_test_connection/_lookup/_search/_apply/_refresh_pricing/_profiles_*
+    ├── conflict/                ← Cross-feed provenance + conflict resolution (prefix: gh_conflict_)
+    │   ├── provenance.php       ← gh_conflict_get_sources/_record_source/_set_primary_source (read/write _gh_sources, _gh_field_sources, _gh_primary_source meta)
+    │   ├── storage.php          ← gh_conflict_rules_all/_find/_upsert/_remove + gh_conflict_default_rules (manual_sacred + gs_owns_pricing)
+    │   ├── engine.php           ← gh_conflict_resolve(product_id, incoming, source) → { allowed_slices, blocked, applied_rule } | gh_conflict_dry_run
+    │   ├── migrate.php          ← gh_conflict_migrate_run (batched 200/tick, idempotente; backfilla _gh_import_source legacy → _gh_sources)
+    │   └── ajax.php             ← gh_conflict_rules_* / _migrate_tick / _migrate_status / _product_provenance / _dry_run
     ├── jobs/                    ← Scheduler unificato (prefix: gh_jobs_)
     │   ├── cron-expr.php, registry.php, storage.php, log.php, runner.php, migrate.php
-    │   ├── handlers-feeds.php   ← job kinds: csv_feed, config_feed
+    │   ├── handlers-feeds.php   ← job kinds: csv_feed, config_feed, force_reimport, kicksdb_refresh_pricing
     │   ├── handlers-ops.php
     │   └── ajax.php
     ├── filter/                  ← (prefix: gh_)
-    │   ├── conditions.php       ← gh_get_condition_definitions, gh_evaluate_condition (19 tipi)
+    │   ├── conditions.php       ← gh_get_condition_definitions, gh_evaluate_condition (23 tipi, include kicksdb_*/provenance_*)
     │   ├── query-engine.php     ← gh_filter_products (options[include_ids] bypassa condition builder), gh_filter_product_ids
     │   └── ajax.php             ← gh_ajax_filter_* (supporta include_ids per subset/hand-off)
     ├── bulk/                    ← (prefix: gh_)
-    │   ├── actions.php, sorter.php, ajax.php
+    │   ├── actions.php          ← include kicksdb_refresh_pricing (batch dispatcher: 1 call HTTP per 50 SKU)
+    │   ├── sorter.php, ajax.php
     ├── mapper/                  ← Visual field mapper (prefix: gh_mp_)
     │   ├── engine.php, storage.php, ajax.php
     ├── email/                   ← Multi-layer email + transactional (prefix: rp_em_)
@@ -101,9 +118,9 @@ golden-hive/
     │   ├── nuclear-cleanup.php, ajax.php
     ├── views/
     │   ├── css.php              ← Design system + .gh-card + .gh-status-* unified + color alpha tokens + @media mobile
-    │   ├── panels*.php          ← panels, panels-operations, panels-navigation, panels-mapper, panels-jobs, panels-email
+    │   ├── panels*.php          ← panels, panels-operations, panels-navigation, panels-mapper, panels-jobs, panels-email, panels-kicksdb
     │   ├── js.php + js2.php     ← GH module IIFE: ajax, ajaxWithToast, toast (sticky), confirm, emptyState, statusChip, markDirty/clearDirty/isDirty, registerShortcuts, registerDeepOpener, updateHash, copyJSON, copyToClipboard, wireDirtyInputs, switchTab (hash-aware)
-    │   └── js-*.php             ← js-operations, js-inline, js-smart, js-navigation, js-media, js-mapper, js-jobs, js-email, js-email-campaigns, js-email-transactional
+    │   └── js-*.php             ← js-operations, js-inline, js-smart, js-navigation, js-media, js-mapper, js-jobs, js-email, js-email-campaigns, js-email-transactional, js-kicksdb
     └── admin-page.php           ← add_menu_page + sidebar a tab
 ```
 
@@ -135,7 +152,10 @@ views/*.php, admin-page.php        → "UI" (zero logica business)
 | | Navigazione | Gestione WP nav menus + auto-populate di un item da un set di termini |
 | MEDIA | Media Library | Browser unificato con filtri, bulk ops, Safe Cleanup |
 | | Whitelist | Protezione immagini, inline add form |
-| IMPORT | GS Feed | Golden Sneakers feed |
+| IMPORT | GS Feed | Golden Sneakers feed (con UI Salva credenziali con redazione token) |
+| | SF Feed | StockFirmati CSV feed (URL salvabile) |
+| | CSV Feed | Generic CSV feed via config-engine |
+| | KicksDB | Lookup/enrichment service + Discover search browser. 6 sub-section: Discover, Lookup, Refresh Pricing, Field Mapping, Provenance, Conflict Rules, Settings |
 | | Bulk JSON | Import prodotti da JSON |
 | | Roundtrip | Export/import snapshot |
 | TOOLS | HTTP Client | Test API generiche |
@@ -232,11 +252,20 @@ prima di procedere.
 1. **Fase DB** — `WC_Product_Query` per status, tipo, categoria, tag (veloce, SQL)
 2. **Fase memoria** — `gh_evaluate_condition()` per attributi, varianti, SEO, regex (flessibile, PHP)
 
-**19 tipi di condizione:** category, brand, tag, attribute, status, type, price_range, has_sale, stock_status, stock_qty, sku_pattern, name_contains, date_created, date_modified, seo_field, has_image, gallery_count, variant_count, has_size, menu_order
+**23 tipi di condizione:** category, brand, tag, attribute, status, type, price_range, has_sale, stock_status, stock_qty, sku_pattern, name_contains, date_created, date_modified, seo_field, has_image, gallery_count, variant_count, has_size, menu_order, import_source, **kicksdb_tracked**, **kicksdb_last_sync_age**, **provenance_source**, **provenance_multi_source**
 
 > `brand` opera sulla tassonomia `product_brand` (WooCommerce Brands). Se la
 > tassonomia non e registrata la condizione ritorna `true` (no-op) per evitare
 > falsi negativi, e il selettore UI mostra "Nessun brand".
+
+> Le 4 condizioni del gruppo `kicksdb` leggono i meta scritti dal feed
+> KicksDB (`_gh_kicksdb_tracked`, `_gh_kicksdb_last_sync`, `_gh_kicksdb_last_price_sync`)
+> e dal conflict engine (`_gh_sources`, `_gh_primary_source`). Tutte
+> memory-phase. Operatore speciale `never` su `kicksdb_last_sync_age`
+> matcha prodotti tracked-ma-mai-sincronizzati. `provenance_source` ha
+> operatori `contains`/`not_contains`/`primary_is`/`primary_is_not`.
+> `provenance_multi_source` (boolean) = piu di 1 source registrata —
+> bersaglio naturale di conflict rules.
 
 **Inline editing:** double-click su cella → input/select inline → AJAX save → aggiornamento in-place
 
@@ -253,6 +282,14 @@ prima di procedere.
 | SEO | set_seo_template (con placeholder {name}, {sku}, {price}, {brand}, {type}) |
 | Media | remove_first_gallery_image, clear_gallery |
 | Order | set_menu_order |
+| Delete | delete_product, delete_with_media |
+| **KicksDB** | **kicksdb_refresh_pricing** (batch dispatcher: 1 call HTTP per 50 SKU, gated da _gh_kicksdb_tracked='1', rispetta conflict rules slice 'pricing') |
+
+> `kicksdb_refresh_pricing` non passa dal per-product loop. `gh_execute_bulk_action`
+> intercetta l'azione e delega a `gh_bulk_dispatch_kicksdb_refresh()` che
+> raccoglie gli SKU dei prodotti selezionati, chiama `gh_kicksdb_refresh_pricing()`
+> UNA volta sola, mappa i risultati per-prodotto. 500 prodotti = 10 call HTTP
+> invece di 500.
 
 > Le azioni `assign_brands` / `remove_brands` / `set_brands` sono implementate
 > riutilizzando `rp_cm_{assign,remove,set}_product_categories` col parametro
@@ -668,6 +705,8 @@ Niente storage persistente — solo passaggio in-memory.
 | Campaign preview       | Test Email body        | "✉ Test da qui" button                               | in-memory `lastPreview` → Test Email fields                       |
 | Media Library row      | Product featured image | "✦ Feat." button                                     | `prompt(SKU/ID)` → `rp_mm_ajax_set_featured`                      |
 | CSV Feed row           | Jobs scheduler         | "⏱ Schedula" button                                  | `GH.jobsNewWithPreset({ kind:'csv_feed', params:{feed_id} })`     |
+| Filter selection       | KicksDB Refresh        | Bulk action picker → "Refresh prezzi KicksDB"        | `kicksdb_refresh_pricing` action → `gh_bulk_dispatch_kicksdb_refresh()` |
+| Any row con SKU        | KicksDB Refresh sub-tab| (futuro) call diretto                                | `GH.kdbRefreshSelected(skus)` (esposta, switcha tab + popola textarea + run) |
 
 **Regola di design:** il tab target espone una funzione `GH.xxxOpenWith*(data)`
 che accetta i dati, switcha tab, apre editor, popola state. Il tab sorgente
@@ -713,6 +752,210 @@ stesso visual language (background 15% alpha + colored text + border
 ```
 
 Da usare invece di literal `rgba(...)` per mantenere coerenza con la palette.
+
+---
+
+## KicksDB Integration — Architettura
+
+KicksDB NON e un feed push: e un servizio di **lookup/enrichment** + **search/discovery**
+sull'universo StockX. La selezione SKU arriva da:
+- **Lookup** — paste manuale di N SKU
+- **Discover** — search browser (query/brand/sort) → cherry-pick → bulk import
+- **Refresh Pricing** — batch endpoint /stockx/prices su SKU gia tracked
+- **Catalog viewer** — Filter & Agisci con condizioni `kicksdb_*` + bulk action
+
+Tutte e quattro le sorgenti convergono nella stessa pipeline:
+**fetch → normalize → diff → apply (con conflict engine)**.
+
+### Layout file `/feeds/kicksdb/`
+
+| File | Responsabilita |
+|---|---|
+| `client.php` | HTTP client. `gh_kicksdb_request` (sync, 3x backoff su 429/5xx, Retry-After honored) + `gh_kicksdb_request_multi` (sliding-window curl_multi 8 concurrent, identico pattern di `media-preimport.php`). High-level wrappers per `/stockx/products/{sku}` (con `display[variants\|traits\|identifiers]=true`), `/stockx/products` (search), `/stockx/prices` (batch chunked 50 SKU per call, 200ms gap tra chunk). |
+| `settings.php` | `gh_kicksdb_get_settings/_save_settings/_get_settings_redacted`. Storage single-row in `gh_kicksdb_settings`. Pricing formula (`margin_pct` / `floor_price` / `rounding_mode` / `rounding_step` / `currency`), gallery defaults, concurrency, cache_ttl. **api_key sempre redatta** in output AJAX (`••••XXXX`). |
+| `cache.php` | Transient cache 24h (TTL configurabile). `gh_kicksdb_get_product_cached(sku, force=false)`. Solo response 2xx cachate (404 non-cachato per evitare sticky-missing). |
+| `pricing.php` | `gh_kicksdb_extract_standard_prices(prices_response, size_remap)` — **GOTCHA**: filtra `type === 'standard'` (skip `express_*`) E prende `MIN(price)` per size (lowest ask reale). `gh_kicksdb_apply_markup` con formula `round(max(market * (1+margin), floor))`. |
+| `normalizer.php` | `gh_kicksdb_normalize($response, $opts)` → WC shape compatibile con `gh_create_variable_product()`. **Solo EU sizes**. Brand → `product_brand` (gerarchico: brand root + model child). Category heuristic → `sneakers`/`abbigliamento`. `gh_kicksdb_post_process()` consuma `_kdb_gallery_opts` e `_kdb_gallery_candidates` per il sideload immagini con cap 5 + dedup first-frame. Legge l'**active mapping profile** per: required-field check (WP_Error fail-fast), description template override. |
+| `profiles.php` | Mapping profiles. `gh_kicksdb_profile_active()` ritorna l'unica profile attiva. Schema: `{ required_fields[], description_template, gallery_opts: { include_main, include_360, every_nth_360 } }`. Storage via `gh_option_list_*`. |
+| `feed.php` | Orchestrator. `gh_kicksdb_fetch_skus(skus, opts)` → cache-aware parallel fetch. `gh_kicksdb_diff(woo_products)` → new/update/unchanged. `gh_kicksdb_apply(diff, opts)` → routing per conflict engine. `gh_kicksdb_refresh_pricing(skus)` → path dedicato batch endpoint (gated da `_gh_kicksdb_tracked='1'`). |
+| `ajax.php` | `gh_kicksdb_settings_get/_save/_test_connection/_lookup/_search/_apply/_refresh_pricing/_profiles_*/_profile_sample_paths/_profile_preview_description`. |
+
+### Meta scritti sul prodotto
+
+| Meta | Tipo | Significato |
+|---|---|---|
+| `_gh_kicksdb_id` | string | UUID KicksDB del prodotto |
+| `_gh_kicksdb_slug` | string | StockX slug |
+| `_gh_kicksdb_gender` / `_colorway` / `_release_date` | string | Attributi opachi |
+| `_gh_kicksdb_tracked` | `'1'` | **Gate per refresh-pricing**. Settato a create. Senza questo flag il refresh skippa silenziosamente. |
+| `_gh_kicksdb_last_sync` | mysql datetime | Ultimo full enrichment |
+| `_gh_kicksdb_last_price_sync` | mysql datetime | Ultimo refresh batch pricing |
+
+### UI — un solo tab top-level "KicksDB" con 6 sub-section
+
+| Sub-section | Funzione |
+|---|---|
+| **Discover** (default) | Search browser, grid responsive di card con thumbnail + state badge (`new`/`in_catalog`/`tracked`). Selezione + "Importa selezionati" che rispetta conflict rules. Paginazione con selection persistente. |
+| **Lookup** | Paste N SKU → diff cards (new/update/unchanged) → "Applica". |
+| **Refresh Pricing** | Paste SKU → batch refresh. Mostra per-SKU action + reason + sizes touched. |
+| **Field Mapping** | CRUD mapping profiles con tree view del sample KicksDB (via `gh_mapper_extract_paths`), required field checkboxes, description template editor con placeholder chips + live preview, gallery opts. |
+| **Provenance** | Backfill migration runner + per-product provenance lookup. |
+| **Conflict Rules** | CRUD conflict rules (vedi sezione successiva). |
+| **Settings** | API key + base URL + market + concurrency + pricing formula. "Test connection" smoke test. |
+
+### Smoke test sequence
+
+1. Settings → paste API key → Test connection → expect HTTP 200 + duration.
+2. Discover → query "Nike Dunk Low" → seleziona 2 card "Nuovo" → Importa →
+   confirm. Verify nuovo prodotto WC creato con `_gh_kicksdb_tracked='1'`,
+   `_gh_sources=[{source:'kicksdb',...}]`, brand+model in `product_brand`,
+   `pa_taglia` con varianti EU.
+3. Filter & Agisci → condition `kicksdb_tracked = yes` → run → conferma il
+   prodotto appare. Bulk picker → "Refresh prezzi KicksDB" → conferma update.
+4. Per-row "↻ KDB" su una riga della tabella GS/SF (se presente in KicksDB)
+   → switcha tab e refresha la singola SKU.
+5. Field Mapping → New profile → sample SKU `DD1873-102` → tree appare →
+   spunta brand/sku come required → template `{brand} {model} - {colorway}`
+   → Preview → set active → save. Re-import → description applicata.
+
+---
+
+## Cross-Feed Conflict Resolution — Architettura
+
+Resolve "chi vince su quale slice" quando piu source toccano lo stesso prodotto.
+Ship con due rule di default che proteggono i prodotti esistenti senza
+configurazione manuale.
+
+### Provenance meta per-prodotto
+
+| Meta | Shape | Scopo |
+|---|---|---|
+| `_gh_sources` | `[{ source, first_seen, last_seen }]` | Audit log: quali source hanno mai toccato il prodotto |
+| `_gh_field_sources` | `{ catalog: src, pricing: src, stock: src, media: src }` | Owner per slice |
+| `_gh_primary_source` | `string` | Tiebreaker (sticky al first-in) |
+| `_gh_import_source` | `string` | **LEGACY** — preservato per backward compat con feed esistenti |
+
+Source canoniche: `manual`, `kicksdb`, `goldensneakers`, `stockfirmati`, `csv`.
+
+### Slice & rule schema
+
+4 slice: `catalog` (name/desc/attrs), `pricing` (regular/sale), `stock`,
+`media`. Per ogni slice una rule puo dichiarare:
+- `allow` — il source incoming scrive (default)
+- `block` — skip
+- `<source_name>` — scrivi solo se incoming === quel source
+
+### Default rules (shipped)
+
+| Pri | Label | When | Then |
+|---|---|---|---|
+| 10 | Manual is sacred | sources contains `manual` | tutto block |
+| 20 | GS owns pricing+stock, KicksDB owns catalog+media | sources contains `goldensneakers` AND incoming `kicksdb` | catalog=allow, pricing=block, stock=block, media=allow |
+
+> La rule #1 e la **garanzia di sicurezza** per prodotti gia presenti sul sito
+> PRIMA di KicksDB. Senza una conflict rule esplicita aggiuntiva, KicksDB non
+> scrive nulla su un prodotto manuale.
+
+### Activation migration
+
+`gh_conflict_on_activate()` (hook activation):
+1. `gh_conflict_install_default_rules()` se non gia presenti
+2. `gh_conflict_migrate_run()` — prima passata di backfill 200 prodotti
+
+`gh_conflict_migrate_run(batch_size=200)`:
+- SQL diretto su `wp_posts` (no WC hydration) → batch di 200 ID
+- Per ciascuno: skip se `_gh_sources` gia popolato (idempotente)
+- Mappa `_gh_import_source` legacy → source canonico (`gh_conflict_map_legacy_source`)
+- Source default `manual` se nessun import_source → la rule manual_sacred li protegge
+- Cursore persistente in `gh_conflict_migration_cursor` option
+
+L'UI sub-tab Provenance mostra cursor/total + bottone "Esegui batch" per
+catalog grandi (> 200).
+
+### Engine
+
+`gh_conflict_resolve(product_id, incoming, incoming_src, opts)` ritorna:
+```
+{ allowed_slices: [slice => bool],
+  blocked:        [slice => reason],
+  applied_rule:   string|null,
+  current_sources: string[] }
+```
+
+Algoritmo: itera rule in ordine `priority asc`. Prima rule che matcha
+(`when.sources_contains` ⊆ current AND `when.incoming` ⊆ incoming AND
+`when.sources_any` ∩ current non vuoto) applica `then`. Se `stop_on_match`
+(default true), fine. Altrimenti continua.
+
+`opts.overwrite_manual = true` bypassa la rule `manual_sacred` per quella
+specifica chiamata (mai esposto in UI; per uso programmatic).
+
+### Wiring nei feed esistenti
+
+GS / SF / CSV chiamano `gh_conflict_record_source(pid, source, slice_owners)`
+DOPO il loro `update_post_meta('_gh_import_source', ...)` esistente. Modifiche
+non-breaking: il legacy meta resta scritto, il nuovo meta si accumula.
+
+KicksDB feed (`feed.php`): TUTTE le scritture su prodotti esistenti passano
+per `gh_conflict_resolve()`. Slice bloccate vengono droppate silenziosamente
+(loggate in `details[].blocked` per audit).
+
+---
+
+## Feed Credentials Storage — `feeds/feed-credentials.php`
+
+Storage centralizzato per le credenziali dei feed (URL, Bearer token,
+cookie). Sostituisce la coppia `gh_ajax_feed_save_settings` / `_load_settings`
+originale che accettava qualsiasi `feed_key` / qualsiasi campo / nessuna
+sanitizzazione / nessuna redaction.
+
+### 8 layer di difesa
+
+1. **Whitelist feed_key** — solo `goldensneakers` e `stockfirmati`. Tutto altro → 400.
+2. **Schema per-feed** — type (`url` / `secret` / `text` / `enum`) + max length + allow_empty. Campi extra droppati silenziosamente.
+3. **Sanitize per-tipo** — `esc_url_raw` con whitelist `http|https`, control-char strip su secret, `sanitize_text_field` su text, options membership su enum.
+4. **Redact in output** — i campi `secret` nelle response GET sono mascherati a `••••XXXX` (last 4). Plaintext non lascia mai il server.
+5. **Placeholder reject** — valori `^•+` su campi secret → trattati come "unchanged", il valore stored e preservato. Permette di salvare il form dopo un load round-trip senza ri-incollare il token.
+6. **autoload=false** — credenziali read-on-demand, non ad ogni request WP.
+7. **Length cap** — defensive (DB bloat) anche con auth admin.
+8. **No logging** — questo modulo non logga; HTTP client redige header sensibili (`Authorization` / `Cookie` / `X-API-Key`) negli output AJAX.
+
+> **Storage cleartext in DB e voluto.** Encryption con key in wp-config NON
+> aggiunge sicurezza significativa (DB-attacker tipicamente ha anche wp-config)
+> e rompe i backup standard. Difese reali: filesystem perms su wp-config,
+> DB user perms, capability gating UI (qui), redaction consistente in OGNI
+> output (qui).
+
+### Schema corrente
+
+```php
+'goldensneakers' => [
+    'url'    => [ type => url,    max => 4096, allow_empty => false ],
+    'token'  => [ type => secret, max => 8192, allow_empty => false ],
+    'cookie' => [ type => secret, max => 16384 ],
+    'format' => [ type => enum,   options => [ 'hierarchical', 'flat' ] ],
+],
+'stockfirmati' => [
+    'url' => [ type => url, max => 4096 ],
+],
+```
+
+### Hidratation upstream
+
+`rp_rc_ajax_gs_fetch` chiama `gh_feed_credentials_get('goldensneakers')` e
+**riempie** i campi del config che il client ha mandato vuoti o redatti (`^•+`)
+PRIMA di passare a `rp_rc_gs_fetch()`. Il placeholder redatto non raggiunge
+mai l'API upstream. SF non ha secret quindi non serve hydration.
+
+### UI
+
+GS panel: Save button + token/cookie type=password con `autocomplete=new-password`
+e `spellcheck=false` (defense in depth: no salvataggio password browser, no
+spell-check service exfiltration). SF panel: Save button per URL.
+
+Auto-load on tab open: i tab GS Feed / SF Feed nel sidebar chainano
+`GH.gsLoadSettings()` / `GH.sfLoadSettings()` dopo `switchTab`. Il form si
+popola con i valori salvati (token redatto) appena l'utente entra nel tab.
 
 ---
 

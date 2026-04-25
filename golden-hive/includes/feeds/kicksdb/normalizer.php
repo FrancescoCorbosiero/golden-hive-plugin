@@ -185,7 +185,8 @@ function gh_kicksdb_normalize( array $full_response, array $opts = [] ): array|W
         '_kdb_image'    => $main_image,
         '_kdb_category' => $gs_category,
         // Propagato al post-process per override gallery settings
-        '_kdb_gallery_opts' => $profile['gallery_opts'] ?? null,
+        '_kdb_gallery_opts'       => $profile['gallery_opts'] ?? null,
+        '_kdb_gallery_candidates' => gh_kicksdb_extract_gallery_urls( $data ),
     ];
 
     $attrs = [];
@@ -277,17 +278,87 @@ function gh_kicksdb_post_process( int $product_id, array $data, bool $sideload =
 
     update_post_meta( $product_id, '_gh_kicksdb_last_sync', current_time( 'mysql' ) );
 
-    // Featured image — usa il parallel sideloader esistente (curl_multi 10x).
-    // Gallery 360° disabilitata di default; l'utente opt-in via settings.
-    if ( $sideload && ! empty( $data['_kdb_image'] ) && function_exists( 'gh_parallel_sideload_to_product' ) ) {
-        $urls = [ (string) $data['_kdb_image'] ];
+    // ── Media: featured + gallery sampled, capped at 5 total ────────────────
+    // Sideloader parallelo (curl_multi 10x). Resolve order: profile attiva
+    // (Phase 4) > settings globali > default conservativo. Constraints:
+    // - cap totale 5 media (1 featured + fino a 4 gallery)
+    // - skip della prima frame di gallery se duplica esattamente il main image
+    //   (l'API spesso ripete la thumbnail come primo elemento)
+    // - dedup generale contro il main + tra le sampled
+    if ( $sideload && function_exists( 'gh_parallel_sideload_to_product' ) ) {
 
-        // Futuro: aggiungere frame 360 quando disponibili e gallery.include_360=true.
-        gh_parallel_sideload_to_product( $product_id, $urls, (string) ( $data['sku'] ?? '' ), [
-            'first_is_featured' => true,
-            'rest_is_gallery'   => true,
-        ] );
+        $opts = $data['_kdb_gallery_opts'] ?? null;
+        if ( ! is_array( $opts ) ) {
+            $s    = function_exists( 'gh_kicksdb_get_settings' ) ? gh_kicksdb_get_settings() : [];
+            $opts = $s['gallery'] ?? [ 'include_main' => true, 'include_360' => false, 'every_nth_360' => 6 ];
+        }
+
+        $main  = (string) ( $data['_kdb_image'] ?? '' );
+        $cands = (array)  ( $data['_kdb_gallery_candidates'] ?? [] );
+        $urls  = [];
+
+        if ( ! empty( $opts['include_main'] ) && $main !== '' ) {
+            $urls[] = $main;
+        }
+
+        if ( ! empty( $opts['include_360'] ) && ! empty( $cands ) ) {
+            // Dedup #1: la prima frame e quasi sempre la duplicata del main.
+            if ( ! empty( $urls ) && (string) reset( $cands ) === $urls[0] ) {
+                array_shift( $cands );
+            }
+            // Sample every Nth — distribuisce sull'arco del 360° invece di
+            // pescare frame consecutive.
+            $every   = max( 1, (int) ( $opts['every_nth_360'] ?? 6 ) );
+            $sampled = [];
+            for ( $i = 0, $n = count( $cands ); $i < $n; $i += $every ) {
+                $sampled[] = $cands[ $i ];
+            }
+            // Dedup #2: safety net contro main + tra sampled.
+            foreach ( $sampled as $u ) {
+                if ( $u !== '' && ! in_array( $u, $urls, true ) ) $urls[] = $u;
+            }
+        }
+
+        // CAP duro: max 5 media totali.
+        $urls = array_slice( $urls, 0, 5 );
+
+        if ( ! empty( $urls ) ) {
+            gh_parallel_sideload_to_product( $product_id, $urls, (string) ( $data['sku'] ?? '' ), [
+                'first_is_featured' => true,
+                'rest_is_gallery'   => true,
+            ] );
+        }
     }
+}
+
+/**
+ * Estrae URL gallery dalla response KicksDB, scansionando i pattern di chiavi
+ * piu comuni nelle API di marketplace sneaker (gallery, images, media,
+ * frames, images_360). Defensive: accetta sia stringhe che oggetti
+ * { url|src|image }. Dedup mantenendo l'ordine di apparizione.
+ *
+ * @param array $data Body 'data' della response (gh_kicksdb_get_product_full).
+ * @return string[]   URL deduplicati nell'ordine in cui sono stati visti.
+ */
+function gh_kicksdb_extract_gallery_urls( array $data ): array {
+
+    $urls = [];
+
+    foreach ( [ 'gallery', 'gallery_images', 'images', 'media', 'frames', 'images_360' ] as $key ) {
+        if ( empty( $data[ $key ] ) || ! is_array( $data[ $key ] ) ) continue;
+
+        foreach ( $data[ $key ] as $item ) {
+            $u = '';
+            if ( is_string( $item ) ) {
+                $u = trim( $item );
+            } elseif ( is_array( $item ) ) {
+                $u = (string) ( $item['url'] ?? $item['src'] ?? $item['image'] ?? $item['href'] ?? '' );
+            }
+            if ( $u !== '' && ! in_array( $u, $urls, true ) ) $urls[] = $u;
+        }
+    }
+
+    return $urls;
 }
 
 /**

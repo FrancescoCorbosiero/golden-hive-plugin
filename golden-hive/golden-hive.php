@@ -67,6 +67,9 @@ require_once GH_DIR . 'includes/feeds/media-preimport.php';
 require_once GH_DIR . 'includes/feeds/http-client.php';
 require_once GH_DIR . 'includes/feeds/response-parser.php';
 require_once GH_DIR . 'includes/feeds/saved-endpoints.php';
+// Centralized credentials storage (whitelisted schema + redaction). Caricato
+// PRIMA di feeds/ajax.php perche gli handler save/load lo invocano.
+require_once GH_DIR . 'includes/feeds/feed-credentials.php';
 require_once GH_DIR . 'includes/feeds/feed-goldensneakers.php';
 require_once GH_DIR . 'includes/feeds/feed-stockfirmati.php';
 require_once GH_DIR . 'includes/feeds/csv-presets.php';

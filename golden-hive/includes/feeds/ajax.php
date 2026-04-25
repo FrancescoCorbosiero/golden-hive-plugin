@@ -69,6 +69,20 @@ add_action( 'wp_ajax_rp_rc_ajax_gs_fetch', function () {
     $raw    = stripslashes( $_POST['config'] ?? '{}' );
     $config = json_decode( $raw, true ) ?: [];
 
+    // Merge con credenziali salvate: il form rimanda i secret REDATTI ('•••XXXX')
+    // dopo un load. Quel placeholder NON puo essere inviato all'API upstream.
+    // Per ogni campo secret se il valore form e vuoto o inizia con '•',
+    // sostituisci con quello stored.
+    if ( function_exists( 'gh_feed_credentials_get' ) ) {
+        $stored = gh_feed_credentials_get( 'goldensneakers' );
+        foreach ( [ 'url', 'token', 'cookie', 'format' ] as $f ) {
+            $v = (string) ( $config[ $f ] ?? '' );
+            if ( $v === '' || ( in_array( $f, [ 'token', 'cookie' ], true ) && preg_match( '/^•+/', $v ) ) ) {
+                if ( ! empty( $stored[ $f ] ) ) $config[ $f ] = $stored[ $f ];
+            }
+        }
+    }
+
     $products = rp_rc_gs_fetch( $config );
     if ( is_wp_error( $products ) ) {
         wp_send_json_error( $products->get_error_message() );
@@ -139,30 +153,43 @@ add_action( 'wp_ajax_rp_rc_ajax_gs_apply', function () {
     wp_send_json_success( $result );
 } );
 
-// ── FEED SETTINGS: Save/load per-feed UI settings ──────────
+// ── FEED CREDENTIALS: Save/load per-feed credentials ──────
+//
+// Endpoint mantenuti per backward compat con SF e Settings UI esistenti, ma
+// riscritti per appoggiarsi a feed-credentials.php (whitelist + sanitize +
+// redact). Vedi quel file per il modello di sicurezza completo.
 add_action( 'wp_ajax_gh_ajax_feed_save_settings', function () {
-    check_ajax_referer( 'gh_nonce', 'nonce' );
-    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+    gh_ajax_guard();
 
-    $feed_key = sanitize_key( $_POST['feed_key'] ?? '' );
-    $raw      = stripslashes( $_POST['settings'] ?? '{}' );
-    $settings = json_decode( $raw, true ) ?: [];
+    $feed_key = gh_ajax_key( 'feed_key' );
+    if ( $feed_key === '' || ! gh_feed_credentials_is_valid_key( $feed_key ) ) {
+        wp_send_json_error( 'feed_key non valido o non whitelisted.', 400 );
+    }
 
-    if ( ! $feed_key ) { wp_send_json_error( 'Feed key mancante.' ); }
+    $settings = gh_ajax_json( 'settings', [] );
 
-    update_option( 'gh_feed_settings_' . $feed_key, $settings, false );
-    wp_send_json_success( 'Salvato.' );
+    $result = gh_feed_credentials_save( $feed_key, $settings );
+
+    if ( ! empty( $result['errors'] ) ) {
+        wp_send_json_error( [
+            'errors'  => $result['errors'],
+            'saved'   => $result['saved'],
+        ], 422 );
+    }
+
+    wp_send_json_success( $result['saved'] );
 } );
 
 add_action( 'wp_ajax_gh_ajax_feed_load_settings', function () {
-    check_ajax_referer( 'gh_nonce', 'nonce' );
-    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+    gh_ajax_guard();
 
-    $feed_key = sanitize_key( $_POST['feed_key'] ?? '' );
-    if ( ! $feed_key ) { wp_send_json_error( 'Feed key mancante.' ); }
+    $feed_key = gh_ajax_key( 'feed_key' );
+    if ( $feed_key === '' || ! gh_feed_credentials_is_valid_key( $feed_key ) ) {
+        wp_send_json_error( 'feed_key non valido o non whitelisted.', 400 );
+    }
 
-    $settings = get_option( 'gh_feed_settings_' . $feed_key, [] );
-    wp_send_json_success( $settings );
+    // Sempre redacted: il client non riceve mai i secret in plaintext.
+    wp_send_json_success( gh_feed_credentials_get_redacted( $feed_key ) );
 } );
 
 // ── CONFIG ENGINE: List available configs ───────────────────

@@ -148,8 +148,58 @@
 
     async function sfSaveSettings() {
         const s = { url: document.getElementById('sf-url').value };
-        await ajax('gh_ajax_feed_save_settings', { feed_key: 'stockfirmati', settings: JSON.stringify(s) });
+        const r = await ajax('gh_ajax_feed_save_settings', { feed_key: 'stockfirmati', settings: JSON.stringify(s) });
+        if (!r.success) {
+            const errs = (r.data && r.data.errors) ? Object.entries(r.data.errors).map(([k,v])=>k+': '+v).join(', ') : 'errore';
+            toast('Salvataggio fallito — ' + errs, 'err', 6000);
+            return;
+        }
         toast('Impostazioni salvate', 'ok');
+    }
+
+    // ── GOLDEN SNEAKERS settings (URL + Bearer token + cookie) ─
+    // Pattern identico a SF ma con campi secret. Il server ritorna il token
+    // gia REDATTO (••••XXXX). Quel placeholder viene popolato nel form e
+    // sopravvive ai roundtrip: quando l'utente clicca Salva senza ri-incollare
+    // il token, il backend rileva il prefix '•' e PRESERVA il valore stored
+    // invece di sovrascriverlo. Quando l'utente clicca Fetch, il backend
+    // hidrata di nuovo dal valore stored prima di chiamare l'API upstream.
+    async function gsLoadSettings() {
+        const r = await ajax('gh_ajax_feed_load_settings', { feed_key: 'goldensneakers' });
+        if (!r.success || !r.data) return;
+        const d = r.data;
+        const $ = id => document.getElementById(id);
+        if ($('gs-url'))    $('gs-url').value    = d.url    || '';
+        if ($('gs-token'))  $('gs-token').value  = d.token  || '';
+        if ($('gs-cookie')) $('gs-cookie').value = d.cookie || '';
+        if ($('gs-format') && d.format) $('gs-format').value = d.format;
+    }
+
+    async function gsSaveSettings() {
+        const $ = id => document.getElementById(id);
+        const s = {
+            url:    $('gs-url').value,
+            token:  $('gs-token').value,
+            cookie: $('gs-cookie').value,
+            format: $('gs-format').value,
+        };
+        // Non inviare placeholder redatti — il backend li droppa comunque, ma
+        // evitiamoglielo come noise. Vuoto e' meglio (significa 'unchanged').
+        if (/^•+/.test(s.token))  delete s.token;
+        if (/^•+/.test(s.cookie)) delete s.cookie;
+
+        const r = await ajax('gh_ajax_feed_save_settings', { feed_key: 'goldensneakers', settings: JSON.stringify(s) });
+        if (!r.success) {
+            const errs = (r.data && r.data.errors) ? Object.entries(r.data.errors).map(([k,v])=>k+': '+v).join(', ') : 'errore';
+            toast('Salvataggio fallito — ' + errs, 'err', 6000);
+            return;
+        }
+        toast('Credenziali GS salvate', 'ok');
+        // Refresh inputs con i valori redatti restituiti dal server
+        if (r.data) {
+            if (r.data.token  !== undefined) $('gs-token').value  = r.data.token;
+            if (r.data.cookie !== undefined) $('gs-cookie').value = r.data.cookie;
+        }
     }
 
     function sfMarkupModeChange() {
@@ -1357,5 +1407,5 @@
         await dispatchReimport('sf', cfg, skus, overwriteMedia, 'sf-reimport-status');
     }
 
-    return{ajax,ajaxWithToast,toast,esc,emptyState,statusChip,confirm:ghConfirm,markDirty,clearDirty,isDirty,registerShortcuts,clearShortcuts,registerDeepOpener,updateHash,copyJSON,copyToClipboard,wireDirtyInputs,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,gsPriceModeChange,gsReimportDispatch,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,sfMarkupModeChange,sfReimportDispatch,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvScheduleFeed,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog,nucPreview,nucExecute,feedCleanup};
+    return{ajax,ajaxWithToast,toast,esc,emptyState,statusChip,confirm:ghConfirm,markDirty,clearDirty,isDirty,registerShortcuts,clearShortcuts,registerDeepOpener,updateHash,copyJSON,copyToClipboard,wireDirtyInputs,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,gsPriceModeChange,gsReimportDispatch,gsLoadSettings,gsSaveSettings,sfLoadSettings,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,sfMarkupModeChange,sfReimportDispatch,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvScheduleFeed,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog,nucPreview,nucExecute,feedCleanup};
 })();

@@ -108,12 +108,19 @@
 <!-- ═══ GS FEED ═══ -->
 <div class="panel" id="panel-gsfeed" style="position:relative">
     <div class="config-form">
-        <div class="cfg-row"><span class="cfg-label">URL</span><input class="cfg-input" id="gs-url" placeholder="https://www.goldensneakers.net/api/assortment/?..." /></div>
-        <div class="cfg-row"><span class="cfg-label">Token</span><input class="cfg-input" id="gs-token" type="password" placeholder="Bearer token" /></div>
-        <div class="cfg-row"><span class="cfg-label">Cookie</span><input class="cfg-input" id="gs-cookie" placeholder="csrftoken=... (opzionale)" /></div>
+        <div class="cfg-row"><span class="cfg-label">URL</span>
+            <input class="cfg-input" id="gs-url" placeholder="https://www.goldensneakers.net/api/assortment/?..." autocomplete="off" />
+        </div>
+        <div class="cfg-row"><span class="cfg-label">Token</span>
+            <input class="cfg-input" id="gs-token" type="password" placeholder="Bearer token (mai mostrato in chiaro dopo il salvataggio)" autocomplete="new-password" spellcheck="false" />
+        </div>
+        <div class="cfg-row"><span class="cfg-label">Cookie</span>
+            <input class="cfg-input" id="gs-cookie" type="password" placeholder="csrftoken=... (opzionale)" autocomplete="new-password" spellcheck="false" />
+        </div>
         <div class="cfg-row">
             <span class="cfg-label">Formato</span>
             <select class="cfg-select" id="gs-format"><option value="hierarchical">Gerarchico</option><option value="flat">Flat</option></select>
+            <button class="btn btn-ghost" onclick="GH.gsSaveSettings()" style="font-size:10px" title="Salva URL/Token/Cookie/Formato in wp_options. I secret vengono redatti dopo il save (••••XXXX). manage_woocommerce richiesto.">&#9819; Salva credenziali</button>
             <button class="btn btn-primary" id="btn-gs-fetch" onclick="GH.gsFetch()"><span class="spin" id="gs-fetch-spin" style="display:none"></span> Fetch</button>
             <div style="flex:1"></div>
             <button class="btn btn-ghost" onclick="GH.feedCleanup('goldensneakers')" style="color:var(--red);font-size:10px" title="Elimina tutti i prodotti importati da Golden Sneakers">&#9762; Elimina prodotti GS</button>

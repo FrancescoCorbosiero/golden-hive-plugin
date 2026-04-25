@@ -53,8 +53,8 @@ html.wp-toolbar,body.wp-admin.toplevel_page_golden-hive{background:#0c0d10}
             <div class="tab-item" data-mp-tab="rules" onclick="GH.switchTab('mapper-rules',this)"><span class="tab-icon">&#9881;</span><span class="tab-label">Regole</span></div>
             <div class="tab-item" data-mp-tab="editor" onclick="GH.switchTab('mapper-editor',this)"><span class="tab-icon">&#9783;</span><span class="tab-label">Editor</span></div>
             <div class="tab-section">IMPORT</div>
-            <div class="tab-item" onclick="GH.switchTab('gsfeed',this)"><span class="tab-icon">&#9733;</span><span class="tab-label">GS Feed</span></div>
-            <div class="tab-item" onclick="GH.switchTab('sffeed',this)"><span class="tab-icon">&#9879;</span><span class="tab-label">SF Feed</span></div>
+            <div class="tab-item" onclick="GH.switchTab('gsfeed',this);GH.gsLoadSettings()"><span class="tab-icon">&#9733;</span><span class="tab-label">GS Feed</span></div>
+            <div class="tab-item" onclick="GH.switchTab('sffeed',this);GH.sfLoadSettings()"><span class="tab-icon">&#9879;</span><span class="tab-label">SF Feed</span></div>
             <div class="tab-item" onclick="GH.switchTab('csvfeed',this);GH.csvLoadFeeds()"><span class="tab-icon">&#9783;</span><span class="tab-label">CSV Feed</span></div>
             <div class="tab-item" data-kdb-tab="lookup" onclick="GH.switchTab('kicksdb',this);GH.kdbInit()"><span class="tab-icon">&#9883;</span><span class="tab-label">KicksDB</span></div>
             <div class="tab-item" onclick="GH.switchTab('bulkimport',this)"><span class="tab-icon">&#8615;</span><span class="tab-label">Bulk JSON</span></div>

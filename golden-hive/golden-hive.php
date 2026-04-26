@@ -73,6 +73,12 @@ require_once GH_DIR . 'includes/feeds/saved-endpoints.php';
 // Centralized credentials storage (whitelisted schema + redaction). Caricato
 // PRIMA di feeds/ajax.php perche gli handler save/load lo invocano.
 require_once GH_DIR . 'includes/feeds/feed-credentials.php';
+// Unified settings IO contract (per-field status, verify-after-write).
+// Sostituisce le coppie di handler save/load ad-hoc; adottato da KicksDB,
+// GS, SF e da qualunque servizio futuro. Caricato PRIMA di feeds/ajax.php
+// e di kicksdb/ajax.php cosi gli handler legacy possono coesistere.
+require_once GH_DIR . 'includes/feeds/settings-store.php';
+require_once GH_DIR . 'includes/feeds/settings-ajax.php';
 require_once GH_DIR . 'includes/feeds/feed-goldensneakers.php';
 require_once GH_DIR . 'includes/feeds/feed-stockfirmati.php';
 require_once GH_DIR . 'includes/feeds/csv-presets.php';

@@ -112,10 +112,18 @@
             <input class="cfg-input" id="gs-url" placeholder="https://www.goldensneakers.net/api/assortment/?..." autocomplete="off" />
         </div>
         <div class="cfg-row"><span class="cfg-label">Token</span>
-            <input class="cfg-input" id="gs-token" type="password" placeholder="Bearer token (mai mostrato in chiaro dopo il salvataggio)" autocomplete="new-password" spellcheck="false" />
+            <input class="cfg-input" id="gs-token" type="password" placeholder="(lascia vuoto per non cambiare)" autocomplete="new-password" spellcheck="false" />
+        </div>
+        <div class="cfg-row" style="margin-top:-4px;padding-top:0">
+            <span class="cfg-label"></span>
+            <span id="gs-token-hint" style="font-size:10px"></span>
         </div>
         <div class="cfg-row"><span class="cfg-label">Cookie</span>
-            <input class="cfg-input" id="gs-cookie" type="password" placeholder="csrftoken=... (opzionale)" autocomplete="new-password" spellcheck="false" />
+            <input class="cfg-input" id="gs-cookie" type="password" placeholder="(lascia vuoto per non cambiare)" autocomplete="new-password" spellcheck="false" />
+        </div>
+        <div class="cfg-row" style="margin-top:-4px;padding-top:0">
+            <span class="cfg-label"></span>
+            <span id="gs-cookie-hint" style="font-size:10px"></span>
         </div>
         <div class="cfg-row">
             <span class="cfg-label">Formato</span>

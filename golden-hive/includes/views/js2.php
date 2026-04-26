@@ -139,66 +139,63 @@
     let sfProducts = null, sfSelected = new Set(), sfDiffData = null, sfAllItems = [];
     let sfPreimportAbort = false;
 
+    // ── SF + GS settings — unified via GH.feedSettings (js-settings.php).
+    //
+    // The previous per-feed save/load functions had three near-duplicate
+    // copies of "regex out the bullet placeholder", three different toast
+    // formats, and no way for the user to verify what was actually written.
+    // Replaced with a single contract: empty secret input = preserve, real
+    // value = save, server returns per-field status (updated|preserved|
+    // unchanged|cleared|rejected) which the toast surfaces verbatim.
+
+    const SF_SETTINGS_MAP = {
+        url: { input: '#sf-url' },
+    };
+
+    const GS_SETTINGS_MAP = {
+        url:    { input: '#gs-url' },
+        token:  { input: '#gs-token',  hint: '#gs-token-hint' },
+        cookie: { input: '#gs-cookie', hint: '#gs-cookie-hint' },
+        format: { input: '#gs-format' },
+    };
+
     async function sfLoadSettings() {
-        const r = await ajax('gh_ajax_feed_load_settings', { feed_key: 'stockfirmati' });
-        if (r.success && r.data) {
-            if (r.data.url) document.getElementById('sf-url').value = r.data.url;
-        }
+        if (!document.getElementById('sf-url')) return;
+        await GH.feedSettings.load('stockfirmati', SF_SETTINGS_MAP);
     }
 
     async function sfSaveSettings() {
-        const s = { url: document.getElementById('sf-url').value };
-        const r = await ajax('gh_ajax_feed_save_settings', { feed_key: 'stockfirmati', settings: JSON.stringify(s) });
-        if (!r.success) {
-            const errs = (r.data && r.data.errors) ? Object.entries(r.data.errors).map(([k,v])=>k+': '+v).join(', ') : 'errore';
-            toast('Salvataggio fallito — ' + errs, 'err', 6000);
-            return;
-        }
-        toast('Impostazioni salvate', 'ok');
+        if (!document.getElementById('sf-url')) return;
+        const fields = { url: document.getElementById('sf-url').value };
+        const result = await GH.feedSettings.save('stockfirmati', fields);
+        GH.feedSettings.refreshHints('stockfirmati', SF_SETTINGS_MAP, result);
     }
 
-    // ── GOLDEN SNEAKERS settings (URL + Bearer token + cookie) ─
-    // Pattern identico a SF ma con campi secret. Il server ritorna il token
-    // gia REDATTO (••••XXXX). Quel placeholder viene popolato nel form e
-    // sopravvive ai roundtrip: quando l'utente clicca Salva senza ri-incollare
-    // il token, il backend rileva il prefix '•' e PRESERVA il valore stored
-    // invece di sovrascriverlo. Quando l'utente clicca Fetch, il backend
-    // hidrata di nuovo dal valore stored prima di chiamare l'API upstream.
     async function gsLoadSettings() {
-        const r = await ajax('gh_ajax_feed_load_settings', { feed_key: 'goldensneakers' });
-        if (!r.success || !r.data) return;
-        const d = r.data;
-        const $ = id => document.getElementById(id);
-        if ($('gs-url'))    $('gs-url').value    = d.url    || '';
-        if ($('gs-token'))  $('gs-token').value  = d.token  || '';
-        if ($('gs-cookie')) $('gs-cookie').value = d.cookie || '';
-        if ($('gs-format') && d.format) $('gs-format').value = d.format;
+        if (!document.getElementById('gs-url')) return;
+        await GH.feedSettings.load('goldensneakers', GS_SETTINGS_MAP);
     }
 
     async function gsSaveSettings() {
         const $ = id => document.getElementById(id);
-        const s = {
+        if (!$('gs-url')) return;
+
+        // Empty secret values mean "preserve". The unified save layer
+        // enforces that — no client-side bullet-regex needed any more.
+        const fields = {
             url:    $('gs-url').value,
             token:  $('gs-token').value,
             cookie: $('gs-cookie').value,
             format: $('gs-format').value,
         };
-        // Non inviare placeholder redatti — il backend li droppa comunque, ma
-        // evitiamoglielo come noise. Vuoto e' meglio (significa 'unchanged').
-        if (/^•+/.test(s.token))  delete s.token;
-        if (/^•+/.test(s.cookie)) delete s.cookie;
 
-        const r = await ajax('gh_ajax_feed_save_settings', { feed_key: 'goldensneakers', settings: JSON.stringify(s) });
-        if (!r.success) {
-            const errs = (r.data && r.data.errors) ? Object.entries(r.data.errors).map(([k,v])=>k+': '+v).join(', ') : 'errore';
-            toast('Salvataggio fallito — ' + errs, 'err', 6000);
-            return;
-        }
-        toast('Credenziali GS salvate', 'ok');
-        // Refresh inputs con i valori redatti restituiti dal server
-        if (r.data) {
-            if (r.data.token  !== undefined) $('gs-token').value  = r.data.token;
-            if (r.data.cookie !== undefined) $('gs-cookie').value = r.data.cookie;
+        const result = await GH.feedSettings.save('goldensneakers', fields);
+        GH.feedSettings.refreshHints('goldensneakers', GS_SETTINGS_MAP, result);
+        if (result.ok) {
+            // Clear secret inputs so the fingerprint hint is the single
+            // source of truth for what the server has now.
+            $('gs-token').value  = '';
+            $('gs-cookie').value = '';
         }
     }
 

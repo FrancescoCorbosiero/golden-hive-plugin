@@ -201,12 +201,25 @@ defined( 'ABSPATH' ) || exit;
     </div>
 
     <!-- ── Sub: SETTINGS ──────────────────────────────────────────────── -->
+    <!--
+        UI pattern unificato (vedi includes/views/js-settings.php + feeds/settings-store.php):
+        - Secret fields: input SEMPRE vuoto. La hint sotto mostra "Salvata: ••••XXXX · N char".
+          Lasciare vuoto = "non cambiare". Digitare = "salva questo nuovo valore".
+        - Non-secret fields: input normale, popolato col valore corrente al load.
+        - Save → toast con stato per-field (updated|preserved|unchanged|cleared|rejected).
+        - "Verifica DB" (WP_DEBUG only) dumpa l'opzione realmente storata in console.
+    -->
     <div class="kdb-sub" data-kdb-section="settings" style="display:none">
         <div class="config-form">
             <div class="cfg-row"><span class="cfg-label">API Key</span>
-                <input class="cfg-input" id="kdb-s-api-key" type="password" placeholder="(redatta dopo save)" />
+                <input class="cfg-input" id="kdb-s-api-key" type="password" autocomplete="new-password" spellcheck="false" placeholder="(lascia vuoto per non cambiare)" />
                 <button class="btn btn-ghost" onclick="GH.kdbTestConnection()" title="Smoke test"><span class="spin" id="kdb-test-spin" style="display:none"></span> Test</button>
             </div>
+            <div class="cfg-row" style="margin-top:-4px;padding-top:0">
+                <span class="cfg-label"></span>
+                <span id="kdb-s-api-key-hint" style="font-size:10px"></span>
+            </div>
+
             <div class="cfg-row"><span class="cfg-label">Base URL</span>
                 <input class="cfg-input" id="kdb-s-base-url" placeholder="https://api.kicks.dev/v3" />
                 <span class="cfg-label">Market</span>
@@ -240,6 +253,7 @@ defined( 'ABSPATH' ) || exit;
             <div class="cfg-row"><span class="cfg-label"></span>
                 <div style="flex:1"></div>
                 <span id="kdb-s-test-result" style="font-size:10px;color:var(--dim)"></span>
+                <button class="btn btn-ghost" onclick="GH.feedSettings.dump('kicksdb')" title="WP_DEBUG only — logga in console l'opzione realmente in DB">Verifica DB</button>
                 <button class="btn btn-primary" onclick="GH.kdbSaveSettings()">Salva settings</button>
             </div>
         </div>

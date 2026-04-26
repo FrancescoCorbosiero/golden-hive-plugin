@@ -39,6 +39,9 @@ require_once GH_DIR . 'includes/catalog/taxonomy-manager.php';
 require_once GH_DIR . 'includes/catalog/taxonomy-query.php';
 require_once GH_DIR . 'includes/catalog/smart-taxonomy.php';
 require_once GH_DIR . 'includes/catalog/bulk-creator.php';
+require_once GH_DIR . 'includes/catalog/snapshot.php';
+require_once GH_DIR . 'includes/catalog/diff.php';
+require_once GH_DIR . 'includes/catalog/snapshot-ajax.php';
 require_once GH_DIR . 'includes/catalog/ajax.php';
 
 // Navigation — WP nav menus (read/write, auto-populate from taxonomy query)
@@ -70,6 +73,12 @@ require_once GH_DIR . 'includes/feeds/saved-endpoints.php';
 // Centralized credentials storage (whitelisted schema + redaction). Caricato
 // PRIMA di feeds/ajax.php perche gli handler save/load lo invocano.
 require_once GH_DIR . 'includes/feeds/feed-credentials.php';
+// Unified settings IO contract (per-field status, verify-after-write).
+// Sostituisce le coppie di handler save/load ad-hoc; adottato da KicksDB,
+// GS, SF e da qualunque servizio futuro. Caricato PRIMA di feeds/ajax.php
+// e di kicksdb/ajax.php cosi gli handler legacy possono coesistere.
+require_once GH_DIR . 'includes/feeds/settings-store.php';
+require_once GH_DIR . 'includes/feeds/settings-ajax.php';
 require_once GH_DIR . 'includes/feeds/feed-goldensneakers.php';
 require_once GH_DIR . 'includes/feeds/feed-stockfirmati.php';
 require_once GH_DIR . 'includes/feeds/csv-presets.php';
@@ -100,6 +109,7 @@ require_once GH_DIR . 'includes/jobs/log.php';
 require_once GH_DIR . 'includes/jobs/runner.php';
 require_once GH_DIR . 'includes/jobs/handlers-feeds.php';
 require_once GH_DIR . 'includes/jobs/handlers-ops.php';
+require_once GH_DIR . 'includes/jobs/handlers-snapshot.php';
 require_once GH_DIR . 'includes/jobs/ajax.php';
 require_once GH_DIR . 'includes/jobs/migrate.php';
 
@@ -166,5 +176,18 @@ require_once GH_DIR . 'includes/admin-page.php';
 register_activation_hook( __FILE__, function () {
     if ( function_exists( 'gh_conflict_on_activate' ) ) {
         gh_conflict_on_activate();
+    }
+    if ( function_exists( 'gh_history_install_tables' ) ) {
+        gh_history_install_tables();
+    }
+    if ( function_exists( 'gh_history_install_default_job' ) ) {
+        gh_history_install_default_job();
+    }
+} );
+
+// Idempotent table install for live-deploy upgrades (no plugin re-activation).
+add_action( 'admin_init', function () {
+    if ( function_exists( 'gh_history_install_tables' ) ) {
+        gh_history_install_tables();
     }
 } );

@@ -242,50 +242,55 @@
 
     // ── Settings ────────────────────────────────────────────────
 
+    // Field map for the unified settings module (see js-settings.php +
+    // feeds/settings-store.php). Each field declares its DOM input + an
+    // optional hint span. Secret fields render as "Salvata: ••••XXXX · N
+    // char"; non-secret fields just render the stored value.
+    const KDB_SETTINGS_MAP = {
+        api_key:       { input: '#kdb-s-api-key',       hint: '#kdb-s-api-key-hint' },
+        base_url:      { input: '#kdb-s-base-url' },
+        market:        { input: '#kdb-s-market' },
+        concurrency:   { input: '#kdb-s-concurrency' },
+        cache_ttl:     { input: '#kdb-s-cache-ttl' },
+        margin_pct:    { input: '#kdb-s-margin' },
+        floor_price:   { input: '#kdb-s-floor' },
+        rounding_mode: { input: '#kdb-s-round-mode' },
+        rounding_step: { input: '#kdb-s-round-step' },
+        currency:      { input: '#kdb-s-currency' },
+    };
+
     async function kdbLoadSettings() {
-        const r = await ajax('gh_kicksdb_settings_get');
-        if (!r.success) { toast('Errore caricamento settings', 'err'); return; }
-        const s = r.data.settings || {};
-        const $ = id => document.getElementById(id);
-        if (!$('kdb-s-api-key')) return; // panel non ancora renderizzato
-        $('kdb-s-api-key').placeholder = s.api_key || '(vuota)';
-        $('kdb-s-api-key').value = '';
-        $('kdb-s-base-url').value = s.base_url || '';
-        $('kdb-s-market').value   = s.market || 'IT';
-        $('kdb-s-concurrency').value = s.concurrency || 8;
-        $('kdb-s-cache-ttl').value   = s.cache_ttl || 86400;
-        const p = s.pricing || {};
-        $('kdb-s-margin').value     = p.margin_pct ?? 20;
-        $('kdb-s-floor').value      = p.floor_price ?? 0;
-        $('kdb-s-round-mode').value = p.rounding_mode || 'ceil';
-        $('kdb-s-round-step').value = p.rounding_step ?? 1;
-        $('kdb-s-currency').value   = p.currency || 'EUR';
+        if (!document.getElementById('kdb-s-api-key')) return; // panel not rendered yet
+        await GH.feedSettings.load('kicksdb', KDB_SETTINGS_MAP);
     }
 
     async function kdbSaveSettings() {
         const $ = id => document.getElementById(id);
-        const apiKey = $('kdb-s-api-key').value;
-        const payload = {
-            base_url:    $('kdb-s-base-url').value,
-            market:      $('kdb-s-market').value,
-            concurrency: parseInt($('kdb-s-concurrency').value, 10) || 8,
-            cache_ttl:   parseInt($('kdb-s-cache-ttl').value, 10) || 86400,
-            pricing: {
-                margin_pct:    parseFloat($('kdb-s-margin').value) || 0,
-                floor_price:   parseFloat($('kdb-s-floor').value) || 0,
-                rounding_mode: $('kdb-s-round-mode').value,
-                rounding_step: parseFloat($('kdb-s-round-step').value) || 1,
-                currency:      $('kdb-s-currency').value,
-            },
-        };
-        if (apiKey && !/^•+/.test(apiKey)) payload.api_key = apiKey;
+        if (!$('kdb-s-api-key')) return;
 
-        const r = await GH.ajaxWithToast('gh_kicksdb_settings_save', {
-            settings: JSON.stringify(payload),
-        }, { okMsg: 'Settings salvate' });
-        if (r.success) {
-            await kdbLoadSettings();
-        }
+        // Empty api_key string = "preserve existing" (unified save layer
+        // handles that). Typing a real key = save it. No more bullet-regex
+        // dances on the client — that lived in only-this-file logic and was
+        // the source of all the round-tripping confusion.
+        const fields = {
+            api_key:       $('kdb-s-api-key').value,
+            base_url:      $('kdb-s-base-url').value,
+            market:        $('kdb-s-market').value,
+            concurrency:   $('kdb-s-concurrency').value,
+            cache_ttl:     $('kdb-s-cache-ttl').value,
+            margin_pct:    $('kdb-s-margin').value,
+            floor_price:   $('kdb-s-floor').value,
+            rounding_mode: $('kdb-s-round-mode').value,
+            rounding_step: $('kdb-s-round-step').value,
+            currency:      $('kdb-s-currency').value,
+        };
+
+        const result = await GH.feedSettings.save('kicksdb', fields);
+        // Re-paint hint spans from the verified-stored response and clear
+        // the secret input so the new fingerprint is the only on-screen
+        // representation of the saved value.
+        GH.feedSettings.refreshHints('kicksdb', KDB_SETTINGS_MAP, result);
+        if (result.ok) $('kdb-s-api-key').value = '';
     }
 
     async function kdbTestConnection() {

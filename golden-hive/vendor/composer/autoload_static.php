@@ -54,6 +54,7 @@ class ComposerStaticInit3463c40589161c515a6c5272846c5c78
         'GH\\Operations\\Status\\SetStatus' => __DIR__ . '/../..' . '/src/Operations/Status/SetStatus.php',
         'GH\\Sources\\GoldenSneakersSource' => __DIR__ . '/../..' . '/src/Sources/GoldenSneakersSource.php',
         'GH\\Sources\\WooStoreSource' => __DIR__ . '/../..' . '/src/Sources/WooStoreSource.php',
+        'GH\\Workflow\\Preview\\InMemoryPaginator' => __DIR__ . '/../..' . '/src/Workflow/Preview/InMemoryPaginator.php',
     );
 
     public static function getInitializer(ClassLoader $loader)

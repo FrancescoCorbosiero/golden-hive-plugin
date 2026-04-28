@@ -20,6 +20,7 @@ add_action( 'gh_core_booted', function () {
 
     // Sources
     \GH\Core\Bootstrap::$sources->register( new \GH\Sources\WooStoreSource() );
+    \GH\Core\Bootstrap::$sources->register( new \GH\Sources\GoldenSneakersSource() );
 
     // Operations
     \GH\Core\Bootstrap::$operations->register( new \GH\Operations\Status\SetStatus() );

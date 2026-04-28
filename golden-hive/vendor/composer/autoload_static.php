@@ -52,6 +52,7 @@ class ComposerStaticInit3463c40589161c515a6c5272846c5c78
         'GH\\Core\\Source\\SourceCapabilities' => __DIR__ . '/../..' . '/src/Core/Source/SourceCapabilities.php',
         'GH\\Core\\Source\\SourceRegistry' => __DIR__ . '/../..' . '/src/Core/Source/SourceRegistry.php',
         'GH\\Operations\\Status\\SetStatus' => __DIR__ . '/../..' . '/src/Operations/Status/SetStatus.php',
+        'GH\\Sources\\GoldenSneakersSource' => __DIR__ . '/../..' . '/src/Sources/GoldenSneakersSource.php',
         'GH\\Sources\\WooStoreSource' => __DIR__ . '/../..' . '/src/Sources/WooStoreSource.php',
     );
 

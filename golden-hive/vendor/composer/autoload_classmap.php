@@ -37,5 +37,6 @@ return array(
     'GH\\Core\\Source\\SourceCapabilities' => $baseDir . '/src/Core/Source/SourceCapabilities.php',
     'GH\\Core\\Source\\SourceRegistry' => $baseDir . '/src/Core/Source/SourceRegistry.php',
     'GH\\Operations\\Status\\SetStatus' => $baseDir . '/src/Operations/Status/SetStatus.php',
+    'GH\\Sources\\GoldenSneakersSource' => $baseDir . '/src/Sources/GoldenSneakersSource.php',
     'GH\\Sources\\WooStoreSource' => $baseDir . '/src/Sources/WooStoreSource.php',
 );

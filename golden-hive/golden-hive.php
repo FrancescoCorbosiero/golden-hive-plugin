@@ -6,7 +6,7 @@
  * Version:      1.0.0
  * Author:       Golden Hive
  * License:      Private
- * Requires PHP: 8.0
+ * Requires PHP: 8.1
  * Requires at least: 6.0
  */
 
@@ -14,6 +14,23 @@ defined( 'ABSPATH' ) || exit;
 
 define( 'GH_VERSION', '1.0.0' );
 define( 'GH_DIR',     plugin_dir_path( __FILE__ ) );
+
+// PSR-4 autoload (namespace GH\ → src/). Loaded before the legacy
+// procedural includes so namespaced classes are available everywhere.
+// Safe fallback: if vendor/autoload.php is missing the legacy code still
+// runs; an admin notice prompts the operator to run `composer install`.
+$gh_autoload = GH_DIR . 'vendor/autoload.php';
+if ( file_exists( $gh_autoload ) ) {
+    require_once $gh_autoload;
+} elseif ( is_admin() ) {
+    add_action( 'admin_notices', function () {
+        echo '<div class="notice notice-warning"><p><strong>Golden Hive:</strong> '
+            . '<code>vendor/autoload.php</code> mancante. Esegui <code>composer install</code> '
+            . 'nella directory del plugin per abilitare i moduli namespaced. Le funzionalita legacy continuano a funzionare.'
+            . '</p></div>';
+    } );
+}
+unset( $gh_autoload );
 
 // Core — foundation helpers (option store, AJAX guard, UI snippets).
 // Caricati per primi: ogni modulo puo dipenderne.

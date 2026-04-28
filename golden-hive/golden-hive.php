@@ -187,9 +187,13 @@ require_once GH_DIR . 'includes/admin-page.php';
 // v2 core bootstrap: wires SourceRegistry / OperationRegistry / CheckRegistry,
 // constructs PipelineExecutor + PipelineRepository, registers the universal
 // 'pipeline.run' job kind. Runs AFTER legacy includes/ so gh_jobs_register_kind
-// and gh_option_list_* are available. Idempotent. Concrete sources/ops/checks
-// register themselves on the 'gh_core_booted' action (see future Batch 4+).
+// and gh_option_list_* are available. Idempotent.
+//
+// v2-registrations.php attaches concrete Sources/Operations/Checks to the
+// 'gh_core_booted' action — must be required BEFORE boot() so the
+// callback is in place when boot() fires the hook.
 if ( class_exists( '\\GH\\Core\\Bootstrap' ) ) {
+    require_once GH_DIR . 'includes/v2-registrations.php';
     \GH\Core\Bootstrap::boot();
 }
 

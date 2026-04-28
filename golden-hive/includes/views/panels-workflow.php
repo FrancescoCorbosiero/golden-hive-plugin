@@ -84,10 +84,40 @@ defined( 'ABSPATH' ) || exit;
         </div>
     </div>
 
+    <div class="panel-section" id="wf-pipeline-block" hidden style="margin-top:1.5rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.5rem">
+            <h3 style="margin:0;font-size:1rem">Pipeline</h3>
+            <select id="wf-pipeline-load" class="form-input" style="min-width:200px;font-size:.8rem">
+                <option value="">— Carica recipe salvato —</option>
+            </select>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem">
+            <select id="wf-op-picker" class="form-input" style="flex:1;min-width:240px">
+                <option value="">— Aggiungi operation —</option>
+            </select>
+            <button type="button" id="wf-add-op" class="button">+ Add</button>
+            <span id="wf-checks-hint" style="font-size:.75rem;opacity:.5">Checks: nessuno registrato (Batch 6)</span>
+        </div>
+
+        <div id="wf-steps" style="display:flex;flex-direction:column;gap:.5rem;margin-top:.75rem">
+            <div id="wf-steps-empty" style="padding:1rem;text-align:center;border:1px dashed var(--bd,#2a2d33);border-radius:6px;opacity:.6;font-size:.85rem">
+                Nessuno step. Aggiungi una operation dal selettore qui sopra.
+            </div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-top:1rem;padding-top:.75rem;border-top:1px solid var(--bd,#2a2d33)">
+            <input type="text" id="wf-pipeline-name" class="form-input" placeholder="Nome recipe (es. 'Markup Nike')" style="flex:1;min-width:240px;max-width:340px">
+            <input type="hidden" id="wf-pipeline-id" value="">
+            <button type="button" id="wf-pipeline-save" class="button">Salva recipe</button>
+            <span id="wf-pipeline-saved" style="font-size:.75rem;opacity:.6"></span>
+        </div>
+    </div>
+
     <div class="panel-section" id="wf-next-steps" hidden style="margin-top:1.5rem;padding:1rem;border:1px dashed var(--bd, #2a2d33);border-radius:6px;opacity:.7">
         <div style="font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem">Prossimo</div>
         <div style="font-size:.85rem;line-height:1.5">
-            Pipeline builder (operations / import rules / checks) → Run come job. In arrivo (Batch 5c / 5d).
+            Run pipeline come job (dry-run / now / schedule) + credential hydration. In arrivo (Batch 5d).
         </div>
     </div>
 </div>

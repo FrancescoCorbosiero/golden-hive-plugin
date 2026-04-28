@@ -15,6 +15,8 @@ defined( 'ABSPATH' ) || exit;
     ));
 
     let cachedSources = null;
+    let cachedOperations = null;
+    let cachedChecks = null;
 
     // Preview state — reset on every source change.
     const state = {
@@ -28,6 +30,11 @@ defined( 'ABSPATH' ) || exit;
         // pins the active source.
         selected: new Set(),
         keyField: 'id',  // 'id' | 'sku'
+        // Pipeline being built. Steps shape mirrors the AJAX contract:
+        // { kind, ref_id, params, note? }. Survives source changes
+        // unless explicitly cleared (the user might want to reuse a
+        // pipeline against a different selection).
+        pipeline: { id: '', name: '', steps: [] },
     };
 
     GH.workflowInit = function () {
@@ -130,6 +137,12 @@ defined( 'ABSPATH' ) || exit;
         if (isLocal) {
             loadPreview(false);
         }
+
+        // Pipeline builder is source-agnostic — show it as soon as any
+        // source is picked. Load operations + saved-recipe list once.
+        showPipelineBlock();
+        loadOperationsAndChecks();
+        loadPipelineList();
 
         next.hidden = false;
     };
@@ -327,7 +340,7 @@ defined( 'ABSPATH' ) || exit;
         if (el) el.textContent = state.selected.size + ' selezionati';
     }
 
-    // Public hooks for future sub-batches (5c pipeline builder, 5d run).
+    // Public hooks for future sub-batches (5d run).
     GH.workflowGetSelection = function () {
         return {
             source_id: state.sourceId,
@@ -337,6 +350,264 @@ defined( 'ABSPATH' ) || exit;
             // and serialize the search term.
         };
     };
+
+    GH.workflowGetPipeline = function () {
+        return {
+            id:    state.pipeline.id,
+            name:  state.pipeline.name,
+            steps: state.pipeline.steps.map(s => ({
+                kind:   s.kind,
+                ref_id: s.ref_id,
+                params: { ...s.params },
+                note:   s.note ?? null,
+            })),
+        };
+    };
+
+    // ── Pipeline builder ─────────────────────────────────────
+
+    function showPipelineBlock() {
+        document.getElementById('wf-pipeline-block').hidden = false;
+    }
+
+    function loadOperationsAndChecks() {
+        // Cache once per page load — operations don't change at runtime.
+        if (cachedOperations !== null) {
+            renderOpPicker();
+            return;
+        }
+        Promise.all([
+            GH.ajax('gh_v2_operations_list', {}),
+            GH.ajax('gh_v2_checks_list', {}),
+        ]).then(([opsR, checksR]) => {
+            cachedOperations = (opsR && opsR.success) ? (opsR.data.operations || []) : [];
+            cachedChecks     = (checksR && checksR.success) ? (checksR.data.checks || []) : [];
+            renderOpPicker();
+        });
+    }
+
+    function renderOpPicker() {
+        const sel = document.getElementById('wf-op-picker');
+        if (!sel) return;
+        if (!cachedOperations || cachedOperations.length === 0) {
+            sel.innerHTML = '<option value="">— Nessuna operation registrata —</option>';
+            return;
+        }
+        sel.innerHTML =
+            '<option value="">— Aggiungi operation —</option>' +
+            cachedOperations.map(op => {
+                const tag = op.is_import_rule ? ' [import]' : '';
+                return `<option value="${esc(op.id)}">${esc(op.label)}${tag}</option>`;
+            }).join('');
+    }
+
+    function loadPipelineList() {
+        GH.ajax('gh_v2_pipeline_list', {}).then(r => {
+            const sel = document.getElementById('wf-pipeline-load');
+            if (!sel) return;
+            const items = (r && r.success) ? (r.data.pipelines || []) : [];
+            if (items.length === 0) {
+                sel.innerHTML = '<option value="">— Nessun recipe salvato —</option>';
+                return;
+            }
+            sel.innerHTML =
+                '<option value="">— Carica recipe salvato —</option>' +
+                items.map(p => `<option value="${esc(p.id)}">${esc(p.name)} (${p.step_count})</option>`).join('');
+        });
+    }
+
+    function loadPipelineById(id) {
+        if (!id) return;
+        GH.ajax('gh_v2_pipeline_load', { id }).then(r => {
+            if (!r || !r.success) {
+                GH.toast('Errore caricamento recipe', 'err');
+                return;
+            }
+            const p = r.data.pipeline || {};
+            state.pipeline.id    = p.id    || '';
+            state.pipeline.name  = p.name  || '';
+            state.pipeline.steps = (p.steps || []).map(s => ({
+                kind:   s.kind,
+                ref_id: s.ref_id,
+                params: s.params || {},
+                note:   s.note ?? null,
+            }));
+            document.getElementById('wf-pipeline-id').value   = state.pipeline.id;
+            document.getElementById('wf-pipeline-name').value = state.pipeline.name;
+            renderSteps();
+        });
+    }
+
+    function addOperationStep(opId) {
+        if (!opId) return;
+        const op = (cachedOperations || []).find(o => o.id === opId);
+        if (!op) return;
+        // Initialize params with schema defaults.
+        const params = {};
+        Object.entries(op.params_schema || {}).forEach(([field, spec]) => {
+            if (spec.default !== undefined) params[field] = spec.default;
+            else if (spec.type === 'bool') params[field] = false;
+            else params[field] = '';
+        });
+        state.pipeline.steps.push({
+            kind:   op.is_import_rule ? 'import_rule' : 'operation',
+            ref_id: opId,
+            params,
+            note:   null,
+        });
+        renderSteps();
+    }
+
+    function removeStep(idx) {
+        state.pipeline.steps.splice(idx, 1);
+        renderSteps();
+    }
+
+    function moveStep(idx, delta) {
+        const newIdx = idx + delta;
+        if (newIdx < 0 || newIdx >= state.pipeline.steps.length) return;
+        const [moved] = state.pipeline.steps.splice(idx, 1);
+        state.pipeline.steps.splice(newIdx, 0, moved);
+        renderSteps();
+    }
+
+    function renderSteps() {
+        const wrap  = document.getElementById('wf-steps');
+        const empty = document.getElementById('wf-steps-empty');
+        if (!wrap || !empty) return;
+
+        const steps = state.pipeline.steps;
+        if (steps.length === 0) {
+            // Hide all child step rows by re-rendering with the empty marker.
+            wrap.innerHTML = '';
+            wrap.appendChild(empty);
+            empty.hidden = false;
+            return;
+        }
+        empty.hidden = true;
+
+        // Resolve metadata per step (label + paramsSchema) from the
+        // appropriate registry. Unknown refIds render as a red error
+        // row that can still be removed.
+        const html = steps.map((step, idx) => renderStepRow(step, idx, steps.length)).join('');
+        wrap.innerHTML = html;
+
+        // Wire per-row controls.
+        wrap.querySelectorAll('[data-step-action]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const i = parseInt(btn.getAttribute('data-step-idx'), 10);
+                const a = btn.getAttribute('data-step-action');
+                if      (a === 'remove') removeStep(i);
+                else if (a === 'up')     moveStep(i, -1);
+                else if (a === 'down')   moveStep(i,  1);
+            });
+        });
+        wrap.querySelectorAll('[data-step-param]').forEach(input => {
+            input.addEventListener('input', () => {
+                const i     = parseInt(input.getAttribute('data-step-idx'), 10);
+                const field = input.getAttribute('data-step-param');
+                const v     = input.type === 'checkbox' ? !!input.checked : input.value;
+                state.pipeline.steps[i].params[field] = v;
+            });
+        });
+    }
+
+    function renderStepRow(step, idx, total) {
+        const lookup = step.kind === 'check'
+            ? (cachedChecks || []).find(c => c.id === step.ref_id)
+            : (cachedOperations || []).find(o => o.id === step.ref_id);
+
+        const knownLabel = lookup ? lookup.label : `[unknown] ${step.ref_id}`;
+        const schema     = lookup ? (lookup.params_schema || {}) : {};
+        const tag        = step.kind === 'import_rule' ? '<span class="gh-status gh-status--info">import</span>'
+                         : step.kind === 'check'       ? '<span class="gh-status gh-status--warn">check</span>'
+                         :                                '<span class="gh-status gh-status--dim">op</span>';
+
+        const paramsHtml = Object.entries(schema).map(([field, spec]) => {
+            const id = `wf-step-${idx}-${field.replace(/[^a-z0-9_-]/gi, '_')}`;
+            const label = esc(spec.label || field);
+            const cur = step.params[field] ?? '';
+            let input;
+            switch (spec.type) {
+                case 'enum': {
+                    input = `<select id="${id}" data-step-idx="${idx}" data-step-param="${esc(field)}" class="form-input">` +
+                        (spec.options || []).map(o => {
+                            const sel = String(cur) === String(o) ? ' selected' : '';
+                            return `<option value="${esc(o)}"${sel}>${esc(o)}</option>`;
+                        }).join('') + `</select>`;
+                    break;
+                }
+                case 'int':
+                    input = `<input type="number" id="${id}" data-step-idx="${idx}" data-step-param="${esc(field)}" class="form-input" value="${esc(cur)}">`;
+                    break;
+                case 'bool':
+                    input = `<label style="display:flex;align-items:center;gap:.4rem">
+                                <input type="checkbox" id="${id}" data-step-idx="${idx}" data-step-param="${esc(field)}"${cur ? ' checked' : ''}>
+                                <span style="font-size:.8rem;opacity:.75">${label}</span>
+                             </label>`;
+                    return `<div class="form-row" style="flex:1;min-width:160px">${input}</div>`;
+                default:
+                    input = `<input type="text" id="${id}" data-step-idx="${idx}" data-step-param="${esc(field)}" class="form-input" value="${esc(cur)}">`;
+            }
+            return `
+                <div class="form-row" style="flex:1;min-width:160px">
+                    <label class="form-label" for="${id}" style="display:block;font-size:.7rem;opacity:.6;margin-bottom:.15rem">${label}</label>
+                    ${input}
+                </div>
+            `;
+        }).join('');
+
+        const upDisabled   = idx === 0 ? 'disabled' : '';
+        const downDisabled = idx >= total - 1 ? 'disabled' : '';
+
+        return `
+            <div style="border:1px solid var(--bd,#2a2d33);border-radius:6px;padding:.6rem .75rem;background:var(--surface,#111317)">
+                <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.4rem">
+                    <span style="font-size:.7rem;opacity:.5;width:1.5rem">${idx + 1}.</span>
+                    ${tag}
+                    <strong style="font-size:.85rem">${esc(knownLabel)}</strong>
+                    <code style="font-size:.7rem;opacity:.5;margin-left:auto">${esc(step.ref_id)}</code>
+                    <button type="button" class="button" data-step-action="up"     data-step-idx="${idx}" ${upDisabled}   title="Sposta su">&uarr;</button>
+                    <button type="button" class="button" data-step-action="down"   data-step-idx="${idx}" ${downDisabled} title="Sposta giu">&darr;</button>
+                    <button type="button" class="button" data-step-action="remove" data-step-idx="${idx}" title="Rimuovi" style="color:var(--err,#e55)">&times;</button>
+                </div>
+                ${paramsHtml ? `<div style="display:flex;gap:.5rem;flex-wrap:wrap">${paramsHtml}</div>` : ''}
+            </div>
+        `;
+    }
+
+    function savePipeline() {
+        const nameEl = document.getElementById('wf-pipeline-name');
+        const idEl   = document.getElementById('wf-pipeline-id');
+        const name   = (nameEl.value || '').trim();
+        if (name === '') { GH.toast('Inserisci un nome', 'err'); nameEl.focus(); return; }
+        if (state.pipeline.steps.length === 0) { GH.toast('Pipeline vuota', 'err'); return; }
+
+        state.pipeline.name = name;
+        GH.ajax('gh_v2_pipeline_save', {
+            id:    idEl.value || '',
+            name,
+            steps: JSON.stringify(state.pipeline.steps.map(s => ({
+                kind:   s.kind,
+                ref_id: s.ref_id,
+                params: s.params,
+                note:   s.note ?? null,
+            }))),
+        }).then(r => {
+            if (!r || !r.success) {
+                const msg = (r && r.data && r.data.message) || 'Errore salvataggio';
+                GH.toast(msg, 'err');
+                return;
+            }
+            state.pipeline.id = r.data.id;
+            idEl.value = r.data.id;
+            const stamp = document.getElementById('wf-pipeline-saved');
+            stamp.textContent = '✓ salvato ' + new Date().toLocaleTimeString();
+            GH.toast('Recipe salvato', 'ok');
+            loadPipelineList();
+        });
+    }
+
 
     // ── DOM wiring (idempotent — workflowInit runs every tab open) ──
     let wired = false;
@@ -377,6 +648,17 @@ defined( 'ABSPATH' ) || exit;
             });
             renderTable();
             updateSelectionCount();
+        });
+
+        // Pipeline builder wiring.
+        document.getElementById('wf-add-op').addEventListener('click', () => {
+            const sel = document.getElementById('wf-op-picker');
+            addOperationStep(sel.value);
+            sel.value = '';
+        });
+        document.getElementById('wf-pipeline-save').addEventListener('click', savePipeline);
+        document.getElementById('wf-pipeline-load').addEventListener('change', (e) => {
+            if (e.target.value) loadPipelineById(e.target.value);
         });
     }
 

@@ -199,6 +199,7 @@ if ( class_exists( '\\GH\\Core\\Bootstrap' ) ) {
     // handlers can read populated registries.
     require_once GH_DIR . 'includes/v2-ui/ajax.php';
     require_once GH_DIR . 'includes/v2-ui/preview.php';
+    require_once GH_DIR . 'includes/v2-ui/pipeline.php';
 }
 
 /**

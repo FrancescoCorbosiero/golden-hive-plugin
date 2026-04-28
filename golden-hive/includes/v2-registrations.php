@@ -27,6 +27,7 @@ add_action( 'gh_core_booted', function () {
     \GH\Core\Bootstrap::$operations->register( new \GH\Operations\Pricing\MarkupPercent() );
     \GH\Core\Bootstrap::$operations->register( new \GH\Operations\Pricing\SetSalePercent() );
     \GH\Core\Bootstrap::$operations->register( new \GH\Operations\Pricing\AdjustPrice() );
+    \GH\Core\Bootstrap::$operations->register( new \GH\Operations\Pricing\MarkupByCategory() );
     \GH\Core\Bootstrap::$operations->register( new \GH\Operations\Taxonomy\AssignBrand() );
     \GH\Core\Bootstrap::$operations->register( new \GH\Operations\Taxonomy\AssignCategory() );
     \GH\Core\Bootstrap::$operations->register( new \GH\Operations\Stock\SetStockStatus() );

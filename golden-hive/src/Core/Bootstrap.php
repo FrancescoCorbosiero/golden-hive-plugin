@@ -49,7 +49,12 @@ final class Bootstrap
         self::$checks     = new CheckRegistry();
         self::$pipelines  = new PipelineRepository();
         self::$executor   = new PipelineExecutor(self::$operations, self::$checks);
-        self::$jobAdapter = new PipelineJobAdapter(self::$pipelines, self::$executor);
+        self::$jobAdapter = new PipelineJobAdapter(
+            self::$pipelines,
+            self::$executor,
+            self::$sources,
+            self::$operations,
+        );
 
         self::$jobAdapter->register();
 

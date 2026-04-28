@@ -195,6 +195,9 @@ require_once GH_DIR . 'includes/admin-page.php';
 if ( class_exists( '\\GH\\Core\\Bootstrap' ) ) {
     require_once GH_DIR . 'includes/v2-registrations.php';
     \GH\Core\Bootstrap::boot();
+    // v2 Workflow tab AJAX bridge — must load after Bootstrap so its
+    // handlers can read populated registries.
+    require_once GH_DIR . 'includes/v2-ui/ajax.php';
 }
 
 /**

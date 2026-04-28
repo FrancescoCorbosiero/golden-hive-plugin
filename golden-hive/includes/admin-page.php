@@ -62,6 +62,7 @@ html.wp-toolbar,body.wp-admin.toplevel_page_golden-hive{background:#0c0d10}
             <div class="tab-item" onclick="GH.switchTab('history',this);GH.histInit()"><span class="tab-icon">&#9201;</span><span class="tab-label">Catalog History</span></div>
             <div class="tab-section">JOBS</div>
             <div class="tab-item" onclick="GH.switchTab('jobs',this)"><span class="tab-icon">&#9202;</span><span class="tab-label">Jobs</span></div>
+            <div class="tab-item" onclick="GH.switchTab('workflow',this);GH.workflowInit()"><span class="tab-icon">&#9881;</span><span class="tab-label">Workflow <small style="opacity:.6">v2</small></span></div>
             <div class="tab-section">EMAIL</div>
             <div class="tab-item" onclick="GH.switchTab('email-brand',this);GH.emBrandLoad()"><span class="tab-icon">&#9733;</span><span class="tab-label">Brand</span></div>
             <div class="tab-item" onclick="GH.switchTab('email-templates',this);GH.emTplLoad()"><span class="tab-icon">&#9881;</span><span class="tab-label">Templates</span></div>
@@ -84,6 +85,7 @@ html.wp-toolbar,body.wp-admin.toplevel_page_golden-hive{background:#0c0d10}
             <?php include GH_DIR . 'includes/views/panels-email.php'; ?>
             <?php include GH_DIR . 'includes/views/panels-kicksdb.php'; ?>
             <?php include GH_DIR . 'includes/views/panels-history.php'; ?>
+            <?php include GH_DIR . 'includes/views/panels-workflow.php'; ?>
         </div>
     </div>
     <div id="gh-toasts" class="toast-wrap"></div>
@@ -105,6 +107,7 @@ html.wp-toolbar,body.wp-admin.toplevel_page_golden-hive{background:#0c0d10}
 <?php include GH_DIR . 'includes/views/js-email-transactional.php'; ?>
 <?php include GH_DIR . 'includes/views/js-kicksdb.php'; ?>
 <?php include GH_DIR . 'includes/views/js-history.php'; ?>
+<?php include GH_DIR . 'includes/views/js-workflow.php'; ?>
 </script>
 <?php
 }

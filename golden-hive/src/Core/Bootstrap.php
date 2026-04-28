@@ -62,4 +62,68 @@ final class Bootstrap
     {
         return self::$booted;
     }
+
+    /**
+     * Serialize the registered Sources as plain arrays for AJAX/JSON.
+     * Drives the v2 Workflow UI: source picker dropdown + config form.
+     *
+     * Shape per source:
+     *   { id, label, capabilities: {canFetch, canDiff, ...}, config_schema: {...} }
+     */
+    public static function sourcesAsArray(): array
+    {
+        if (! self::$booted) {
+            return [];
+        }
+        return array_map(
+            static fn($s): array => [
+                'id'            => $s->id(),
+                'label'         => $s->label(),
+                'capabilities'  => get_object_vars($s->capabilities()),
+                'config_schema' => $s->configSchema(),
+            ],
+            self::$sources->all(),
+        );
+    }
+
+    /**
+     * Serialize registered Operations. Drives the pipeline builder UI.
+     * Shape per op: { id, label, params_schema, applies_to, is_import_rule }
+     */
+    public static function operationsAsArray(): array
+    {
+        if (! self::$booted) {
+            return [];
+        }
+        return array_map(
+            static fn($op): array => [
+                'id'             => $op->id(),
+                'label'          => $op->label(),
+                'params_schema'  => $op->paramsSchema(),
+                'applies_to'     => $op->appliesTo(),
+                'is_import_rule' => $op instanceof \GH\Core\Operation\ImportRule,
+            ],
+            self::$operations->all(),
+        );
+    }
+
+    /**
+     * Serialize registered Checks. Drives the post-import audit picker.
+     * Shape per check: { id, label, params_schema, default_severity }
+     */
+    public static function checksAsArray(): array
+    {
+        if (! self::$booted) {
+            return [];
+        }
+        return array_map(
+            static fn($c): array => [
+                'id'               => $c->id(),
+                'label'            => $c->label(),
+                'params_schema'    => $c->paramsSchema(),
+                'default_severity' => $c->defaultSeverity()->value,
+            ],
+            self::$checks->all(),
+        );
+    }
 }

@@ -504,9 +504,10 @@ defined( 'ABSPATH' ) || exit;
     }
 
     function loadOperationsAndChecks() {
-        // Cache once per page load — operations don't change at runtime.
-        if (cachedOperations !== null) {
+        // Cache once per page load — operations + checks don't change at runtime.
+        if (cachedOperations !== null && cachedChecks !== null) {
             renderOpPicker();
+            renderCheckPicker();
             return;
         }
         Promise.all([
@@ -516,6 +517,7 @@ defined( 'ABSPATH' ) || exit;
             cachedOperations = (opsR && opsR.success) ? (opsR.data.operations || []) : [];
             cachedChecks     = (checksR && checksR.success) ? (checksR.data.checks || []) : [];
             renderOpPicker();
+            renderCheckPicker();
         });
     }
 
@@ -531,6 +533,21 @@ defined( 'ABSPATH' ) || exit;
             cachedOperations.map(op => {
                 const tag = op.is_import_rule ? ' [import]' : '';
                 return `<option value="${esc(op.id)}">${esc(op.label)}${tag}</option>`;
+            }).join('');
+    }
+
+    function renderCheckPicker() {
+        const sel = document.getElementById('wf-check-picker');
+        if (!sel) return;
+        if (!cachedChecks || cachedChecks.length === 0) {
+            sel.innerHTML = '<option value="">— Nessun check registrato —</option>';
+            return;
+        }
+        sel.innerHTML =
+            '<option value="">— Aggiungi check —</option>' +
+            cachedChecks.map(c => {
+                const sev = c.default_severity ? ` [${c.default_severity}]` : '';
+                return `<option value="${esc(c.id)}">${esc(c.label)}${sev}</option>`;
             }).join('');
     }
 
@@ -575,20 +592,36 @@ defined( 'ABSPATH' ) || exit;
         if (!opId) return;
         const op = (cachedOperations || []).find(o => o.id === opId);
         if (!op) return;
-        // Initialize params with schema defaults.
+        state.pipeline.steps.push({
+            kind:   op.is_import_rule ? 'import_rule' : 'operation',
+            ref_id: opId,
+            params: defaultParamsFromSchema(op.params_schema || {}),
+            note:   null,
+        });
+        renderSteps();
+    }
+
+    function addCheckStep(checkId) {
+        if (!checkId) return;
+        const check = (cachedChecks || []).find(c => c.id === checkId);
+        if (!check) return;
+        state.pipeline.steps.push({
+            kind:   'check',
+            ref_id: checkId,
+            params: defaultParamsFromSchema(check.params_schema || {}),
+            note:   null,
+        });
+        renderSteps();
+    }
+
+    function defaultParamsFromSchema(schema) {
         const params = {};
-        Object.entries(op.params_schema || {}).forEach(([field, spec]) => {
+        Object.entries(schema).forEach(([field, spec]) => {
             if (spec.default !== undefined) params[field] = spec.default;
             else if (spec.type === 'bool') params[field] = false;
             else params[field] = '';
         });
-        state.pipeline.steps.push({
-            kind:   op.is_import_rule ? 'import_rule' : 'operation',
-            ref_id: opId,
-            params,
-            note:   null,
-        });
-        renderSteps();
+        return params;
     }
 
     function removeStep(idx) {
@@ -788,6 +821,11 @@ defined( 'ABSPATH' ) || exit;
         document.getElementById('wf-add-op').addEventListener('click', () => {
             const sel = document.getElementById('wf-op-picker');
             addOperationStep(sel.value);
+            sel.value = '';
+        });
+        document.getElementById('wf-add-check').addEventListener('click', () => {
+            const sel = document.getElementById('wf-check-picker');
+            addCheckStep(sel.value);
             sel.value = '';
         });
         document.getElementById('wf-pipeline-save').addEventListener('click', savePipeline);

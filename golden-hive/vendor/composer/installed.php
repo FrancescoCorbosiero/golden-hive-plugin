@@ -3,7 +3,7 @@
         'name' => 'golden-hive/plugin',
         'pretty_version' => 'dev-main',
         'version' => 'dev-main',
-        'reference' => '9b61e058de6600330bfcbf983f10a8f616258205',
+        'reference' => 'cbc249f7ac0d65f5eabf2c24b0914871d4f78b2e',
         'type' => 'wordpress-plugin',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -13,7 +13,7 @@
         'golden-hive/plugin' => array(
             'pretty_version' => 'dev-main',
             'version' => 'dev-main',
-            'reference' => '9b61e058de6600330bfcbf983f10a8f616258205',
+            'reference' => 'cbc249f7ac0d65f5eabf2c24b0914871d4f78b2e',
             'type' => 'wordpress-plugin',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),

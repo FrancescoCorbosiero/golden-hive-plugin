@@ -32,5 +32,8 @@ add_action( 'gh_core_booted', function () {
     \GH\Core\Bootstrap::$operations->register( new \GH\Operations\Stock\SetStockStatus() );
     \GH\Core\Bootstrap::$operations->register( new \GH\Operations\Stock\SetStockQuantity() );
 
-    // Checks — none registered yet (Batch 7+)
+    // Checks
+    \GH\Core\Bootstrap::$checks->register( new \GH\Checks\Media\HasImages() );
+    \GH\Core\Bootstrap::$checks->register( new \GH\Checks\Taxonomy\HasCategory() );
+    \GH\Core\Bootstrap::$checks->register( new \GH\Checks\Pricing\SaleBelowRegular() );
 } );

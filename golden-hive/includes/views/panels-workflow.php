@@ -99,8 +99,13 @@ defined( 'ABSPATH' ) || exit;
             <select id="wf-op-picker" class="form-input" style="flex:1;min-width:240px">
                 <option value="">— Aggiungi operation —</option>
             </select>
-            <button type="button" id="wf-add-op" class="button">+ Add</button>
-            <span id="wf-checks-hint" style="font-size:.75rem;opacity:.5">Checks: nessuno registrato (Batch 6)</span>
+            <button type="button" id="wf-add-op" class="button">+ Add op</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem">
+            <select id="wf-check-picker" class="form-input" style="flex:1;min-width:240px">
+                <option value="">— Aggiungi check —</option>
+            </select>
+            <button type="button" id="wf-add-check" class="button">+ Add check</button>
         </div>
 
         <div id="wf-steps" style="display:flex;flex-direction:column;gap:.5rem;margin-top:.75rem">

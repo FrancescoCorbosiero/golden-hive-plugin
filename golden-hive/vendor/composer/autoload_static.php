@@ -22,6 +22,10 @@ class ComposerStaticInit3463c40589161c515a6c5272846c5c78
 
     public static $classMap = array (
         'Composer\\InstalledVersions' => __DIR__ . '/..' . '/composer/InstalledVersions.php',
+        'GH\\Checks\\Media\\HasImages' => __DIR__ . '/../..' . '/src/Checks/Media/HasImages.php',
+        'GH\\Checks\\Pricing\\SaleBelowRegular' => __DIR__ . '/../..' . '/src/Checks/Pricing/SaleBelowRegular.php',
+        'GH\\Checks\\Support\\Severity' => __DIR__ . '/../..' . '/src/Checks/Support/Severity.php',
+        'GH\\Checks\\Taxonomy\\HasCategory' => __DIR__ . '/../..' . '/src/Checks/Taxonomy/HasCategory.php',
         'GH\\Core\\Bootstrap' => __DIR__ . '/../..' . '/src/Core/Bootstrap.php',
         'GH\\Core\\Check\\Check' => __DIR__ . '/../..' . '/src/Core/Check/Check.php',
         'GH\\Core\\Check\\CheckRegistry' => __DIR__ . '/../..' . '/src/Core/Check/CheckRegistry.php',

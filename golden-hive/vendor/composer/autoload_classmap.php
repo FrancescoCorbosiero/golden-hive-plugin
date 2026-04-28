@@ -7,6 +7,10 @@ $baseDir = dirname($vendorDir);
 
 return array(
     'Composer\\InstalledVersions' => $vendorDir . '/composer/InstalledVersions.php',
+    'GH\\Checks\\Media\\HasImages' => $baseDir . '/src/Checks/Media/HasImages.php',
+    'GH\\Checks\\Pricing\\SaleBelowRegular' => $baseDir . '/src/Checks/Pricing/SaleBelowRegular.php',
+    'GH\\Checks\\Support\\Severity' => $baseDir . '/src/Checks/Support/Severity.php',
+    'GH\\Checks\\Taxonomy\\HasCategory' => $baseDir . '/src/Checks/Taxonomy/HasCategory.php',
     'GH\\Core\\Bootstrap' => $baseDir . '/src/Core/Bootstrap.php',
     'GH\\Core\\Check\\Check' => $baseDir . '/src/Core/Check/Check.php',
     'GH\\Core\\Check\\CheckRegistry' => $baseDir . '/src/Core/Check/CheckRegistry.php',

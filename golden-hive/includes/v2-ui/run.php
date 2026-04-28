@@ -48,13 +48,19 @@ add_action( 'wp_ajax_gh_v2_workflow_run', function (): void {
     }
 
     $mode      = function_exists( 'gh_ajax_text' ) ? gh_ajax_text( 'mode' ) : '';
+    $target    = function_exists( 'gh_ajax_text' ) ? gh_ajax_text( 'target' ) : '';
     $selection = function_exists( 'gh_ajax_json' ) ? gh_ajax_json( 'selection' ) : [];
     $pipeline  = function_exists( 'gh_ajax_json' ) ? gh_ajax_json( 'pipeline' )  : [];
+    $config    = function_exists( 'gh_ajax_json' ) ? gh_ajax_json( 'config' )    : [];
     $preset    = function_exists( 'gh_ajax_text' ) ? gh_ajax_text( 'schedule_preset' ) : '';
     $custom    = function_exists( 'gh_ajax_text' ) ? gh_ajax_text( 'custom_cron' ) : '';
 
     if ( ! in_array( $mode, [ 'dry_run', 'now', 'schedule' ], true ) ) {
         wp_send_json_error( [ 'message' => "mode invalido: {$mode}" ], 400 );
+    }
+    if ( $target === '' ) $target = 'pipeline.run';
+    if ( ! in_array( $target, [ 'pipeline.run', 'source.import' ], true ) ) {
+        wp_send_json_error( [ 'message' => "target invalido: {$target}" ], 400 );
     }
 
     // ── Selection ──
@@ -64,7 +70,10 @@ add_action( 'wp_ajax_gh_v2_workflow_run', function (): void {
     if ( $source_id === '' ) {
         wp_send_json_error( [ 'message' => 'selection.source_id mancante' ], 400 );
     }
-    if ( $selection_mode === 'ids' && empty( $ids ) ) {
+    // pipeline.run requires explicit ids (selection table); source.import
+    // doesn't (the source's fetch determines what to import). Move the
+    // empty-selection check under the matching branch.
+    if ( $target === 'pipeline.run' && $selection_mode === 'ids' && empty( $ids ) ) {
         wp_send_json_error( [ 'message' => 'Nessun prodotto selezionato' ], 400 );
     }
 
@@ -120,29 +129,37 @@ add_action( 'wp_ajax_gh_v2_workflow_run', function (): void {
         wp_send_json_error( [ 'message' => 'Espressione cron non valida' ], 400 );
     }
 
-    // ── Job params ──
-    $job_params = [
-        'pipeline_id' => $stored_pipeline_id,
-        'selection'   => [
-            'source_id' => $source_id,
-            'mode'      => in_array( $selection_mode, [ 'ids', 'filter', 'all' ], true ) ? $selection_mode : 'ids',
-            'ids'       => array_values( array_map( 'intval', $ids ) ),
-            'filter'    => (array) ( $selection['filter'] ?? [] ),
-        ],
-        'options' => [
-            'dry_run' => ( $mode === 'dry_run' ),
-        ],
-    ];
+    // ── Job params (shape depends on target kind) ──
+    if ( $target === 'source.import' ) {
+        $job_params = [
+            'source_id'   => $source_id,
+            'config'      => is_array( $config ) ? $config : [],
+            'pipeline_id' => $stored_pipeline_id,
+            'options'     => [
+                'dry_run' => ( $mode === 'dry_run' ),
+            ],
+        ];
+        $verb = $mode === 'schedule' ? 'Schedule import' : ( $mode === 'dry_run' ? 'Dry-run import' : 'Import' );
+    } else {
+        $job_params = [
+            'pipeline_id' => $stored_pipeline_id,
+            'selection'   => [
+                'source_id' => $source_id,
+                'mode'      => in_array( $selection_mode, [ 'ids', 'filter', 'all' ], true ) ? $selection_mode : 'ids',
+                'ids'       => array_values( array_map( 'intval', $ids ) ),
+                'filter'    => (array) ( $selection['filter'] ?? [] ),
+            ],
+            'options' => [
+                'dry_run' => ( $mode === 'dry_run' ),
+            ],
+        ];
+        $verb = $mode === 'schedule' ? 'Schedule' : ( $mode === 'dry_run' ? 'Dry-run' : 'Run' );
+    }
 
-    $label = sprintf(
-        '[v2] %s — %s (%s)',
-        $mode === 'schedule' ? 'Schedule' : ( $mode === 'dry_run' ? 'Dry-run' : 'Run' ),
-        $pipeline_name,
-        $source_id
-    );
+    $label = sprintf( '[v2] %s — %s (%s)', $verb, $pipeline_name, $source_id );
 
     $saved = gh_jobs_save( [
-        'kind'    => 'pipeline.run',
+        'kind'    => $target,
         'label'   => $label,
         'params'  => $job_params,
         'cron'    => $cron,
@@ -166,6 +183,7 @@ add_action( 'wp_ajax_gh_v2_workflow_run', function (): void {
         'job_id'      => $job_id,
         'pipeline_id' => $stored_pipeline_id,
         'mode'        => $mode,
+        'target'      => $target,
         'ran'         => ! $is_schedule,
         'tick'        => $tick_result,
         'label'       => $label,

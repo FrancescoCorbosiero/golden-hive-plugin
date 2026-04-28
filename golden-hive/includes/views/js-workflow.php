@@ -433,28 +433,83 @@ defined( 'ABSPATH' ) || exit;
         updateRunSummary();
     }
 
+    /**
+     * Resolve which job kind the Run buttons should create, based on
+     * the selected source's capabilities. Fetch sources go through
+     * source.import (fetch + diff + materialize); selection-local
+     * sources go through pipeline.run (mutate the selected ids).
+     */
+    function activeRunTarget() {
+        const src = (cachedSources || []).find(s => s.id === state.sourceId);
+        if (!src) return 'pipeline.run';
+        const caps = src.capabilities || {};
+        return caps.canFetch ? 'source.import' : 'pipeline.run';
+    }
+
     function updateRunSummary() {
         const sumEl = document.getElementById('wf-run-summary');
         if (!sumEl) return;
-        const selN  = state.selected.size;
-        const stepN = state.pipeline.steps.length;
-        const ready = selN > 0 && stepN > 0;
 
+        const target = activeRunTarget();
+        const stepN  = state.pipeline.steps.length;
+
+        if (target === 'source.import') {
+            // Import doesn't require selection — the source's fetch
+            // determines what to materialize. Pipeline is optional
+            // (pre-import ImportRules); 0 steps = "import as-is".
+            const importRules = state.pipeline.steps.filter(s => s.kind === 'import_rule').length;
+            sumEl.textContent = stepN === 0
+                ? 'Modalita: import (nessun ImportRule — materialize as-is dalla source)'
+                : `Modalita: import — ${importRules} ImportRule attivi su ${stepN} step pipeline`;
+            // Run buttons always available for import (the source decides what).
+            ['wf-run-dry', 'wf-run-now', 'wf-run-sched'].forEach(id => {
+                const b = document.getElementById(id);
+                if (b) b.disabled = false;
+            });
+            relabelRunButtons('import');
+            return;
+        }
+
+        // pipeline.run path: needs selection AND steps.
+        const selN  = state.selected.size;
+        const ready = selN > 0 && stepN > 0;
         sumEl.textContent = ready
             ? `${selN} prodotti × ${stepN} step → ${selN * stepN} esecuzioni totali`
             : `Servono almeno 1 prodotto e 1 step (selezionati: ${selN}, step: ${stepN})`;
-
         ['wf-run-dry', 'wf-run-now', 'wf-run-sched'].forEach(id => {
             const b = document.getElementById(id);
             if (b) b.disabled = !ready;
         });
+        relabelRunButtons('pipeline');
+    }
+
+    function relabelRunButtons(mode) {
+        // Idempotent labels — safe to call on every summary refresh.
+        const dry  = document.getElementById('wf-run-dry');
+        const now  = document.getElementById('wf-run-now');
+        const sch  = document.getElementById('wf-run-sched');
+        if (mode === 'import') {
+            if (dry) dry.textContent = 'Dry-run import';
+            if (now) now.textContent = 'Importa ora';
+            if (sch) sch.textContent = 'Schedula import…';
+        } else {
+            if (dry) dry.textContent = 'Dry-run';
+            if (now) now.textContent = 'Run now';
+            if (sch) sch.textContent = 'Schedule…';
+        }
     }
 
     function postRun(mode, extra) {
+        const target = activeRunTarget();
         const payload = {
             mode,
+            target,
             selection: JSON.stringify(GH.workflowGetSelection()),
             pipeline:  JSON.stringify(GH.workflowGetPipeline()),
+            // For source.import the backend reads the form config
+            // (and hydrates redacted secrets from storage). For
+            // pipeline.run it's harmless extra payload.
+            config:    JSON.stringify(readConfig()),
             ...(extra || {}),
         };
         GH.ajax('gh_v2_workflow_run', payload).then(r => {
@@ -470,7 +525,10 @@ defined( 'ABSPATH' ) || exit;
                 state.pipeline.id = d.pipeline_id;
                 document.getElementById('wf-pipeline-id').value = d.pipeline_id;
             }
-            const verb = mode === 'dry_run' ? 'Dry-run' : (mode === 'schedule' ? 'Schedulato' : 'Eseguito');
+            const isImport = (d.target === 'source.import');
+            const verb = mode === 'dry_run'    ? (isImport ? 'Dry-run import' : 'Dry-run')
+                       : mode === 'schedule'   ? (isImport ? 'Import schedulato' : 'Schedulato')
+                       :                          (isImport ? 'Import eseguito' : 'Eseguito');
             GH.toast(`${verb} → job ${d.job_id}`, 'ok');
 
             // Hand off to the Jobs tab. The existing Jobs UI uses a hash

@@ -24,6 +24,13 @@ add_action( 'gh_core_booted', function () {
 
     // Operations
     \GH\Core\Bootstrap::$operations->register( new \GH\Operations\Status\SetStatus() );
+    \GH\Core\Bootstrap::$operations->register( new \GH\Operations\Pricing\MarkupPercent() );
+    \GH\Core\Bootstrap::$operations->register( new \GH\Operations\Pricing\SetSalePercent() );
+    \GH\Core\Bootstrap::$operations->register( new \GH\Operations\Pricing\AdjustPrice() );
+    \GH\Core\Bootstrap::$operations->register( new \GH\Operations\Taxonomy\AssignBrand() );
+    \GH\Core\Bootstrap::$operations->register( new \GH\Operations\Taxonomy\AssignCategory() );
+    \GH\Core\Bootstrap::$operations->register( new \GH\Operations\Stock\SetStockStatus() );
+    \GH\Core\Bootstrap::$operations->register( new \GH\Operations\Stock\SetStockQuantity() );
 
-    // Checks — none registered yet (Batch 5+)
+    // Checks — none registered yet (Batch 7+)
 } );

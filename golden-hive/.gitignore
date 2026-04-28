@@ -1,0 +1,12 @@
+# Production deploy: vendor/ IS committed (Composer-less hosting), but only
+# the stripped --no-dev result. Dev deps (phpunit + its tree) appear here
+# locally when a contributor runs `composer install` and must NOT be
+# committed.
+/.phpunit.cache/
+/vendor/bin/
+/vendor/myclabs/
+/vendor/nikic/
+/vendor/phar-io/
+/vendor/phpunit/
+/vendor/sebastian/
+/vendor/theseer/

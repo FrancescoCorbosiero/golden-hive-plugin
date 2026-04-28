@@ -184,6 +184,15 @@ require_once GH_DIR . 'includes/tools/ajax.php';
 // Admin UI
 require_once GH_DIR . 'includes/admin-page.php';
 
+// v2 core bootstrap: wires SourceRegistry / OperationRegistry / CheckRegistry,
+// constructs PipelineExecutor + PipelineRepository, registers the universal
+// 'pipeline.run' job kind. Runs AFTER legacy includes/ so gh_jobs_register_kind
+// and gh_option_list_* are available. Idempotent. Concrete sources/ops/checks
+// register themselves on the 'gh_core_booted' action (see future Batch 4+).
+if ( class_exists( '\\GH\\Core\\Bootstrap' ) ) {
+    \GH\Core\Bootstrap::boot();
+}
+
 /**
  * Activation: installa le default conflict rules e avvia la prima passata di
  * backfill provenance. Idempotente: re-attivare il plugin non rompe niente,

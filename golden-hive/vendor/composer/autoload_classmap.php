@@ -41,4 +41,5 @@ return array(
     'GH\\Sources\\WooStoreSource' => $baseDir . '/src/Sources/WooStoreSource.php',
     'GH\\Workflow\\Pipeline\\StepBuilder' => $baseDir . '/src/Workflow/Pipeline/StepBuilder.php',
     'GH\\Workflow\\Preview\\InMemoryPaginator' => $baseDir . '/src/Workflow/Preview/InMemoryPaginator.php',
+    'GH\\Workflow\\Run\\CronPresets' => $baseDir . '/src/Workflow/Run/CronPresets.php',
 );

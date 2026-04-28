@@ -38,9 +38,12 @@ defined( 'ABSPATH' ) || exit;
     <div class="panel-section" id="wf-source-config" hidden style="margin-top:1.25rem">
         <h3 style="margin:0 0 .75rem;font-size:1rem">Configurazione</h3>
         <div id="wf-config-form" style="display:flex;flex-direction:column;gap:.75rem;max-width:560px"></div>
+        <div style="display:flex;align-items:center;gap:.5rem;margin-top:.5rem;max-width:560px">
+            <button type="button" id="wf-creds-save" class="button" hidden>Salva credenziali</button>
+            <span id="wf-creds-saved" style="font-size:.75rem;opacity:.6"></span>
+        </div>
         <div style="margin-top:.5rem;font-size:.75rem;opacity:.6">
-            Le credenziali sono caricate dallo storage centralizzato — i token redatti
-            (•••) significano "valore conservato, non re-incollare per salvare".
+            I token redatti (•••) significano "valore conservato, non re-incollare per salvare".
         </div>
     </div>
 
@@ -114,10 +117,33 @@ defined( 'ABSPATH' ) || exit;
         </div>
     </div>
 
-    <div class="panel-section" id="wf-next-steps" hidden style="margin-top:1.5rem;padding:1rem;border:1px dashed var(--bd, #2a2d33);border-radius:6px;opacity:.7">
-        <div style="font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem">Prossimo</div>
-        <div style="font-size:.85rem;line-height:1.5">
-            Run pipeline come job (dry-run / now / schedule) + credential hydration. In arrivo (Batch 5d).
+    <div class="panel-section" id="wf-run-block" hidden style="margin-top:1.5rem;padding-top:.75rem;border-top:1px solid var(--bd,#2a2d33)">
+        <h3 style="margin:0 0 .5rem;font-size:1rem">Esegui</h3>
+        <div id="wf-run-summary" style="font-size:.8rem;opacity:.75;margin-bottom:.75rem">— Selezione e pipeline non pronte —</div>
+
+        <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
+            <button type="button" id="wf-run-dry"  class="button" disabled>Dry-run</button>
+            <button type="button" id="wf-run-now"  class="button" disabled>Run now</button>
+            <button type="button" id="wf-run-sched" class="button" disabled>Schedule…</button>
+        </div>
+
+        <div id="wf-schedule-panel" hidden style="margin-top:.75rem;padding:.75rem;border:1px solid var(--bd,#2a2d33);border-radius:6px;background:var(--surface,#111317)">
+            <div style="font-size:.8rem;opacity:.75;margin-bottom:.5rem">Frequenza</div>
+            <div style="display:flex;gap:1rem;flex-wrap:wrap;font-size:.85rem">
+                <label><input type="radio" name="wf-cron-preset" value="hourly"> Ogni ora</label>
+                <label><input type="radio" name="wf-cron-preset" value="every_6h"> Ogni 6 ore</label>
+                <label><input type="radio" name="wf-cron-preset" value="daily" checked> Ogni giorno (3 AM)</label>
+                <label><input type="radio" name="wf-cron-preset" value="weekly"> Ogni lunedi (3 AM)</label>
+                <label><input type="radio" name="wf-cron-preset" value="custom"> Cron custom</label>
+            </div>
+            <div id="wf-cron-custom-row" hidden style="margin-top:.5rem">
+                <input type="text" id="wf-cron-custom" class="form-input" placeholder="0 3 * * *" style="font-family:'JetBrains Mono',monospace;font-size:.85rem;max-width:240px">
+                <span style="font-size:.7rem;opacity:.6;margin-left:.5rem">min hour day-of-month month day-of-week</span>
+            </div>
+            <div style="margin-top:.75rem;display:flex;gap:.5rem">
+                <button type="button" id="wf-run-sched-confirm" class="button">Crea schedule</button>
+                <button type="button" id="wf-run-sched-cancel"  class="button">Annulla</button>
+            </div>
         </div>
     </div>
 </div>

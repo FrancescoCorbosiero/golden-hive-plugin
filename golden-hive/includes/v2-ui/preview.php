@@ -144,6 +144,11 @@ function gh_v2_preview_fetch(
     $warnings = [];
 
     if ( $cached === false ) {
+        // Hydrate redacted/empty secret fields from the credentials store
+        // so the form's ••••XXXX placeholder never reaches the upstream API.
+        if ( function_exists( 'gh_v2_hydrate_credentials' ) ) {
+            $config = gh_v2_hydrate_credentials( $source->id(), $config );
+        }
         $req = new \GH\Core\Source\FetchRequest( config: $config );
         $ctx = new \GH\Core\Source\Context(
             runId: 'preview_' . wp_generate_uuid4(),

@@ -200,6 +200,8 @@ if ( class_exists( '\\GH\\Core\\Bootstrap' ) ) {
     require_once GH_DIR . 'includes/v2-ui/ajax.php';
     require_once GH_DIR . 'includes/v2-ui/preview.php';
     require_once GH_DIR . 'includes/v2-ui/pipeline.php';
+    require_once GH_DIR . 'includes/v2-ui/credentials.php';
+    require_once GH_DIR . 'includes/v2-ui/run.php';
 }
 
 /**

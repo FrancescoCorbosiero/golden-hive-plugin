@@ -56,6 +56,7 @@ class ComposerStaticInit3463c40589161c515a6c5272846c5c78
         'GH\\Sources\\WooStoreSource' => __DIR__ . '/../..' . '/src/Sources/WooStoreSource.php',
         'GH\\Workflow\\Pipeline\\StepBuilder' => __DIR__ . '/../..' . '/src/Workflow/Pipeline/StepBuilder.php',
         'GH\\Workflow\\Preview\\InMemoryPaginator' => __DIR__ . '/../..' . '/src/Workflow/Preview/InMemoryPaginator.php',
+        'GH\\Workflow\\Run\\CronPresets' => __DIR__ . '/../..' . '/src/Workflow/Run/CronPresets.php',
     );
 
     public static function getInitializer(ClassLoader $loader)

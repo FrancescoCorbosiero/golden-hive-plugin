@@ -144,7 +144,21 @@ defined( 'ABSPATH' ) || exit;
         loadOperationsAndChecks();
         loadPipelineList();
 
-        next.hidden = false;
+        // Credential round-trip: pre-fill form with stored redacted
+        // values; show the Save button only for sources that the
+        // feed-credentials store accepts (server gates anyway).
+        if (Object.keys(src.config_schema || {}).length > 0) {
+            loadCredentials(id);
+            showCredentialsSaveButton(true);
+        } else {
+            showCredentialsSaveButton(false);
+        }
+
+        // Run block. Buttons enable themselves once selection + pipeline
+        // are non-empty (updateRunSummary handles the gating).
+        showRunBlock();
+
+        next.hidden = true; // legacy "Prossimo" placeholder no longer relevant
     };
 
     function renderField(field, spec) {
@@ -338,6 +352,7 @@ defined( 'ABSPATH' ) || exit;
     function updateSelectionCount() {
         const el = document.getElementById('wf-selection-count');
         if (el) el.textContent = state.selected.size + ' selezionati';
+        updateRunSummary();
     }
 
     // Public hooks for future sub-batches (5d run).
@@ -363,6 +378,124 @@ defined( 'ABSPATH' ) || exit;
             })),
         };
     };
+
+    // ── Credentials round-trip ───────────────────────────────
+
+    function loadCredentials(sourceId) {
+        if (!sourceId) return;
+        GH.ajax('gh_v2_workflow_credentials_load', { source_id: sourceId }).then(r => {
+            if (!r || !r.success) return;
+            const cfg = (r.data && r.data.config) || {};
+            // Populate form fields with stored (redacted) values.
+            Object.entries(cfg).forEach(([field, val]) => {
+                const el = document.getElementById('wf-cfg-' + field.replace(/[^a-z0-9_-]/gi, '_'));
+                if (!el) return;
+                if (el.type === 'checkbox') el.checked = !!val;
+                else el.value = val ?? '';
+            });
+        });
+    }
+
+    function showCredentialsSaveButton(visible) {
+        const btn = document.getElementById('wf-creds-save');
+        if (btn) btn.hidden = !visible;
+    }
+
+    function saveCredentials() {
+        if (!state.sourceId) return;
+        const cfg = readConfig();
+        GH.ajax('gh_v2_workflow_credentials_save', {
+            source_id: state.sourceId,
+            config:    JSON.stringify(cfg),
+        }).then(r => {
+            if (!r || !r.success) {
+                const msg = (r && r.data && r.data.message) || 'Errore salvataggio credenziali';
+                GH.toast(msg, 'err');
+                return;
+            }
+            // Repaint form with redacted values returned by the server
+            // so secrets immediately show as ••••XXXX.
+            const cfg2 = (r.data && r.data.config) || {};
+            Object.entries(cfg2).forEach(([field, val]) => {
+                const el = document.getElementById('wf-cfg-' + field.replace(/[^a-z0-9_-]/gi, '_'));
+                if (el && el.type !== 'checkbox') el.value = val ?? '';
+            });
+            const stamp = document.getElementById('wf-creds-saved');
+            stamp.textContent = '✓ salvate ' + new Date().toLocaleTimeString();
+            GH.toast('Credenziali salvate', 'ok');
+        });
+    }
+
+    // ── Run flow ─────────────────────────────────────────────
+
+    function showRunBlock() {
+        document.getElementById('wf-run-block').hidden = false;
+        updateRunSummary();
+    }
+
+    function updateRunSummary() {
+        const sumEl = document.getElementById('wf-run-summary');
+        if (!sumEl) return;
+        const selN  = state.selected.size;
+        const stepN = state.pipeline.steps.length;
+        const ready = selN > 0 && stepN > 0;
+
+        sumEl.textContent = ready
+            ? `${selN} prodotti × ${stepN} step → ${selN * stepN} esecuzioni totali`
+            : `Servono almeno 1 prodotto e 1 step (selezionati: ${selN}, step: ${stepN})`;
+
+        ['wf-run-dry', 'wf-run-now', 'wf-run-sched'].forEach(id => {
+            const b = document.getElementById(id);
+            if (b) b.disabled = !ready;
+        });
+    }
+
+    function postRun(mode, extra) {
+        const payload = {
+            mode,
+            selection: JSON.stringify(GH.workflowGetSelection()),
+            pipeline:  JSON.stringify(GH.workflowGetPipeline()),
+            ...(extra || {}),
+        };
+        GH.ajax('gh_v2_workflow_run', payload).then(r => {
+            if (!r || !r.success) {
+                const msg = (r && r.data && r.data.message) || 'Errore esecuzione';
+                GH.toast(msg, 'err');
+                return;
+            }
+            const d = r.data || {};
+            // Persist the (auto-)saved pipeline id so subsequent saves
+            // update rather than duplicate.
+            if (d.pipeline_id) {
+                state.pipeline.id = d.pipeline_id;
+                document.getElementById('wf-pipeline-id').value = d.pipeline_id;
+            }
+            const verb = mode === 'dry_run' ? 'Dry-run' : (mode === 'schedule' ? 'Schedulato' : 'Eseguito');
+            GH.toast(`${verb} → job ${d.job_id}`, 'ok');
+
+            // Hand off to the Jobs tab. The existing Jobs UI uses a hash
+            // router (#/jobs/<id>) per CONVENTIONS; switchTab + updateHash
+            // gives the user a direct view of the freshly-created job.
+            if (typeof GH.switchTab === 'function') {
+                const jobsTab = document.querySelector('[onclick*="switchTab(\'jobs\'"]');
+                if (jobsTab) GH.switchTab('jobs', jobsTab);
+                if (typeof GH.updateHash === 'function') {
+                    GH.updateHash('jobs', d.job_id);
+                }
+            }
+        });
+    }
+
+    function openSchedulePanel() {
+        document.getElementById('wf-schedule-panel').hidden = false;
+    }
+    function closeSchedulePanel() {
+        document.getElementById('wf-schedule-panel').hidden = true;
+    }
+    function selectedCronPreset() {
+        const r = document.querySelector('input[name="wf-cron-preset"]:checked');
+        return r ? r.value : 'daily';
+    }
 
     // ── Pipeline builder ─────────────────────────────────────
 
@@ -472,6 +605,7 @@ defined( 'ABSPATH' ) || exit;
     }
 
     function renderSteps() {
+        updateRunSummary();
         const wrap  = document.getElementById('wf-steps');
         const empty = document.getElementById('wf-steps-empty');
         if (!wrap || !empty) return;
@@ -659,6 +793,32 @@ defined( 'ABSPATH' ) || exit;
         document.getElementById('wf-pipeline-save').addEventListener('click', savePipeline);
         document.getElementById('wf-pipeline-load').addEventListener('change', (e) => {
             if (e.target.value) loadPipelineById(e.target.value);
+        });
+
+        // Credentials save.
+        document.getElementById('wf-creds-save').addEventListener('click', saveCredentials);
+
+        // Run buttons.
+        document.getElementById('wf-run-dry').addEventListener('click', () => postRun('dry_run'));
+        document.getElementById('wf-run-now').addEventListener('click', () => postRun('now'));
+        document.getElementById('wf-run-sched').addEventListener('click', openSchedulePanel);
+        document.getElementById('wf-run-sched-cancel').addEventListener('click', closeSchedulePanel);
+        document.getElementById('wf-run-sched-confirm').addEventListener('click', () => {
+            const preset = selectedCronPreset();
+            const custom = document.getElementById('wf-cron-custom').value || '';
+            if (preset === 'custom' && custom.trim() === '') {
+                GH.toast('Inserisci un cron custom', 'err');
+                return;
+            }
+            postRun('schedule', { schedule_preset: preset, custom_cron: custom });
+            closeSchedulePanel();
+        });
+        // Toggle the custom cron input visibility on radio change.
+        document.querySelectorAll('input[name="wf-cron-preset"]').forEach(r => {
+            r.addEventListener('change', () => {
+                document.getElementById('wf-cron-custom-row').hidden =
+                    (selectedCronPreset() !== 'custom');
+            });
         });
     }
 

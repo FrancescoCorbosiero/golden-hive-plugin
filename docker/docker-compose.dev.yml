@@ -1,0 +1,109 @@
+# Local development stack — Docker Desktop on macOS / Windows / Linux.
+#
+# Usage:
+#   cp docker/.env.dev.example docker/.env.dev
+#   docker compose -f docker/docker-compose.dev.yml --env-file docker/.env.dev up -d
+#   docker compose -f docker/docker-compose.dev.yml --env-file docker/.env.dev exec wordpress bash docker/scripts/wp-init.sh
+#
+# Then: http://localhost:${WP_HTTP_PORT:-8080}
+#       MailHog UI:  http://localhost:8025
+#       Adminer:     http://localhost:8081
+
+name: golden-hive-dev
+
+services:
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root}
+      MARIADB_DATABASE:      ${DB_NAME:-wordpress}
+      MARIADB_USER:          ${DB_USER:-wordpress}
+      MARIADB_PASSWORD:      ${DB_PASSWORD:-wordpress}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  wordpress:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: dev
+    image: golden-hive:dev
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      WORDPRESS_DB_HOST:     db:3306
+      WORDPRESS_DB_NAME:     ${DB_NAME:-wordpress}
+      WORDPRESS_DB_USER:     ${DB_USER:-wordpress}
+      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD:-wordpress}
+      WORDPRESS_TABLE_PREFIX: ${WP_TABLE_PREFIX:-wp_}
+      WORDPRESS_DEBUG: "1"
+      WORDPRESS_CONFIG_EXTRA: |
+        define( 'WP_DEBUG_LOG',     true );
+        define( 'WP_DEBUG_DISPLAY', false );
+        define( 'SCRIPT_DEBUG',     true );
+        define( 'WP_ENVIRONMENT_TYPE', 'local' );
+        define( 'WP_HOME',    'http://localhost:${WP_HTTP_PORT:-8080}' );
+        define( 'WP_SITEURL', 'http://localhost:${WP_HTTP_PORT:-8080}' );
+        define( 'WP_MAIL_SMTP_HOST', 'mailhog' );
+        define( 'WP_MAIL_SMTP_PORT', 1025 );
+    ports:
+      - "${WP_HTTP_PORT:-8080}:80"
+    volumes:
+      - wp_core:/var/www/html
+      # Live-mount the plugin into the WP plugins dir.
+      - ../golden-hive:/var/www/html/wp-content/plugins/golden-hive
+      # Keep host vendor/ but allow container-local composer installs to
+      # not pollute the host. Comment out if you prefer host-only composer.
+    extra_hosts:
+      # Lets Xdebug reach the host on Linux (Docker Desktop already
+      # provides this name on macOS / Windows).
+      - "host.docker.internal:host-gateway"
+
+  # Run a one-off command:
+  #   docker compose -f docker/docker-compose.dev.yml run --rm wpcli wp plugin list
+  wpcli:
+    image: golden-hive:dev
+    profiles: ["cli"]
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: ["wp", "--allow-root"]
+    user: "33:33"
+    environment:
+      WORDPRESS_DB_HOST:     db:3306
+      WORDPRESS_DB_NAME:     ${DB_NAME:-wordpress}
+      WORDPRESS_DB_USER:     ${DB_USER:-wordpress}
+      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD:-wordpress}
+    volumes:
+      - wp_core:/var/www/html
+      - ../golden-hive:/var/www/html/wp-content/plugins/golden-hive
+    working_dir: /var/www/html
+
+  adminer:
+    image: adminer:4
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    ports:
+      - "${ADMINER_PORT:-8081}:8080"
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    restart: unless-stopped
+    ports:
+      - "${MAILHOG_SMTP_PORT:-1025}:1025"
+      - "${MAILHOG_UI_PORT:-8025}:8025"
+
+volumes:
+  db_data:
+  wp_core:

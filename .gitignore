@@ -1,0 +1,4 @@
+# Local docker env files — never commit credentials.
+docker/.env.dev
+docker/.env.prod
+docker/backups/

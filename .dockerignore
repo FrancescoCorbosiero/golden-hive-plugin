@@ -1,0 +1,25 @@
+# Build context excludes — keep image small and rebuilds fast.
+.git
+.github
+.idea
+.vscode
+**/.DS_Store
+**/node_modules
+**/.phpunit.cache
+docker/backups
+**/tests
+# Plugin dev-only composer trees (mirror of golden-hive/.gitignore).
+golden-hive/vendor/bin
+golden-hive/vendor/myclabs
+golden-hive/vendor/nikic
+golden-hive/vendor/phar-io
+golden-hive/vendor/phpunit
+golden-hive/vendor/sebastian
+golden-hive/vendor/theseer
+# Sibling plugins not part of the suite image.
+rp-catalog-manager
+rp-email-marketing
+rp-media-cleaner
+rp-media-manager
+rp-product-manager
+rp-rest-caller

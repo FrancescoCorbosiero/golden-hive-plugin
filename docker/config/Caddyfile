@@ -1,0 +1,48 @@
+# Caddy 2 reverse proxy in front of the WordPress container.
+# Auto-issues + renews Let's Encrypt certificates for {$SITE_DOMAIN}.
+
+{
+    email {$ACME_EMAIL}
+    # Uncomment for staging while debugging cert issuance:
+    # acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+{$SITE_DOMAIN} {
+    encode zstd gzip
+
+    @static {
+        path *.css *.js *.woff *.woff2 *.ttf *.eot *.svg *.png *.jpg *.jpeg
+        path *.gif *.webp *.ico *.mp4 *.webm *.pdf
+    }
+    header @static Cache-Control "public, max-age=2592000, immutable"
+
+    # Block access to sensitive WP files at the edge.
+    @forbidden {
+        path /wp-config.php /xmlrpc.php /readme.html /license.txt
+        path /.git/* /.env /.htaccess /wp-content/debug.log
+    }
+    respond @forbidden 404
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options    "nosniff"
+        X-Frame-Options           "SAMEORIGIN"
+        Referrer-Policy           "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    reverse_proxy wordpress:80 {
+        header_up X-Forwarded-Proto https
+        header_up X-Real-IP {remote_host}
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}
+
+# Optional bare-domain redirect — uncomment if SITE_DOMAIN is www.example.com
+# example.com {
+#     redir https://{$SITE_DOMAIN}{uri} permanent
+# }

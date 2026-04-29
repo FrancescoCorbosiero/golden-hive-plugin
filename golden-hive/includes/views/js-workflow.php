@@ -46,7 +46,6 @@ defined( 'ABSPATH' ) || exit;
         sel.innerHTML = '<option value="">— Caricamento…</option>';
         document.getElementById('wf-source-info').hidden = true;
         document.getElementById('wf-source-config').hidden = true;
-        document.getElementById('wf-next-steps').hidden = true;
 
         GH.ajax('gh_v2_sources_list', {}).then((r) => {
             if (!r || !r.success) {
@@ -71,9 +70,8 @@ defined( 'ABSPATH' ) || exit;
     GH.workflowSelectSource = function (id) {
         const info = document.getElementById('wf-source-info');
         const cfg  = document.getElementById('wf-source-config');
-        const next = document.getElementById('wf-next-steps');
         const prev = document.getElementById('wf-preview-block');
-        if (!info || !cfg || !next || !prev) return;
+        if (!info || !cfg || !prev) return;
 
         // Reset preview state on every source change.
         state.sourceId = id || '';
@@ -84,7 +82,7 @@ defined( 'ABSPATH' ) || exit;
         document.getElementById('wf-preview-warnings').hidden = true;
 
         if (!id) {
-            info.hidden = true; cfg.hidden = true; next.hidden = true; prev.hidden = true;
+            info.hidden = true; cfg.hidden = true; prev.hidden = true;
             return;
         }
 
@@ -157,8 +155,6 @@ defined( 'ABSPATH' ) || exit;
         // Run block. Buttons enable themselves once selection + pipeline
         // are non-empty (updateRunSummary handles the gating).
         showRunBlock();
-
-        next.hidden = true; // legacy "Prossimo" placeholder no longer relevant
     };
 
     function renderField(field, spec) {

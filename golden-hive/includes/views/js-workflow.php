@@ -30,6 +30,12 @@ defined( 'ABSPATH' ) || exit;
         // pins the active source.
         selected: new Set(),
         keyField: 'id',  // 'id' | 'sku'
+        // Gmail-style "select all matching" mode. When true, state.selected
+        // is ignored — the run payload sends mode='filter' and the server
+        // expands it to the full universe (all WC products for local
+        // sources; fetch sources go through source.import which already
+        // operates on the full feed).
+        selectAllMatching: false,
         // Pipeline being built. Steps shape mirrors the AJAX contract:
         // { kind, ref_id, params, note? }. Survives source changes
         // unless explicitly cleared (the user might want to reuse a
@@ -77,6 +83,7 @@ defined( 'ABSPATH' ) || exit;
         state.sourceId = id || '';
         state.page = 1; state.total = 0; state.items = [];
         state.selected.clear();
+        state.selectAllMatching = false;
         renderTable(); updateSelectionCount();
         document.getElementById('wf-fetched-at').textContent = '';
         document.getElementById('wf-preview-warnings').hidden = true;
@@ -265,7 +272,7 @@ defined( 'ABSPATH' ) || exit;
 
         const rows = state.items.map(item => {
             const key = item[state.keyField];
-            const isChecked = state.selected.has(String(key));
+            const isChecked = state.selectAllMatching || state.selected.has(String(key));
             const status = (item.status || '').toLowerCase();
             const statusVariant = status === 'publish' ? 'ok'
                 : status === 'draft' ? 'dim'
@@ -297,6 +304,13 @@ defined( 'ABSPATH' ) || exit;
         tbody.querySelectorAll('.wf-row-check').forEach(cb => {
             cb.addEventListener('change', () => {
                 const k = cb.getAttribute('data-key');
+                // Exiting "all matching" mode via an individual uncheck:
+                // hydrate state.selected with everything currently visible
+                // so the user keeps the rest of the page selected.
+                if (state.selectAllMatching) {
+                    state.items.forEach(i => state.selected.add(String(i[state.keyField])));
+                    state.selectAllMatching = false;
+                }
                 if (cb.checked) state.selected.add(String(k));
                 else state.selected.delete(String(k));
                 updateSelectionCount();
@@ -311,9 +325,57 @@ defined( 'ABSPATH' ) || exit;
         const cb = document.getElementById('wf-check-all');
         if (!cb) return;
         if (allOnPage.length === 0) { cb.checked = false; cb.indeterminate = false; return; }
+        if (state.selectAllMatching) { cb.checked = true; cb.indeterminate = false; return; }
         const sel = allOnPage.filter(k => state.selected.has(k)).length;
         cb.checked = (sel === allOnPage.length);
         cb.indeterminate = (sel > 0 && sel < allOnPage.length);
+    }
+
+    /**
+     * Render the Gmail-style "select all matching" banner above the table.
+     * Three states:
+     *   1) selectAllMatching active → "All N selected · Clear"
+     *   2) page select-all checked AND total > pageSize → offer "Select all N"
+     *   3) otherwise hidden
+     */
+    function renderSelectAllBanner() {
+        const el = document.getElementById('wf-select-all-banner');
+        if (!el) return;
+
+        const total      = state.total | 0;
+        const onPage     = state.items.length;
+        const allOnPage  = state.items.map(i => String(i[state.keyField]));
+        const pageAllSel = allOnPage.length > 0 && allOnPage.every(k => state.selected.has(k));
+
+        if (state.selectAllMatching) {
+            el.hidden = false;
+            el.innerHTML =
+                `<span><strong>Tutti i ${total} prodotti del feed</strong> sono selezionati.</span>
+                 <button type="button" class="button" id="wf-select-clear" style="margin-left:.75rem">Cancella selezione</button>`;
+            el.querySelector('#wf-select-clear').addEventListener('click', () => {
+                state.selectAllMatching = false;
+                state.selected.clear();
+                renderTable();
+                updateSelectionCount();
+            });
+            return;
+        }
+
+        if (pageAllSel && total > onPage) {
+            el.hidden = false;
+            el.innerHTML =
+                `<span>${onPage} prodotti su questa pagina selezionati.</span>
+                 <button type="button" class="button" id="wf-select-all-matching" style="margin-left:.75rem">Seleziona tutti i ${total} →</button>`;
+            el.querySelector('#wf-select-all-matching').addEventListener('click', () => {
+                state.selectAllMatching = true;
+                renderTable();
+                updateSelectionCount();
+            });
+            return;
+        }
+
+        el.hidden = true;
+        el.innerHTML = '';
     }
 
     function renderPagination() {
@@ -347,18 +409,31 @@ defined( 'ABSPATH' ) || exit;
 
     function updateSelectionCount() {
         const el = document.getElementById('wf-selection-count');
-        if (el) el.textContent = state.selected.size + ' selezionati';
+        if (el) {
+            el.textContent = state.selectAllMatching
+                ? `Tutti i ${state.total} selezionati`
+                : `${state.selected.size} selezionati`;
+        }
+        renderSelectAllBanner();
         updateRunSummary();
     }
 
-    // Public hooks for future sub-batches (5d run).
     GH.workflowGetSelection = function () {
+        if (state.selectAllMatching) {
+            // Empty filter → server resolver expands to the full universe
+            // (gh_filter_product_ids([])). For canFetch sources the run
+            // target is source.import which ignores selection anyway.
+            return {
+                source_id: state.sourceId,
+                mode:      'filter',
+                filter:    [],
+                ids:       [],
+            };
+        }
         return {
             source_id: state.sourceId,
             mode:      'ids',
             ids:       Array.from(state.selected),
-            // Future: if user picks "all matching", swap to mode='filter'
-            // and serialize the search term.
         };
     };
 
@@ -467,10 +542,12 @@ defined( 'ABSPATH' ) || exit;
         }
 
         // pipeline.run path: needs selection AND steps.
-        const selN  = state.selected.size;
+        const selN  = state.selectAllMatching ? state.total : state.selected.size;
         const ready = selN > 0 && stepN > 0;
         sumEl.textContent = ready
-            ? `${selN} prodotti × ${stepN} step → ${selN * stepN} esecuzioni totali`
+            ? (state.selectAllMatching
+                ? `Tutti i ${selN} prodotti del feed × ${stepN} step → ${selN * stepN} esecuzioni totali`
+                : `${selN} prodotti × ${stepN} step → ${selN * stepN} esecuzioni totali`)
             : `Servono almeno 1 prodotto e 1 step (selezionati: ${selN}, step: ${stepN})`;
         ['wf-run-dry', 'wf-run-now', 'wf-run-sched'].forEach(id => {
             const b = document.getElementById(id);
@@ -862,6 +939,12 @@ defined( 'ABSPATH' ) || exit;
 
         document.getElementById('wf-check-all').addEventListener('change', (e) => {
             const checked = e.target.checked;
+            // Unchecking the page-level select-all also drops the
+            // "all matching" mode — otherwise the visible state would
+            // disagree with the underlying selection flag.
+            if (!checked && state.selectAllMatching) {
+                state.selectAllMatching = false;
+            }
             state.items.forEach(item => {
                 const k = String(item[state.keyField]);
                 if (checked) state.selected.add(k);

@@ -58,6 +58,8 @@ defined( 'ABSPATH' ) || exit;
 
         <div id="wf-preview-warnings" hidden style="padding:.5rem .75rem;margin-bottom:.5rem;border-left:3px solid var(--amb,#e8a33d);background:var(--amb-15,rgba(232,163,61,.1));font-size:.8rem"></div>
 
+        <div id="wf-select-all-banner" hidden style="padding:.5rem .75rem;margin-bottom:.5rem;background:var(--acc-15,rgba(61,127,255,.15));border:1px solid var(--acc-30,rgba(61,127,255,.3));border-radius:6px;font-size:.85rem;display:flex;align-items:center;flex-wrap:wrap"></div>
+
         <div id="wf-preview-table-wrap" style="border:1px solid var(--bd,#2a2d33);border-radius:6px;overflow:hidden">
             <table id="wf-preview-table" style="width:100%;border-collapse:collapse;font-size:.85rem">
                 <thead style="background:var(--surface-2,#16181d);text-align:left">

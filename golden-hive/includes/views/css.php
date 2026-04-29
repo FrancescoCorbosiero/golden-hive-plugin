@@ -505,6 +505,19 @@
 #gh .em-tpl-actions{display:flex;gap:8px;padding:12px 14px;background:var(--s1);border-top:1px solid var(--b1)}
 #gh .em-tpl-send-btn{min-width:160px}
 
+/* ── Workflow v2 panel — scroll, spacing, structure ─────────────
+   .panel parent has overflow:hidden so the long workflow content
+   (config + preview + pipeline + run) was clipped below the fold.
+   Make this panel scroll its own body and add some padding so it
+   doesn't sit flush against the sidebar edge. */
+#gh #panel-workflow{overflow-y:auto;padding:16px 20px;gap:0}
+#gh #panel-workflow .panel-header{flex-shrink:0}
+#gh #panel-workflow .panel-section{flex-shrink:0}
+#gh #panel-workflow .panel-section + .panel-section{margin-top:16px}
+/* The preview table can blow horizontally on narrow widths — let it
+   scroll inside its wrapper instead of pushing the page. */
+#gh #panel-workflow #wf-preview-table-wrap{overflow-x:auto}
+
 @media(max-width:768px){
     #gh .em-tpl-ctx-pickers{flex-direction:column;align-items:stretch}
     #gh .em-tpl-picker{width:100%}

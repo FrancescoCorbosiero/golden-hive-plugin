@@ -1340,7 +1340,13 @@
     (async function(){const r=await ajax('rp_cm_ajax_get_tree_paths');if(!r.success)return;const sel=document.getElementById('rt-filter-brand');if(!sel)return;(r.data.brands||[]).forEach(b=>{const o=document.createElement('option');o.value=b;o.textContent=b;sel.appendChild(o)})})();
     initBulkImport();
     initRtImport();
-    initSfFeed();
+    // initSfFeed() ends up calling GH.feedSettings.load() (via sfLoadSettings),
+    // but at IIFE-execution time:
+    //   1) the outer `const GH = (function(){...})()` binding is still in TDZ
+    //   2) GH.feedSettings is attached by js-settings.php, which runs only
+    //      AFTER this IIFE has returned.
+    // Deferring to a macrotask lets both prerequisites land first.
+    setTimeout(initSfFeed, 0);
     initCsvUpload();
 
     // ── FORCE RE-IMPORT (dispatched as background Jobs) ───────────

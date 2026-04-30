@@ -35,6 +35,24 @@ html.wp-toolbar,body.wp-admin.toplevel_page_golden-hive{background:#0c0d10}
     <div class="header">
         <div class="header-logo">Golden Hive</div>
         <div class="header-desc">WooCommerce Management Suite</div>
+        <?php
+        $gh_build = function_exists( 'gh_get_build_tag' ) ? gh_get_build_tag() : null;
+        if ( $gh_build ) :
+            $tip = $gh_build['source'] === 'git'
+                ? sprintf( '%s · %s · click per copiare', esc_attr( $gh_build['sha'] ), esc_attr( $gh_build['branch'] ) )
+                : 'Build deployata (no .git mountato)';
+            ?>
+            <span id="gh-build-tag"
+                  title="<?php echo $tip; ?>"
+                  data-sha="<?php echo esc_attr( $gh_build['sha'] ); ?>"
+                  onclick="GH && GH.copyToClipboard && GH.copyToClipboard(this.dataset.sha || this.textContent)"
+                  style="margin-left:auto;padding:2px 8px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--dim,#8a8f9d);border:1px solid var(--b1,#232630);border-radius:3px;cursor:pointer;user-select:all;letter-spacing:.04em">
+                <?php echo esc_html( $gh_build['label'] ); ?>
+                <?php if ( $gh_build['source'] === 'git' && $gh_build['branch'] !== '' ) : ?>
+                    <span style="opacity:.55;margin-left:4px"><?php echo esc_html( '· ' . ( strlen( $gh_build['branch'] ) > 24 ? substr( $gh_build['branch'], 0, 22 ) . '…' : $gh_build['branch'] ) ); ?></span>
+                <?php endif; ?>
+            </span>
+        <?php endif; ?>
     </div>
 
     <div class="main">

@@ -238,6 +238,18 @@
         const runCount = j.run_count || 0;
         const id = esc(j.id);
 
+        // Suspended badge + run-button label change when the previous run
+        // yielded mid-import and is awaiting a continuation tick. On local
+        // dev this is the typical state; the manual button picks it up.
+        const suspended = j.lock && j.lock.has_cursor;
+        const runLabel  = suspended ? 'Riprendi' : 'Esegui';
+        const runTitle  = suspended
+            ? 'Sospeso al tick ' + (j.lock.ticks || 0) + ' (da ' + (j.lock.age_s || 0) + 's) — clicca per riprendere'
+            : 'Esegui ora';
+        const suspendedPill = suspended
+            ? '<span class="gh-job-state-pill gh-job-state-on" style="background:var(--amb-15);color:var(--amb);border-color:var(--amb-30);margin-left:6px" title="' + esc(runTitle) + '">Sospeso · cursore</span>'
+            : '';
+
         return '<article class="gh-job-card gh-job-color-' + meta.color + '" data-kind="' + esc(j.kind) + '">'
             +    '<div class="gh-job-card-stripe"></div>'
             +    '<div class="gh-job-card-body">'
@@ -245,6 +257,7 @@
             +        '<span class="gh-job-kind-tag">' + esc(kindLbl) + '</span>'
             +        '<span class="gh-job-title">' + esc(j.label || '(senza nome)') + '</span>'
             +        '<span class="gh-job-state-pill ' + stateCls + '">' + stateLbl + '</span>'
+            +        suspendedPill
             +      '</div>'
             +      '<div class="gh-job-card-row2">'
             +        '<span class="gh-job-meta" title="' + esc(scheduleRaw) + '">'
@@ -266,7 +279,7 @@
             +      '</div>'
             +    '</div>'
             +    '<div class="gh-job-card-actions">'
-            +      '<button class="gh-job-act gh-job-act-run" onclick="GH.jobsRunNow(\'' + id + '\')" title="Esegui ora">Esegui</button>'
+            +      '<button class="gh-job-act gh-job-act-run" onclick="GH.jobsRunNow(\'' + id + '\')" title="' + runTitle + '">' + runLabel + '</button>'
             +      '<button class="gh-job-act" onclick="GH.jobsToggle(\'' + id + '\')" title="' + toggleLbl + '">' + toggleLbl + '</button>'
             +      '<button class="gh-job-act" onclick="GH.jobsEdit(\'' + id + '\')" title="Modifica">Modifica</button>'
             +      '<button class="gh-job-act gh-job-act-danger" onclick="GH.jobsDelete(\'' + id + '\')" title="Elimina">Elimina</button>'
@@ -508,11 +521,25 @@
     }
 
     async function jobsRunNow(id) {
-        if (!confirm('Eseguire subito questo job? (Rispetta il lock — se in corso salterà)')) return;
-        toast('Avviato...', 'inf');
+        const job = jobs.find(j => j.id === id);
+        const suspended = job && job.lock && job.lock.has_cursor;
+        const verb = suspended ? 'Riprendere' : 'Eseguire subito';
+        if (!confirm(verb + ' questo job? Drena i tick fino a completamento o cap.')) return;
+
+        toast(suspended ? 'Riprendo...' : 'Avviato...', 'inf');
         const r = await ajax('gh_ajax_jobs_run_now', { job_id: id });
         if (!r.success) { toast('Errore: ' + r.data, 'err'); return; }
-        toast('Run: ' + (r.data.status || 'done'), r.data.status === 'error' ? 'err' : 'ok');
+
+        const d      = r.data || {};
+        const status = (d.final && d.final.status) || 'done';
+        const iters  = d.iterations || 1;
+        const tag    = d.resumed ? 'ripreso' : 'eseguito';
+        let msg;
+        if (status === 'error')   msg = 'Errore — ' + tag + ' ' + iters + ' tick';
+        else if (d.capped)        msg = 'Cap raggiunto a ' + iters + ' tick — clicca Riprendi per continuare';
+        else if (status === 'continue') msg = 'Sospeso al tick ' + iters + ' — riprendi quando vuoi';
+        else                       msg = 'Completato (' + tag + ' in ' + iters + ' tick)';
+        toast(msg, status === 'error' ? 'err' : 'ok', d.capped ? 0 : 4000);
         jobsReload();
     }
 

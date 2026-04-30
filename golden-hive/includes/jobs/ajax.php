@@ -38,8 +38,27 @@ add_action( 'wp_ajax_gh_ajax_jobs_list', function () {
         ];
     }
 
+    // Hydrate each job with its current lock state (if any) so the UI can
+    // surface "suspended mid-run" with a Resume affordance. Cheap: one
+    // get_site_transient per job, all in-memory once we hit object cache.
+    $jobs = gh_jobs_get_all();
+    foreach ( $jobs as &$j ) {
+        $lock = gh_jobs_read_lock( (string) $j['id'] );
+        if ( is_array( $lock ) ) {
+            $j['lock'] = [
+                'run_id'       => (string) ( $lock['run_id'] ?? '' ),
+                'started_at'   => (string) ( $lock['started_at'] ?? '' ),
+                'started_at_ts'=> (int)    ( $lock['started_at_ts'] ?? 0 ),
+                'ticks'        => (int)    ( $lock['ticks'] ?? 0 ),
+                'has_cursor'   => isset( $lock['cursor'] ) && $lock['cursor'] !== null,
+                'age_s'        => max( 0, time() - (int) ( $lock['started_at_ts'] ?? time() ) ),
+            ];
+        }
+    }
+    unset( $j );
+
     wp_send_json_success( [
-        'jobs'  => gh_jobs_get_all(),
+        'jobs'  => $jobs,
         'kinds' => $kinds,
     ] );
 } );
@@ -120,20 +139,53 @@ add_action( 'wp_ajax_gh_ajax_jobs_toggle', function () {
     wp_send_json_success( $job );
 } );
 
+/**
+ * Manual "Run now" — drains ticks within a single HTTP request so it works
+ * on local environments where wp-cron does not fire continuation events.
+ *
+ * Smart trigger selection: if a lock with a cursor exists, the previous run
+ * yielded mid-import and a continuation event is/was queued; resume from
+ * that cursor by passing trigger='continuation'. Otherwise start fresh
+ * with trigger='manual'.
+ *
+ * The loop bound (default 50) prevents pathological pipelines from hanging
+ * the request indefinitely; pass `max_iters` from the client to override.
+ */
 add_action( 'wp_ajax_gh_ajax_jobs_run_now', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
-    $job_id = sanitize_text_field( (string) ( $_POST['job_id'] ?? '' ) );
+    $job_id    = sanitize_text_field( (string) ( $_POST['job_id'] ?? '' ) );
+    $max_iters = max( 1, min( 200, (int) ( $_POST['max_iters'] ?? 50 ) ) );
 
-    // Increase execution time so a manual run doesn't die on PHP timeout.
     if ( function_exists( 'set_time_limit' ) ) @set_time_limit( 0 );
 
-    $result = gh_jobs_run_tick( $job_id, 'manual' );
-    if ( is_wp_error( $result ) ) {
-        wp_send_json_error( $result->get_error_message() );
+    // If the previous run yielded a cursor, resume from it. Otherwise the
+    // existing 'manual' path acquires a fresh lock and starts over.
+    $existing = gh_jobs_read_lock( $job_id );
+    $resumed  = is_array( $existing ) && isset( $existing['cursor'] ) && $existing['cursor'] !== null;
+    $trigger  = $resumed ? 'continuation' : 'manual';
+
+    $iters = 0;
+    $last  = null;
+    do {
+        $last = gh_jobs_run_tick( $job_id, $trigger );
+        $iters++;
+        if ( is_wp_error( $last ) || ! is_array( $last ) ) break;
+        // Subsequent iterations always resume the same in-flight run.
+        $trigger = 'continuation';
+    } while ( ( $last['status'] ?? '' ) === 'continue' && $iters < $max_iters );
+
+    if ( is_wp_error( $last ) ) {
+        wp_send_json_error( $last->get_error_message() );
     }
-    wp_send_json_success( $result );
+
+    wp_send_json_success( [
+        'final'      => $last,
+        'iterations' => $iters,
+        'resumed'    => $resumed,
+        'capped'     => ( $last['status'] ?? '' ) === 'continue' && $iters >= $max_iters,
+    ] );
 } );
 
 // ── Log ─────────────────────────────────────────────────────

@@ -104,6 +104,29 @@ services:
       - "${MAILHOG_SMTP_PORT:-1025}:1025"
       - "${MAILHOG_UI_PORT:-8025}:8025"
 
+  # Pings wp-cron.php every 60s on the internal compose network so
+  # WP-Cron + WC's Action Scheduler queue + Hive Sync's hsync_5min
+  # tick fire deterministically — independent of admin page traffic.
+  # Required when DISABLE_WP_CRON is set; harmless otherwise (WP's
+  # cron lock prevents duplicate runs).
+  wp-cron:
+    image: curlimages/curl:latest
+    restart: unless-stopped
+    depends_on:
+      - wordpress
+    entrypoint:
+      - sh
+      - -c
+      - |
+        echo "[wp-cron] waiting 30s before first ping (let WP boot)"
+        sleep 30
+        while true; do
+          curl -fsS -o /dev/null --max-time 50 \
+            "http://wordpress/wp-cron.php?doing_wp_cron=$$(date +%s)" \
+            || echo "[wp-cron] ping failed at $$(date -Iseconds)"
+          sleep 60
+        done
+
 volumes:
   db_data:
   wp_core:

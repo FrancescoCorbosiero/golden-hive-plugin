@@ -262,20 +262,36 @@ final class CsvSource extends AbstractSource
     }
 
     /**
-     * Apply column → field mapping. $mapping shape:
-     *   ['sku' => 'SKU', 'name' => 'Title', 'regular_price' => 'Price', ...]
-     * The values are source column names (or numeric index strings); the
-     * keys are target Woo field names.
+     * Apply mapping to a row. Each mapping value is one of:
+     *
+     *   - direct field name        e.g. 'sku' → row['sku']
+     *   - dot-path                 e.g. 'sizes.size_eu' → traverses + fans out
+     *                              over indexed sub-arrays (returns array)
+     *   - template string          e.g. '<p>{brand_name} {name}</p>' → rendered
+     *                              against the row, supporting placeholder paths
+     *
+     * Detection: a value containing a `{...}` chunk is a template;
+     * otherwise it's a path.
      */
-    public static function applyMapping(array $row, array $mapping): array
+    public static function applyMapping( array $row, array $mapping ): array
     {
-        if (! $mapping) return $row;
+        if ( ! $mapping ) return $row;
         $out = [];
-        foreach ($mapping as $target => $source) {
-            $sourceKey = (string) $source;
-            if (array_key_exists($sourceKey, $row)) {
-                $out[(string) $target] = $row[$sourceKey];
+        foreach ( $mapping as $target => $source ) {
+            $sourceStr = (string) $source;
+            $key       = (string) $target;
+            if ( \HiveSync\Workflow\Mapping\Template::isTemplate( $sourceStr ) ) {
+                $out[ $key ] = \HiveSync\Workflow\Mapping\Template::render( $sourceStr, $row );
+                continue;
             }
+            // Plain top-level key wins (preserves CSV-style flat semantics).
+            if ( ! str_contains( $sourceStr, '.' ) && array_key_exists( $sourceStr, $row ) ) {
+                $out[ $key ] = $row[ $sourceStr ];
+                continue;
+            }
+            // Otherwise treat as a dot-path traversal.
+            $resolved = \HiveSync\Workflow\Mapping\PathResolver::resolve( $row, $sourceStr );
+            if ( $resolved !== null ) $out[ $key ] = $resolved;
         }
         return $out;
     }

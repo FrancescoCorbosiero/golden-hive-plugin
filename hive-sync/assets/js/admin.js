@@ -1051,6 +1051,78 @@
         }
     };
 
+    /**
+     * Cron presets the user picks from when saving a Run as a scheduled
+     * Job. Free-form input is also accepted — the server validates via
+     * CronExpr::parse.
+     */
+    HSync.cronPresets = [
+        { label: 'Ogni 15 minuti',     expr: '*/15 * * * *' },
+        { label: 'Ogni 30 minuti',     expr: '*/30 * * * *' },
+        { label: 'Ogni ora',           expr: '0 * * * *' },
+        { label: 'Ogni 6 ore',         expr: '0 */6 * * *' },
+        { label: 'Giornaliero (02:00)',expr: '0 2 * * *' },
+        { label: 'Lun-Ven 02:00',      expr: '0 2 * * 1-5' },
+    ];
+
+    HSync.saveCurrentAsJob = async function () {
+        const sourceId = $('[data-field="run-source"]').value;
+        if (!sourceId) { alert('Scegli una sorgente.'); return; }
+
+        const formEl = $('[data-context="run"]');
+        const config = formEl ? HSync.collectConfig(formEl) : {};
+        const configSlug  = $('[data-field="run-config-slug"]').value;
+        const mappingSlug = $('[data-field="run-mapping"]').value;
+        const mapping     = mappingSlug ? HSync.state.mappings.find(m => m.slug === mappingSlug) : null;
+        const options     = mapping ? { mapping: mapping.config } : {};
+
+        // Build a tiny picker as a prompt — keeps the dependency surface
+        // small (no modal library). User can paste a custom cron too.
+        const presetList = HSync.cronPresets
+            .map((p, i) => '  ' + (i + 1) + ') ' + p.label + '   →  ' + p.expr)
+            .join('\n');
+        const choice = prompt(
+            'Inserisci una cron expression (5 campi)\n\n' +
+            'Presets:\n' + presetList + '\n\n' +
+            'Digita il numero di un preset OPPURE l\'espressione cron completa:',
+            '0 * * * *',
+        );
+        if (!choice) return;
+
+        let cron = choice.trim();
+        const idx = parseInt(cron, 10);
+        if (!isNaN(idx) && cron === String(idx) && idx >= 1 && idx <= HSync.cronPresets.length) {
+            cron = HSync.cronPresets[idx - 1].expr;
+        }
+
+        // Job ref: 'sourceId' for inline config, 'sourceId/configSlug' for stored.
+        const ref = configSlug ? (sourceId + '/' + configSlug) : sourceId;
+
+        // Job config: when using a saved config, only options travel; the
+        // dispatcher hydrates the rest from SourceConfigRepository.
+        // When inline, ship the full form payload so the job is self-contained.
+        const jobConfig = configSlug
+            ? { options: options }
+            : { inline_config: config, options: options };
+
+        try {
+            const data = await HSync.ajax('job_save', {
+                id:            '0',
+                runnable_type: 'source.import',
+                runnable_ref:  ref,
+                cron_expr:     cron,
+                enabled:       '1',
+                config:        jobConfig,
+            });
+            const next = data.next_run_at || '—';
+            if (confirm('Job creato (id: ' + data.id + ')\nProssima esecuzione: ' + next + '\n\nApri il tab Jobs?')) {
+                HSync.switchTab('jobs');
+            }
+        } catch (e) {
+            alert('Errore creazione job: ' + e.message);
+        }
+    };
+
     HSync.runNow = async function () {
         const sourceId = $('[data-field="run-source"]').value;
         if (!sourceId) { alert('Scegli una sorgente.'); return; }
@@ -1194,6 +1266,7 @@
         if (t.matches('[data-action="run-now"]'))        return HSync.runNow();
         if (t.matches('[data-action="run-test-fetch"]')) return HSync.testFetchFromRun();
         if (t.matches('[data-action="run-save-config"]'))return HSync.saveCurrentConfig();
+        if (t.matches('[data-action="run-save-job"]'))   return HSync.saveCurrentAsJob();
         if (t.matches('[data-action="runs-refresh"]'))   return HSync.loadRuns();
         if (t.matches('[data-action="legacy-audit"]'))   return HSync.legacyAudit();
         if (t.matches('[data-action="legacy-import"]'))  return HSync.legacyImport();

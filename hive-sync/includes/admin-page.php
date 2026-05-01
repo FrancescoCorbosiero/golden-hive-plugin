@@ -140,6 +140,7 @@ function hsync_render_admin_page(): void {
                 <div class="hsync-actions">
                     <button class="button" data-action="run-test-fetch">Test fetch</button>
                     <button class="button" data-action="run-save-config">Salva config</button>
+                    <button class="button" data-action="run-save-job">Salva come Job…</button>
                     <label class="hsync-dryrun">
                         <input type="checkbox" data-field="run-dry-run" checked> Dry run
                     </label>

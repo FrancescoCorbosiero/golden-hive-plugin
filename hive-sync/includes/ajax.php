@@ -372,6 +372,65 @@ add_action( 'wp_ajax_hsync_ajax_runs_recent', function () {
     wp_send_json_success( [ 'runs' => $repo->recent( $limit ) ] );
 } );
 
+// ─── Jobs ──────────────────────────────────────────────────────────
+
+add_action( 'wp_ajax_hsync_ajax_jobs_list', function () {
+    hsync_ajax_guard();
+    $repo = new \HiveSync\Core\Repo\JobRepository();
+    wp_send_json_success( [ 'jobs' => $repo->all() ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_job_save', function () {
+    hsync_ajax_guard();
+    $cron = hsync_post_text( 'cron_expr' );
+    if ( $cron !== '' && \HiveSync\Workflow\Schedule\CronExpr::parse( $cron ) === null ) {
+        wp_send_json_error( [ 'message' => 'Cron expression non valida.' ] );
+    }
+    $nextRunAt = null;
+    if ( $cron !== '' ) {
+        $next = \HiveSync\Workflow\Schedule\CronExpr::nextRun( $cron, time() );
+        if ( $next !== null ) $nextRunAt = gmdate( 'Y-m-d H:i:s', $next );
+    }
+
+    $repo = new \HiveSync\Core\Repo\JobRepository();
+    $id   = $repo->save( [
+        'id'            => (int) hsync_post_text( 'id' ),
+        'runnable_type' => hsync_post_text( 'runnable_type' ),
+        'runnable_ref'  => hsync_post_text( 'runnable_ref' ),
+        'cron_expr'     => $cron,
+        'enabled'       => hsync_post_bool( 'enabled' ),
+        'next_run_at'   => $nextRunAt,
+        'config'        => hsync_post_json( 'config' ),
+    ] );
+    wp_send_json_success( [ 'id' => $id, 'next_run_at' => $nextRunAt ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_job_delete', function () {
+    hsync_ajax_guard();
+    $id = (int) hsync_post_text( 'id' );
+    if ( $id <= 0 ) wp_send_json_error( [ 'message' => 'id richiesto.' ] );
+    $repo = new \HiveSync\Core\Repo\JobRepository();
+    wp_send_json_success( [ 'deleted' => $repo->delete( $id ) ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_job_run_now', function () {
+    hsync_ajax_guard();
+    $id = (int) hsync_post_text( 'id' );
+    if ( $id <= 0 ) wp_send_json_error( [ 'message' => 'id richiesto.' ] );
+    $runner = new \HiveSync\Workflow\Schedule\JobRunner(
+        new \HiveSync\Core\Repo\JobRepository(),
+        new \HiveSync\Core\Repo\RunRepository(),
+        new \HiveSync\Core\Repo\RuleRepository(),
+        new \HiveSync\Core\Repo\SourceConfigRepository(),
+    );
+    wp_send_json_success( $runner->runJobNow( $id ) );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_jobs_tick_now', function () {
+    hsync_ajax_guard();
+    wp_send_json_success( hsync_run_tick() );
+} );
+
 // ─── Legacy migration ──────────────────────────────────────────────
 
 function hsync_legacy_importer(): \HiveSync\Workflow\Migration\LegacyImporter {

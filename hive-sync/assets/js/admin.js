@@ -462,6 +462,152 @@
         } catch (e) { alert('Errore: ' + e.message); }
     };
 
+    // ─── Jobs ─────────────────────────────────────────────────────
+
+    HSync.loadJobs = async function () {
+        const region = $('[data-region="jobs-list"]');
+        try {
+            // Load rules + sources + configs so the editor's pickers populate.
+            await HSync.loadRegistry();
+            if (!HSync.state.rules.length) {
+                try {
+                    const r = await HSync.ajax('rules_list', {});
+                    HSync.state.rules = r.rules || [];
+                } catch {}
+            }
+            const data = await HSync.ajax('jobs_list', {});
+            HSync.state.jobs = data.jobs || [];
+            HSync.renderJobsList();
+        } catch (e) {
+            region.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+        }
+    };
+
+    HSync.renderJobsList = function () {
+        const region = $('[data-region="jobs-list"]');
+        if (!HSync.state.jobs.length) {
+            region.innerHTML = '<div class="hsync-empty">Nessun job schedulato.</div>';
+            return;
+        }
+        region.innerHTML = HSync.state.jobs.map(j => ''
+            + '<div class="hsync-mapping-row">'
+            +   '<div class="hsync-row-main">'
+            +     '<div class="hsync-row-name">'
+            +       (j.enabled ? '<span class="hsync-action-pill is-created">on</span>' : '<span class="hsync-action-pill is-skipped">off</span>') + ' '
+            +       '<code>' + esc(j.runnable_type) + '</code> · <code>' + esc(j.runnable_ref) + '</code>'
+            +     '</div>'
+            +     '<div class="hsync-row-meta">'
+            +       'cron: <code>' + esc(j.cron_expr || '—') + '</code> · '
+            +       'next: <code>' + esc(j.next_run_at || '—') + '</code> · '
+            +       'last: <code>' + esc(j.last_run_status || '—') + '</code>'
+            +     '</div>'
+            +   '</div>'
+            +   '<button class="button" data-action="job-run-now" data-id="' + j.id + '">Run</button>'
+            +   '<button class="button" data-action="job-edit"    data-id="' + j.id + '">Modifica</button>'
+            +   '<button class="button" data-action="job-delete"  data-id="' + j.id + '">Elimina</button>'
+            + '</div>'
+        ).join('');
+    };
+
+    HSync.openJobEditor = function (job) {
+        HSync.state.editingJob = job
+            ? JSON.parse(JSON.stringify(job))
+            : { id: 0, runnable_type: 'source.import', runnable_ref: '', cron_expr: '', enabled: false, config: {} };
+        $('[data-region="jobs-list"]').classList.add('is-hidden');
+        $('[data-region="job-editor"]').classList.remove('is-hidden');
+        HSync.renderJobEditor();
+    };
+
+    HSync.closeJobEditor = function () {
+        HSync.state.editingJob = null;
+        $('[data-region="job-editor"]').classList.add('is-hidden');
+        $('[data-region="jobs-list"]').classList.remove('is-hidden');
+    };
+
+    HSync.renderJobEditor = function () {
+        const j = HSync.state.editingJob;
+        const root = $('[data-region="job-editor"]');
+
+        // Build ref picker depending on runnable_type.
+        const sourceOpts = HSync.state.sources.map(s => '<option value="' + esc(s.id) + '"' + (j.runnable_ref === s.id ? ' selected' : '') + '>' + esc(s.label) + ' (' + esc(s.id) + ')</option>').join('');
+        const ruleOpts   = HSync.state.rules.map(r => '<option value="' + esc(r.slug) + '"' + (j.runnable_ref === r.slug ? ' selected' : '') + '>' + esc(r.name) + ' (' + esc(r.slug) + ')</option>').join('');
+
+        const refField = j.runnable_type === 'rule'
+            ? '<select data-field="job-ref"><option value="">— scegli rule —</option>' + ruleOpts + '</select>'
+            : '<select data-field="job-ref"><option value="">— scegli source —</option>' + sourceOpts + '</select>';
+
+        // Source-specific inline config selector (saved configs)
+        let configField = '';
+        if (j.runnable_type === 'source.import' && HSync.state.sourceConfigs.length) {
+            const filtered = HSync.state.sourceConfigs.filter(c => c.source_kind === j.runnable_ref);
+            const cfgOpts  = filtered.map(c => '<option value="' + esc(c.slug) + '">' + esc(c.name) + '</option>').join('');
+            const stored   = (j.config && j.config.config_slug) || '';
+            const wrapped  = j.runnable_ref ? cfgOpts : '<option value="">— scegli prima un source —</option>';
+            configField = '<label>Saved config (optional)<select data-field="job-config-slug"><option value="">— inline —</option>' + wrapped + '</select></label>';
+        }
+
+        root.innerHTML = ''
+            + '<h2>' + (j.id ? 'Modifica job #' + j.id : 'Nuovo job') + '</h2>'
+            + '<label>Tipo'
+            +   '<select data-field="job-type">'
+            +     '<option value="source.import"' + (j.runnable_type === 'source.import' ? ' selected' : '') + '>source.import</option>'
+            +     '<option value="rule"'          + (j.runnable_type === 'rule'          ? ' selected' : '') + '>rule</option>'
+            +   '</select>'
+            + '</label>'
+            + '<label>Riferimento ' + refField + '</label>'
+            + configField
+            + '<label>Cron expression (5 fields)<input type="text" data-field="job-cron" value="' + esc(j.cron_expr || '') + '" placeholder="*/15 * * * *"></label>'
+            + '<label class="hsync-dryrun"><input type="checkbox" data-field="job-enabled"' + (j.enabled ? ' checked' : '') + '> Abilitato</label>'
+            + '<div class="hsync-actions" style="margin-top:24px;border-top:1px solid #ccd0d4;padding-top:16px;">'
+            +   '<button class="button button-primary" data-action="job-save">Salva</button>'
+            +   '<button class="button" data-action="job-cancel">Annulla</button>'
+            + '</div>';
+    };
+
+    HSync.saveJob = async function () {
+        const j = HSync.state.editingJob;
+        const data = {
+            id:            String(j.id || 0),
+            runnable_type: $('[data-field="job-type"]').value,
+            runnable_ref:  $('[data-field="job-ref"]').value,
+            cron_expr:     $('[data-field="job-cron"]').value,
+            enabled:       $('[data-field="job-enabled"]').checked ? '1' : '0',
+            config:        {},
+        };
+        if (!data.runnable_ref) { alert('Scegli un riferimento.'); return; }
+        const cfgSlugEl = $('[data-field="job-config-slug"]');
+        if (cfgSlugEl && cfgSlugEl.value) data.config = { config_slug: cfgSlugEl.value };
+        try {
+            await HSync.ajax('job_save', data);
+            HSync.closeJobEditor();
+            HSync.loadJobs();
+        } catch (e) { alert('Errore: ' + e.message); }
+    };
+
+    HSync.deleteJob = async function (id) {
+        if (!confirm('Eliminare questo job?')) return;
+        try {
+            await HSync.ajax('job_delete', { id: String(id) });
+            HSync.loadJobs();
+        } catch (e) { alert('Errore: ' + e.message); }
+    };
+
+    HSync.runJobNow = async function (id) {
+        try {
+            const data = await HSync.ajax('job_run_now', { id: String(id) });
+            alert('Run dispatched: ' + JSON.stringify(data, null, 2).slice(0, 400));
+            HSync.loadJobs();
+        } catch (e) { alert('Errore: ' + e.message); }
+    };
+
+    HSync.tickNow = async function () {
+        try {
+            const data = await HSync.ajax('jobs_tick_now', {});
+            alert('Tick: ' + data.dispatched + ' dispatched, ' + data.skipped + ' skipped' + (data.locked ? ' (LOCKED)' : ''));
+            HSync.loadJobs();
+        } catch (e) { alert('Errore: ' + e.message); }
+    };
+
     // ─── Legacy migration ─────────────────────────────────────────
 
     HSync.legacyAudit = async function () {
@@ -984,11 +1130,25 @@
         if (t.matches('[data-action="rule-step-up"]'))    return HSync.moveRuleStep(t.dataset.kind, parseInt(t.dataset.idx,10), -1);
         if (t.matches('[data-action="rule-step-down"]'))  return HSync.moveRuleStep(t.dataset.kind, parseInt(t.dataset.idx,10), 1);
         if (t.matches('[data-action="rule-step-delete"]'))return HSync.deleteRuleStep(t.dataset.kind, parseInt(t.dataset.idx,10));
+
+        // Jobs
+        if (t.matches('[data-action="job-new"]'))      return HSync.openJobEditor(null);
+        if (t.matches('[data-action="job-edit"]')) {
+            const j = HSync.state.jobs.find(x => x.id === parseInt(t.dataset.id, 10));
+            return HSync.openJobEditor(j);
+        }
+        if (t.matches('[data-action="job-delete"]'))   return HSync.deleteJob(parseInt(t.dataset.id, 10));
+        if (t.matches('[data-action="job-run-now"]'))  return HSync.runJobNow(parseInt(t.dataset.id, 10));
+        if (t.matches('[data-action="job-save"]'))     return HSync.saveJob();
+        if (t.matches('[data-action="job-cancel"]'))   return HSync.closeJobEditor();
+        if (t.matches('[data-action="jobs-tick-now"]'))return HSync.tickNow();
     });
 
     document.addEventListener('change', function (e) {
         if (e.target.matches('[data-control="mappings-filter"]')) HSync.loadMappings();
         if (e.target.matches('[data-field="run-source"]'))        HSync.populateRunMappings();
+        if (e.target.matches('[data-field="job-type"]'))          { HSync.state.editingJob.runnable_type = e.target.value; HSync.renderJobEditor(); }
+        if (e.target.matches('[data-field="job-ref"]'))           { HSync.state.editingJob.runnable_ref  = e.target.value; if (HSync.state.editingJob.runnable_type === 'source.import') HSync.loadSourceConfigs(e.target.value).then(() => HSync.renderJobEditor()); }
     });
 
     // ─── Boot ─────────────────────────────────────────────────────

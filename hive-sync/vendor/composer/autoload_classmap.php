@@ -52,4 +52,6 @@ return array(
     'HiveSync\\Sources\\GoldenSneakersSource' => $baseDir . '/src/Sources/GoldenSneakersSource.php',
     'HiveSync\\Workflow\\Migration\\LegacyImporter' => $baseDir . '/src/Workflow/Migration/LegacyImporter.php',
     'HiveSync\\Workflow\\Run\\ImportRunner' => $baseDir . '/src/Workflow/Run/ImportRunner.php',
+    'HiveSync\\Workflow\\Schedule\\CronExpr' => $baseDir . '/src/Workflow/Schedule/CronExpr.php',
+    'HiveSync\\Workflow\\Schedule\\JobRunner' => $baseDir . '/src/Workflow/Schedule/JobRunner.php',
 );

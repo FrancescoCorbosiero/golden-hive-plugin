@@ -67,6 +67,8 @@ class ComposerStaticInit8ec97cf8e32aa119124e2c238cc20b92
         'HiveSync\\Sources\\GoldenSneakersSource' => __DIR__ . '/../..' . '/src/Sources/GoldenSneakersSource.php',
         'HiveSync\\Workflow\\Migration\\LegacyImporter' => __DIR__ . '/../..' . '/src/Workflow/Migration/LegacyImporter.php',
         'HiveSync\\Workflow\\Run\\ImportRunner' => __DIR__ . '/../..' . '/src/Workflow/Run/ImportRunner.php',
+        'HiveSync\\Workflow\\Schedule\\CronExpr' => __DIR__ . '/../..' . '/src/Workflow/Schedule/CronExpr.php',
+        'HiveSync\\Workflow\\Schedule\\JobRunner' => __DIR__ . '/../..' . '/src/Workflow/Schedule/JobRunner.php',
     );
 
     public static function getInitializer(ClassLoader $loader)

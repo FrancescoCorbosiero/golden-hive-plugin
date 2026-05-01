@@ -64,6 +64,7 @@ class ComposerStaticInit8ec97cf8e32aa119124e2c238cc20b92
         'HiveSync\\Operations\\Stock\\SetStockStatus' => __DIR__ . '/../..' . '/src/Operations/Stock/SetStockStatus.php',
         'HiveSync\\Sources\\CsvSource' => __DIR__ . '/../..' . '/src/Sources/CsvSource.php',
         'HiveSync\\Sources\\GoldenSneakersSource' => __DIR__ . '/../..' . '/src/Sources/GoldenSneakersSource.php',
+        'HiveSync\\Workflow\\Run\\ImportRunner' => __DIR__ . '/../..' . '/src/Workflow/Run/ImportRunner.php',
     );
 
     public static function getInitializer(ClassLoader $loader)

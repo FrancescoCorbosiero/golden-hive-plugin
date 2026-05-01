@@ -34,6 +34,8 @@ unset( $hsync_autoload );
 require_once HSYNC_DIR . 'includes/migrate.php';
 require_once HSYNC_DIR . 'includes/host-adapter.php';
 require_once HSYNC_DIR . 'includes/admin-page.php';
+require_once HSYNC_DIR . 'includes/assets.php';
+require_once HSYNC_DIR . 'includes/ajax.php';
 
 // Concrete sources / operations / checks self-register on the
 // 'hive_sync/core_booted' action. Required BEFORE Bootstrap::boot()

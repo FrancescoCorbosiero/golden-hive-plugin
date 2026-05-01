@@ -95,7 +95,9 @@ function hsync_render_admin_page(): void {
             <div class="hsync-toolbar">
                 <button class="button button-primary" data-action="job-new">+ Nuovo job</button>
                 <button class="button" data-action="jobs-tick-now">Tick now</button>
+                <button class="button" data-action="as-health">Action Scheduler health</button>
             </div>
+            <div data-region="as-health-output"></div>
             <div data-region="jobs-list"><p class="hsync-loading">Caricamento…</p></div>
             <div class="hsync-job-editor is-hidden" data-region="job-editor"></div>
         </section>

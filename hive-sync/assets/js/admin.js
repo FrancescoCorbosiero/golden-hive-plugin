@@ -637,6 +637,51 @@
         }
     };
 
+    // ─── Action Scheduler health ──────────────────────────────────
+
+    HSync.asHealth = async function () {
+        const out = $('[data-region="as-health-output"]');
+        out.innerHTML = '<p class="hsync-loading">Reading Action Scheduler state…</p>';
+        try {
+            const data = await HSync.ajax('as_health', {});
+            const stat = (label, num, kind) =>
+                '<div class="hsync-stat ' + (kind || '') + '"><div class="hsync-stat-num">' + (num || 0) + '</div><div class="hsync-stat-label">' + label + '</div></div>';
+            const cronWarn = data.cron_disabled
+                ? '<div class="hsync-warning"><code>DISABLE_WP_CRON</code> attivo. Hive Sync drena la coda ad ogni admin page load (max 1/min). In produzione: configura un cron host che pinghi <code>wp-cron.php</code>.</div>'
+                : '';
+            out.innerHTML = ''
+                + cronWarn
+                + '<div class="hsync-summary" style="grid-template-columns:repeat(3,1fr);">'
+                +   stat('Pending', data.pending)
+                +   stat('Past-due', data.past_due, data.past_due > 100 ? 'is-bad' : '')
+                +   stat('Failed', data.failed, data.failed > 0 ? 'is-bad' : '')
+                + '</div>'
+                + '<div class="hsync-actions">'
+                +   '<button class="button" data-action="as-run-queue">Run queue now</button>'
+                +   '<button class="button" data-action="as-purge-past-due">Purge past-due (>7gg)</button>'
+                + '</div>';
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+        }
+    };
+
+    HSync.asRunQueue = async function () {
+        try {
+            const data = await HSync.ajax('as_run_queue', {});
+            alert('Action Scheduler queue runner triggered (' + data.duration_ms + 'ms).');
+            HSync.asHealth();
+        } catch (e) { alert('Errore: ' + e.message); }
+    };
+
+    HSync.asPurgePastDue = async function () {
+        if (!confirm('Eliminare definitivamente le pending actions in ritardo da più di 7 giorni? Questa operazione non è reversibile.')) return;
+        try {
+            const data = await HSync.ajax('as_purge_past_due', {});
+            alert('Eliminati ' + (data.deleted || 0) + ' record (azioni + log).');
+            HSync.asHealth();
+        } catch (e) { alert('Errore: ' + e.message); }
+    };
+
     HSync.tickNow = async function () {
         try {
             const data = await HSync.ajax('jobs_tick_now', {});
@@ -1178,7 +1223,10 @@
         if (t.matches('[data-action="job-run-now"]'))  return HSync.runJobNow(parseInt(t.dataset.id, 10));
         if (t.matches('[data-action="job-save"]'))     return HSync.saveJob();
         if (t.matches('[data-action="job-cancel"]'))   return HSync.closeJobEditor();
-        if (t.matches('[data-action="jobs-tick-now"]'))return HSync.tickNow();
+        if (t.matches('[data-action="jobs-tick-now"]'))    return HSync.tickNow();
+        if (t.matches('[data-action="as-health"]'))        return HSync.asHealth();
+        if (t.matches('[data-action="as-run-queue"]'))     return HSync.asRunQueue();
+        if (t.matches('[data-action="as-purge-past-due"]'))return HSync.asPurgePastDue();
 
         // Exports
         if (t.matches('[data-action="export-inventory"]')) return HSync.exportInventory(t.dataset.format || 'csv');

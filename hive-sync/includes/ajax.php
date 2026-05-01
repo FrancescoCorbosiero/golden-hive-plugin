@@ -431,6 +431,75 @@ add_action( 'wp_ajax_hsync_ajax_jobs_tick_now', function () {
     wp_send_json_success( hsync_run_tick() );
 } );
 
+// ─── Action Scheduler health (helpful when DISABLE_WP_CRON) ───────
+
+add_action( 'wp_ajax_hsync_ajax_as_health', function () {
+    hsync_ajax_guard();
+    if ( ! function_exists( 'as_get_scheduled_actions' ) ) {
+        wp_send_json_error( [ 'message' => 'Action Scheduler non disponibile (WooCommerce caricato?).' ] );
+    }
+    $past_due = as_get_scheduled_actions( [
+        'status'    => \ActionScheduler_Store::STATUS_PENDING,
+        'date'      => 'now',
+        'date_compare' => '<',
+        'per_page'  => 1,
+        'group'     => '',
+    ], 'ids' );
+    $total_pending = as_get_scheduled_actions( [
+        'status'   => \ActionScheduler_Store::STATUS_PENDING,
+        'per_page' => 1,
+    ], 'ids' );
+
+    // For an accurate count we need a SELECT COUNT, not LIMIT 1. The
+    // 'ids' return is paginated; use the store directly for totals.
+    global $wpdb;
+    $total_pending_count = (int) $wpdb->get_var(
+        "SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE status = 'pending'"
+    );
+    $past_due_count = (int) $wpdb->get_var( $wpdb->prepare(
+        "SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE status = 'pending' AND scheduled_date_gmt < %s",
+        gmdate( 'Y-m-d H:i:s' ),
+    ) );
+    $failed_count = (int) $wpdb->get_var(
+        "SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE status = 'failed'"
+    );
+    $cron_disabled = defined( 'DISABLE_WP_CRON' ) && DISABLE_WP_CRON;
+
+    wp_send_json_success( [
+        'pending'       => $total_pending_count,
+        'past_due'      => $past_due_count,
+        'failed'        => $failed_count,
+        'cron_disabled' => $cron_disabled,
+    ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_as_run_queue', function () {
+    hsync_ajax_guard();
+    if ( ! has_action( 'action_scheduler_run_queue' ) ) {
+        wp_send_json_error( [ 'message' => 'Action Scheduler non disponibile.' ] );
+    }
+    $start = microtime( true );
+    do_action( 'action_scheduler_run_queue', 'Hive Sync Manual' );
+    wp_send_json_success( [ 'ok' => true, 'duration_ms' => (int) ( ( microtime( true ) - $start ) * 1000 ) ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_as_purge_past_due', function () {
+    hsync_ajax_guard();
+    global $wpdb;
+    // Hard delete pending actions that were due more than 7 days ago.
+    // Anything past-due that long is almost certainly stale (the
+    // operator has noticed and is manually cleaning up).
+    $cutoff = gmdate( 'Y-m-d H:i:s', time() - 7 * 86400 );
+    $deleted = (int) $wpdb->query( $wpdb->prepare(
+        "DELETE a, l
+         FROM {$wpdb->prefix}actionscheduler_actions a
+         LEFT JOIN {$wpdb->prefix}actionscheduler_logs l ON l.action_id = a.action_id
+         WHERE a.status = 'pending' AND a.scheduled_date_gmt < %s",
+        $cutoff,
+    ) );
+    wp_send_json_success( [ 'deleted' => max( 0, $deleted ) ] );
+} );
+
 // ─── Exports ───────────────────────────────────────────────────────
 
 add_action( 'wp_ajax_hsync_ajax_export_inventory', function () {

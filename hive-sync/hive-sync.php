@@ -37,6 +37,7 @@ require_once HSYNC_DIR . 'includes/admin-page.php';
 require_once HSYNC_DIR . 'includes/assets.php';
 require_once HSYNC_DIR . 'includes/ajax.php';
 require_once HSYNC_DIR . 'includes/cron.php';
+require_once HSYNC_DIR . 'includes/cron-fallback.php';
 
 // Concrete sources / operations / checks self-register on the
 // 'hive_sync/core_booted' action. Required BEFORE Bootstrap::boot()

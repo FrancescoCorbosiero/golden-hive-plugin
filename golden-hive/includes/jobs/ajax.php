@@ -140,51 +140,45 @@ add_action( 'wp_ajax_gh_ajax_jobs_toggle', function () {
 } );
 
 /**
- * Manual "Run now" — drains ticks within a single HTTP request so it works
- * on local environments where wp-cron does not fire continuation events.
+ * Manual "Run now" — executes ONE tick and returns. The client polls
+ * (see js-jobs.php → jobsRunNow) and re-issues with the existing lock
+ * so subsequent calls resume mid-import. This keeps each request short
+ * so concurrent admin browsing isn't blocked behind a long drain loop.
  *
- * Smart trigger selection: if a lock with a cursor exists, the previous run
- * yielded mid-import and a continuation event is/was queued; resume from
- * that cursor by passing trigger='continuation'. Otherwise start fresh
- * with trigger='manual'.
- *
- * The loop bound (default 50) prevents pathological pipelines from hanging
- * the request indefinitely; pass `max_iters` from the client to override.
+ * Smart trigger selection: if a lock with a cursor exists, the previous
+ * run yielded mid-import; resume from that cursor by passing
+ * trigger='continuation'. Otherwise start fresh with trigger='manual'.
  */
 add_action( 'wp_ajax_gh_ajax_jobs_run_now', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
-    $job_id    = sanitize_text_field( (string) ( $_POST['job_id'] ?? '' ) );
-    $max_iters = max( 1, min( 200, (int) ( $_POST['max_iters'] ?? 50 ) ) );
+    $job_id = sanitize_text_field( (string) ( $_POST['job_id'] ?? '' ) );
 
     if ( function_exists( 'set_time_limit' ) ) @set_time_limit( 0 );
 
     // If the previous run yielded a cursor, resume from it. Otherwise the
-    // existing 'manual' path acquires a fresh lock and starts over.
+    // existing 'manual' path acquires a fresh lock and starts fresh.
     $existing = gh_jobs_read_lock( $job_id );
     $resumed  = is_array( $existing ) && isset( $existing['cursor'] ) && $existing['cursor'] !== null;
     $trigger  = $resumed ? 'continuation' : 'manual';
 
-    $iters = 0;
-    $last  = null;
-    do {
-        $last = gh_jobs_run_tick( $job_id, $trigger );
-        $iters++;
-        if ( is_wp_error( $last ) || ! is_array( $last ) ) break;
-        // Subsequent iterations always resume the same in-flight run.
-        $trigger = 'continuation';
-    } while ( ( $last['status'] ?? '' ) === 'continue' && $iters < $max_iters );
-
-    if ( is_wp_error( $last ) ) {
-        wp_send_json_error( $last->get_error_message() );
+    $result = gh_jobs_run_tick( $job_id, $trigger );
+    if ( is_wp_error( $result ) ) {
+        wp_send_json_error( $result->get_error_message() );
     }
 
+    // Surface the post-tick lock so the client knows whether to keep polling.
+    $post_lock = gh_jobs_read_lock( $job_id );
+
     wp_send_json_success( [
-        'final'      => $last,
-        'iterations' => $iters,
-        'resumed'    => $resumed,
-        'capped'     => ( $last['status'] ?? '' ) === 'continue' && $iters >= $max_iters,
+        'tick'    => $result,
+        'resumed' => $resumed,
+        'lock'    => is_array( $post_lock ) ? [
+            'has_cursor'    => isset( $post_lock['cursor'] ) && $post_lock['cursor'] !== null,
+            'ticks'         => (int) ( $post_lock['ticks'] ?? 0 ),
+            'started_at_ts' => (int) ( $post_lock['started_at_ts'] ?? 0 ),
+        ] : null,
     ] );
 } );
 

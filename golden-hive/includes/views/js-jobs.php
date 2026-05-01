@@ -520,26 +520,75 @@
         jobsReload();
     }
 
+    // Per-job poll state. Map<jobId, { stop: bool, ticks: int }>. A "Pause"
+    // button flips stop=true, which cleanly halts polling between ticks
+    // without touching the server-side lock — Resume picks back up from
+    // the same cursor on the next click.
+    const runState = new Map();
+
+    function jobsRunIsActive(id) {
+        const s = runState.get(id);
+        return !!(s && !s.stop);
+    }
+
+    function jobsRunStop(id) {
+        const s = runState.get(id);
+        if (s) s.stop = true;
+        toast('Pausa richiesta — si fermerà a fine tick', 'inf');
+    }
+    GH.jobsRunStop = jobsRunStop;
+
     async function jobsRunNow(id) {
+        // If already polling for this job, the button acts as Pause.
+        if (jobsRunIsActive(id)) { jobsRunStop(id); return; }
+
         const job = jobs.find(j => j.id === id);
         const suspended = job && job.lock && job.lock.has_cursor;
         const verb = suspended ? 'Riprendere' : 'Eseguire subito';
-        if (!confirm(verb + ' questo job? Drena i tick fino a completamento o cap.')) return;
+        if (!confirm(verb + ' questo job? Esegue un tick alla volta — puoi mettere in pausa.')) return;
 
+        const state = { stop: false, ticks: 0 };
+        runState.set(id, state);
         toast(suspended ? 'Riprendo...' : 'Avviato...', 'inf');
-        const r = await ajax('gh_ajax_jobs_run_now', { job_id: id });
-        if (!r.success) { toast('Errore: ' + r.data, 'err'); return; }
 
-        const d      = r.data || {};
-        const status = (d.final && d.final.status) || 'done';
-        const iters  = d.iterations || 1;
-        const tag    = d.resumed ? 'ripreso' : 'eseguito';
-        let msg;
-        if (status === 'error')   msg = 'Errore — ' + tag + ' ' + iters + ' tick';
-        else if (d.capped)        msg = 'Cap raggiunto a ' + iters + ' tick — clicca Riprendi per continuare';
-        else if (status === 'continue') msg = 'Sospeso al tick ' + iters + ' — riprendi quando vuoi';
-        else                       msg = 'Completato (' + tag + ' in ' + iters + ' tick)';
-        toast(msg, status === 'error' ? 'err' : 'ok', d.capped ? 0 : 4000);
+        let lastStatus = 'continue';
+        let resumed    = false;
+
+        try {
+            while (!state.stop && lastStatus === 'continue') {
+                const r = await ajax('gh_ajax_jobs_run_now', { job_id: id });
+                if (!r.success) {
+                    toast('Errore: ' + r.data, 'err', 0);
+                    break;
+                }
+                const d = r.data || {};
+                const tick = d.tick || {};
+                lastStatus = tick.status || 'done';
+                resumed    = resumed || !!d.resumed;
+                state.ticks++;
+
+                // Live progress chip — sticky toast we replace each tick.
+                const lockTicks = (d.lock && d.lock.ticks) || state.ticks;
+                if (lastStatus === 'continue') {
+                    toast('Tick ' + lockTicks + ' completato — continuo...', 'inf', 1500);
+                }
+
+                // Yield to the event loop briefly so the user can click Pause
+                // and the browser can repaint between ticks.
+                if (lastStatus === 'continue' && !state.stop) {
+                    await new Promise(res => setTimeout(res, 250));
+                }
+            }
+        } finally {
+            runState.delete(id);
+        }
+
+        const tag = resumed ? 'ripreso' : 'eseguito';
+        let msg, kind = 'ok', sticky = 0;
+        if (lastStatus === 'error')             { msg = 'Errore — ' + tag + ' ' + state.ticks + ' tick';      kind = 'err'; sticky = 0; }
+        else if (lastStatus === 'continue')     { msg = 'In pausa al tick ' + state.ticks + ' — clicca Riprendi'; sticky = 4000; }
+        else                                     { msg = 'Completato (' + tag + ' in ' + state.ticks + ' tick)'; sticky = 4000; }
+        toast(msg, kind, sticky);
         jobsReload();
     }
 

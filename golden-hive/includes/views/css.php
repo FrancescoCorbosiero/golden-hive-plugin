@@ -518,6 +518,16 @@
    scroll inside its wrapper instead of pushing the page. */
 #gh #panel-workflow #wf-preview-table-wrap{overflow-x:auto}
 
+/* ── Global ajax-in-flight indicator ────────────────────────────
+   2px indeterminate bar at the top of #gh, toggled by body.gh-loading
+   from the GH.ajax wrapper. Visible whenever at least one GH.ajax()
+   call is in flight; hidden the moment the counter returns to zero. */
+#gh{position:relative}
+#gh #gh-progress{position:absolute;top:0;left:0;right:0;height:2px;pointer-events:none;z-index:60;opacity:0;transition:opacity .15s;overflow:hidden}
+body.gh-loading #gh #gh-progress{opacity:1}
+#gh #gh-progress::before{content:'';display:block;height:100%;width:30%;background:linear-gradient(90deg,transparent,var(--acc) 50%,transparent);animation:gh-prog 1.1s linear infinite;will-change:transform}
+@keyframes gh-prog{0%{transform:translateX(-100%)}100%{transform:translateX(360%)}}
+
 @media(max-width:768px){
     #gh .em-tpl-ctx-pickers{flex-direction:column;align-items:stretch}
     #gh .em-tpl-picker{width:100%}

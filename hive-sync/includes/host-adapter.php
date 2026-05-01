@@ -11,6 +11,8 @@
  *   filter  hive_sync/host/media/preimport    ($attachment_id_or_null, $url, $context)
  *   filter  hive_sync/host/product/upsert     ($product_id_or_null, $product_data, $context)
  *   action  hive_sync/host/conflict/record    ($product_id, $source, $field_changes, $context)
+ *   filter  hive_sync/host/conflict/resolve   ($result_or_null, $product_id, $incoming, $source_id)
+ *   filter  hive_sync/host/selection/resolve  ($ids_or_null, $selection)
  *
  * Phase 1 wires only the hook names + thin helper functions. Internal
  * fallbacks throw NotImplemented so missing wiring fails loud, not silent.
@@ -60,4 +62,27 @@ function hsync_upsert_product( array $product_data, array $context = [] ): ?int 
  */
 function hsync_record_conflict( int $product_id, string $source, array $field_changes, array $context = [] ): void {
     do_action( 'hive_sync/host/conflict/record', $product_id, $source, $field_changes, $context );
+}
+
+/**
+ * Ask the conflict engine which slices the incoming write may touch.
+ * Default-allow when the host filter is unbound (preserves legacy
+ * behavior of plain Woo writes when no conflict module is present).
+ *
+ * @return array{allowed_slices: array<string,bool>, blocked: array<string,string>, applied_rule: ?string}
+ */
+function hsync_resolve_conflict( int $product_id, array $incoming, string $source_id ): array {
+    $resolved = apply_filters( 'hive_sync/host/conflict/resolve', null, $product_id, $incoming, $source_id );
+    if ( is_array( $resolved ) && isset( $resolved['allowed_slices'] ) ) {
+        return [
+            'allowed_slices' => (array) $resolved['allowed_slices'],
+            'blocked'        => (array) ( $resolved['blocked'] ?? [] ),
+            'applied_rule'   => isset( $resolved['applied_rule'] ) ? (string) $resolved['applied_rule'] : null,
+        ];
+    }
+    return [
+        'allowed_slices' => [ 'catalog' => true, 'pricing' => true, 'stock' => true, 'media' => true ],
+        'blocked'        => [],
+        'applied_rule'   => null,
+    ];
 }

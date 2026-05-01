@@ -16,6 +16,7 @@
         state: {
             sources: [],
             mappings: [],
+            sourceConfigs: [],
             currentTab: 'sources',
             editingMapping: null,
         },
@@ -340,6 +341,7 @@
         const region   = $('[data-region="run-config-fields"]');
         if (!sourceId) {
             region.innerHTML = '';
+            HSync.populateRunConfigPicker();
             return;
         }
         const src = HSync.state.sources.find(s => s.id === sourceId);
@@ -347,11 +349,72 @@
         region.innerHTML = '<form class="hsync-config-form" data-source="' + esc(src.id) + '" data-context="run">'
             + HSync.renderSchema(src.config_schema, 'run-' + src.id)
             + '</form>';
-        // Refresh mapping picker scoped to this source
-        if (HSync.state.mappings.length === 0) {
-            HSync.loadMappings();
-        } else {
-            HSync.populateRunMappings();
+        if (HSync.state.mappings.length === 0) HSync.loadMappings();
+        else HSync.populateRunMappings();
+        HSync.loadSourceConfigs(sourceId);
+    };
+
+    HSync.loadSourceConfigs = async function (sourceId) {
+        try {
+            const data = await HSync.ajax('source_configs_list', { source_kind: sourceId || '' });
+            HSync.state.sourceConfigs = data.configs || [];
+            HSync.populateRunConfigPicker();
+        } catch (e) {
+            console.warn('Hive Sync: source_configs_list failed —', e.message);
+        }
+    };
+
+    HSync.populateRunConfigPicker = function () {
+        const sel = $('[data-field="run-config-slug"]');
+        if (!sel) return;
+        const sourceId = $('[data-field="run-source"]').value;
+        const filtered = sourceId
+            ? HSync.state.sourceConfigs.filter(c => c.source_kind === sourceId)
+            : [];
+        sel.innerHTML = '<option value="">— inline —</option>'
+            + filtered.map(c => '<option value="' + esc(c.slug) + '">' + esc(c.name) + '</option>').join('');
+        sel.addEventListener('change', HSync.onRunConfigSlugChange, { once: true });
+    };
+
+    HSync.onRunConfigSlugChange = function () {
+        const slug = $('[data-field="run-config-slug"]').value;
+        const cfg  = slug ? (HSync.state.sourceConfigs.find(c => c.slug === slug)?.config || {}) : null;
+        const form = $('[data-context="run"]');
+        if (!form) return;
+        if (!cfg) return;
+        // Hydrate visible fields with stored values (secrets stay redacted).
+        $$('input, select, textarea', form).forEach(el => {
+            if (!el.name) return;
+            if (Object.prototype.hasOwnProperty.call(cfg, el.name)) {
+                if (el.type === 'checkbox') el.checked = !!cfg[el.name];
+                else if (el.type === 'password' && /^•+/.test(String(cfg[el.name]))) {
+                    el.placeholder = String(cfg[el.name]);
+                    el.value = '';
+                } else {
+                    el.value = String(cfg[el.name] ?? '');
+                }
+            }
+        });
+        // Re-attach listener so subsequent picks still hydrate.
+        $('[data-field="run-config-slug"]').addEventListener('change', HSync.onRunConfigSlugChange, { once: true });
+    };
+
+    HSync.saveCurrentConfig = async function () {
+        const sourceId = $('[data-field="run-source"]').value;
+        if (!sourceId) { alert('Scegli una sorgente.'); return; }
+        const form = $('[data-context="run"]');
+        const config = form ? HSync.collectConfig(form) : {};
+        const slug = $('[data-field="run-config-slug"]').value;  // empty = new
+        const name = prompt(slug ? 'Aggiorna il nome:' : 'Nome per questa config:', slug ? (HSync.state.sourceConfigs.find(c => c.slug === slug)?.name || '') : '');
+        if (!name) return;
+        try {
+            const data = await HSync.ajax('source_configs_save', {
+                slug: slug, name: name, source_kind: sourceId, config: config,
+            });
+            await HSync.loadSourceConfigs(sourceId);
+            $('[data-field="run-config-slug"]').value = data.slug;
+        } catch (e) {
+            alert('Errore: ' + e.message);
         }
     };
 
@@ -360,6 +423,7 @@
         if (!sourceId) { alert('Scegli una sorgente.'); return; }
         const formEl = $('[data-context="run"]');
         const config = formEl ? HSync.collectConfig(formEl) : {};
+        const configSlug = $('[data-field="run-config-slug"]').value;
         const dryRun = $('[data-field="run-dry-run"]').checked;
         const mappingSlug = $('[data-field="run-mapping"]').value;
         const mapping = mappingSlug ? HSync.state.mappings.find(m => m.slug === mappingSlug) : null;
@@ -369,10 +433,11 @@
         out.innerHTML = '<p class="hsync-loading">Run in corso…</p>';
         try {
             const data = await HSync.ajax('run_now', {
-                source_id: sourceId,
-                config:    config,
-                options:   options,
-                dry_run:   dryRun ? '1' : '0',
+                source_id:   sourceId,
+                config_slug: configSlug,
+                config:      config,
+                options:     options,
+                dry_run:     dryRun ? '1' : '0',
             });
             HSync.renderRunResult(data);
         } catch (e) {
@@ -494,6 +559,7 @@
         if (t.matches('[data-action="mapping-cancel"]')) return HSync.closeMappingEditor();
         if (t.matches('[data-action="run-now"]'))        return HSync.runNow();
         if (t.matches('[data-action="run-test-fetch"]')) return HSync.testFetchFromRun();
+        if (t.matches('[data-action="run-save-config"]'))return HSync.saveCurrentConfig();
         if (t.matches('[data-action="runs-refresh"]'))   return HSync.loadRuns();
         if (t.matches('[data-action="legacy-audit"]'))   return HSync.legacyAudit();
         if (t.matches('[data-action="legacy-import"]'))  return HSync.legacyImport();

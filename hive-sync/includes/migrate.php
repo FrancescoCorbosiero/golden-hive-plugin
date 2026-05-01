@@ -5,12 +5,13 @@
  * Idempotent dbDelta-based creation of the six tables that own this plugin's
  * state. Phase 1: structure only, no logic reads/writes through these yet.
  *
- *   hsync_mappings   — saved external→Woo field maps (GS, CSV, custom)
- *   hsync_pipelines  — source + map + ops + checks compositions
- *   hsync_rules      — scoped operation bundles (selection + ops + checks)
- *   hsync_jobs       — scheduled or ad-hoc Runnable references + cron
- *   hsync_runs       — execution records (per Runnable invocation)
- *   hsync_checks     — saved Check definitions (pre/post import)
+ *   hsync_mappings        — saved external→Woo field maps (GS, CSV, custom)
+ *   hsync_pipelines       — source + map + ops + checks compositions
+ *   hsync_rules           — scoped operation bundles (selection + ops + checks)
+ *   hsync_jobs            — scheduled or ad-hoc Runnable references + cron
+ *   hsync_runs            — execution records (per Runnable invocation)
+ *   hsync_checks          — saved Check definitions (pre/post import)
+ *   hsync_source_configs  — saved per-source config bundles (URL, token, …)
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -115,6 +116,19 @@ function hsync_migrate_schema(): void {
         PRIMARY KEY  (id),
         UNIQUE KEY slug (slug),
         KEY phase (phase)
+    ) $charset;";
+
+    $statements[] = "CREATE TABLE " . hsync_table( 'source_configs' ) . " (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        slug VARCHAR(100) NOT NULL,
+        name VARCHAR(190) NOT NULL,
+        source_kind VARCHAR(50) NOT NULL,
+        config LONGTEXT NOT NULL,
+        created_at DATETIME NOT NULL,
+        updated_at DATETIME NOT NULL,
+        PRIMARY KEY  (id),
+        UNIQUE KEY slug (slug),
+        KEY source_kind (source_kind)
     ) $charset;";
 
     foreach ( $statements as $sql ) {

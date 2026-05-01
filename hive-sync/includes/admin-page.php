@@ -76,12 +76,16 @@ function hsync_render_admin_page(): void {
                 <label>Sorgente
                     <select data-field="run-source"></select>
                 </label>
+                <label>Config salvata
+                    <select data-field="run-config-slug"><option value="">— inline (compila qui sotto) —</option></select>
+                </label>
                 <label>Mapping (opzionale)
                     <select data-field="run-mapping"><option value="">— nessuna —</option></select>
                 </label>
                 <div data-region="run-config-fields"></div>
                 <div class="hsync-actions">
                     <button class="button" data-action="run-test-fetch">Test fetch</button>
+                    <button class="button" data-action="run-save-config">Salva config</button>
                     <label class="hsync-dryrun">
                         <input type="checkbox" data-field="run-dry-run" checked> Dry run
                     </label>

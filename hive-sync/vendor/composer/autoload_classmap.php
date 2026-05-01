@@ -31,6 +31,7 @@ return array(
     'HiveSync\\Core\\Repo\\MappingRepository' => $baseDir . '/src/Core/Repo/MappingRepository.php',
     'HiveSync\\Core\\Repo\\RuleRepository' => $baseDir . '/src/Core/Repo/RuleRepository.php',
     'HiveSync\\Core\\Repo\\RunRepository' => $baseDir . '/src/Core/Repo/RunRepository.php',
+    'HiveSync\\Core\\Repo\\SourceConfigRepository' => $baseDir . '/src/Core/Repo/SourceConfigRepository.php',
     'HiveSync\\Core\\Selection\\Selection' => $baseDir . '/src/Core/Selection/Selection.php',
     'HiveSync\\Core\\Selection\\SelectionMode' => $baseDir . '/src/Core/Selection/SelectionMode.php',
     'HiveSync\\Core\\Source\\AbstractSource' => $baseDir . '/src/Core/Source/AbstractSource.php',

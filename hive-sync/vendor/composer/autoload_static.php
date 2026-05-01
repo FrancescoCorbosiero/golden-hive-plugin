@@ -46,6 +46,7 @@ class ComposerStaticInit8ec97cf8e32aa119124e2c238cc20b92
         'HiveSync\\Core\\Repo\\MappingRepository' => __DIR__ . '/../..' . '/src/Core/Repo/MappingRepository.php',
         'HiveSync\\Core\\Repo\\RuleRepository' => __DIR__ . '/../..' . '/src/Core/Repo/RuleRepository.php',
         'HiveSync\\Core\\Repo\\RunRepository' => __DIR__ . '/../..' . '/src/Core/Repo/RunRepository.php',
+        'HiveSync\\Core\\Repo\\SourceConfigRepository' => __DIR__ . '/../..' . '/src/Core/Repo/SourceConfigRepository.php',
         'HiveSync\\Core\\Selection\\Selection' => __DIR__ . '/../..' . '/src/Core/Selection/Selection.php',
         'HiveSync\\Core\\Selection\\SelectionMode' => __DIR__ . '/../..' . '/src/Core/Selection/SelectionMode.php',
         'HiveSync\\Core\\Source\\AbstractSource' => __DIR__ . '/../..' . '/src/Core/Source/AbstractSource.php',

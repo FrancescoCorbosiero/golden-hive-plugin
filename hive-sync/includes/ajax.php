@@ -69,11 +69,26 @@ add_action( 'wp_ajax_hsync_ajax_sources_list', function () {
     wp_send_json_success( [ 'sources' => $out ] );
 } );
 
+/**
+ * Resolve the effective config for a source invocation: either an
+ * inline config blob OR a saved config slug. The saved one always
+ * takes precedence (its values include real plaintext secrets).
+ */
+function hsync_resolve_source_config( array $inline, string $configSlug ): array {
+    if ( $configSlug !== '' ) {
+        $repo = new \HiveSync\Core\Repo\SourceConfigRepository();
+        $row  = $repo->find( $configSlug );
+        if ( $row ) return (array) $row['config'];
+    }
+    return $inline;
+}
+
 add_action( 'wp_ajax_hsync_ajax_source_test_fetch', function () {
     hsync_ajax_guard();
-    $sourceId = hsync_post_text( 'source_id' );
-    $config   = hsync_post_json( 'config' );
-    $options  = hsync_post_json( 'options' );
+    $sourceId   = hsync_post_text( 'source_id' );
+    $configSlug = hsync_post_text( 'config_slug' );
+    $config     = hsync_resolve_source_config( hsync_post_json( 'config' ), $configSlug );
+    $options    = hsync_post_json( 'options' );
 
     if ( ! \HiveSync\Core\Bootstrap::$sources ) {
         wp_send_json_error( [ 'message' => 'Bootstrap non inizializzato.' ] );
@@ -105,6 +120,41 @@ add_action( 'wp_ajax_hsync_ajax_source_test_fetch', function () {
         'warnings' => $fetch->warnings,
         'preview'  => $preview,
     ] );
+} );
+
+// ─── Source configs ────────────────────────────────────────────────
+
+add_action( 'wp_ajax_hsync_ajax_source_configs_list', function () {
+    hsync_ajax_guard();
+    $kind = hsync_post_text( 'source_kind' );
+    $repo = new \HiveSync\Core\Repo\SourceConfigRepository();
+    wp_send_json_success( [ 'configs' => $repo->allRedacted( $kind !== '' ? $kind : null ) ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_source_configs_save', function () {
+    hsync_ajax_guard();
+    $slug = hsync_post_text( 'slug' );
+    $data = [
+        'slug'        => $slug,
+        'name'        => hsync_post_text( 'name' ),
+        'source_kind' => hsync_post_text( 'source_kind' ),
+        'config'      => hsync_post_json( 'config' ),
+    ];
+    if ( $data['name'] === '' || $data['source_kind'] === '' ) {
+        wp_send_json_error( [ 'message' => 'name e source_kind richiesti.' ] );
+    }
+    $repo = new \HiveSync\Core\Repo\SourceConfigRepository();
+    $existing = $slug !== '' ? ( $repo->find( $slug )['config'] ?? [] ) : [];
+    $stored = $repo->save( $data, $existing );
+    wp_send_json_success( [ 'slug' => $stored ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_source_configs_delete', function () {
+    hsync_ajax_guard();
+    $slug = hsync_post_text( 'slug' );
+    if ( $slug === '' ) wp_send_json_error( [ 'message' => 'slug richiesto.' ] );
+    $repo = new \HiveSync\Core\Repo\SourceConfigRepository();
+    wp_send_json_success( [ 'deleted' => $repo->delete( $slug ) ] );
 } );
 
 // ─── Mappings ──────────────────────────────────────────────────────
@@ -144,10 +194,11 @@ add_action( 'wp_ajax_hsync_ajax_mappings_delete', function () {
 
 add_action( 'wp_ajax_hsync_ajax_run_now', function () {
     hsync_ajax_guard();
-    $sourceId = hsync_post_text( 'source_id' );
-    $config   = hsync_post_json( 'config' );
-    $options  = hsync_post_json( 'options' );
-    $dryRun   = hsync_post_bool( 'dry_run' );
+    $sourceId   = hsync_post_text( 'source_id' );
+    $configSlug = hsync_post_text( 'config_slug' );
+    $config     = hsync_resolve_source_config( hsync_post_json( 'config' ), $configSlug );
+    $options    = hsync_post_json( 'options' );
+    $dryRun     = hsync_post_bool( 'dry_run' );
 
     if ( ! \HiveSync\Core\Bootstrap::$sources ) {
         wp_send_json_error( [ 'message' => 'Bootstrap non inizializzato.' ] );

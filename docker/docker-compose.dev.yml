@@ -61,6 +61,9 @@ services:
       # Live-mount each plugin into the WP plugins dir.
       - ../golden-hive:/var/www/html/wp-content/plugins/golden-hive
       - ../hive-sync:/var/www/html/wp-content/plugins/hive-sync
+      # Make the helper scripts reachable from inside the container so
+      # `bash docker/scripts/wp-init.sh` (the Makefile recipe) resolves.
+      - ./scripts:/var/www/html/docker/scripts:ro
       # Keep host vendor/ but allow container-local composer installs to
       # not pollute the host. Comment out if you prefer host-only composer.
     extra_hosts:

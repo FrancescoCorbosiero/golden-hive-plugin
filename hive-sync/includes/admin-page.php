@@ -34,7 +34,11 @@ function hsync_render_admin_page(): void {
         <nav class="hsync-tabs" role="tablist">
             <button class="hsync-tab is-active" data-tab="sources" role="tab" aria-selected="true">Sources</button>
             <button class="hsync-tab" data-tab="mappings" role="tab" aria-selected="false">Mappings</button>
+            <button class="hsync-tab" data-tab="pipelines" role="tab" aria-selected="false">Pipelines</button>
+            <button class="hsync-tab" data-tab="rules" role="tab" aria-selected="false">Rules</button>
             <button class="hsync-tab" data-tab="run" role="tab" aria-selected="false">Run</button>
+            <button class="hsync-tab" data-tab="jobs" role="tab" aria-selected="false">Jobs</button>
+            <button class="hsync-tab" data-tab="exports" role="tab" aria-selected="false">Exports</button>
             <button class="hsync-tab" data-tab="runs" role="tab" aria-selected="false">Runs</button>
             <button class="hsync-tab" data-tab="migrate" role="tab" aria-selected="false">Migra da Golden Hive</button>
         </nav>
@@ -67,6 +71,53 @@ function hsync_render_admin_page(): void {
                 <div class="hsync-actions">
                     <button class="button button-primary" data-action="mapping-save">Salva</button>
                     <button class="button" data-action="mapping-cancel">Annulla</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="hsync-panel" data-panel="pipelines">
+            <div class="hsync-toolbar">
+                <button class="button button-primary" data-action="pipeline-new">+ Nuova pipeline</button>
+            </div>
+            <div data-region="pipelines-list"><p class="hsync-loading">Caricamento…</p></div>
+            <div class="hsync-pipeline-editor is-hidden" data-region="pipeline-editor"></div>
+        </section>
+
+        <section class="hsync-panel" data-panel="rules">
+            <div class="hsync-toolbar">
+                <button class="button button-primary" data-action="rule-new">+ Nuova rule</button>
+            </div>
+            <div data-region="rules-list"><p class="hsync-loading">Caricamento…</p></div>
+            <div class="hsync-rule-editor is-hidden" data-region="rule-editor"></div>
+        </section>
+
+        <section class="hsync-panel" data-panel="jobs">
+            <div class="hsync-toolbar">
+                <button class="button button-primary" data-action="job-new">+ Nuovo job</button>
+                <button class="button" data-action="jobs-tick-now">Tick now</button>
+            </div>
+            <div data-region="jobs-list"><p class="hsync-loading">Caricamento…</p></div>
+            <div class="hsync-job-editor is-hidden" data-region="job-editor"></div>
+        </section>
+
+        <section class="hsync-panel" data-panel="exports">
+            <p class="hsync-muted">Export del catalogo Woo locale. CSV/JSON per inventario completo, oppure JSON gerarchico per snapshot per tassonomia.</p>
+            <div data-region="exports-output"></div>
+            <div class="hsync-export-cards">
+                <div class="hsync-source-card">
+                    <h3>Inventario completo</h3>
+                    <p class="hsync-muted">Tutti i prodotti pubblicati: id, sku, name, status, prezzi, stock, brand, categorie.</p>
+                    <div class="hsync-actions">
+                        <button class="button" data-action="export-inventory" data-format="csv">CSV</button>
+                        <button class="button" data-action="export-inventory" data-format="json">JSON</button>
+                    </div>
+                </div>
+                <div class="hsync-source-card">
+                    <h3>Catalogo per tassonomia</h3>
+                    <p class="hsync-muted">JSON raggruppato per <code>product_cat</code> + <code>product_brand</code>, solo dati essenziali.</p>
+                    <div class="hsync-actions">
+                        <button class="button" data-action="export-catalog">JSON</button>
+                    </div>
                 </div>
             </div>
         </section>

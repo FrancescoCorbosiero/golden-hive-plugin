@@ -190,6 +190,107 @@ add_action( 'wp_ajax_hsync_ajax_mappings_delete', function () {
     wp_send_json_success( [ 'deleted' => $repo->delete( $slug ) ] );
 } );
 
+// ─── Registry (operations + checks for the pipeline composer) ─────
+
+add_action( 'wp_ajax_hsync_ajax_registry_list', function () {
+    hsync_ajax_guard();
+    $ops = [];
+    $chk = [];
+    if ( \HiveSync\Core\Bootstrap::$operations ) {
+        foreach ( \HiveSync\Core\Bootstrap::$operations->all() as $op ) {
+            $ops[] = [
+                'id'             => $op->id(),
+                'label'          => $op->label(),
+                'params_schema'  => $op->paramsSchema(),
+                'applies_to'     => $op->appliesTo(),
+                'is_import_rule' => $op instanceof \HiveSync\Core\Operation\ImportRule,
+            ];
+        }
+    }
+    if ( \HiveSync\Core\Bootstrap::$checks ) {
+        foreach ( \HiveSync\Core\Bootstrap::$checks->all() as $c ) {
+            $chk[] = [
+                'id'              => $c->id(),
+                'label'           => $c->label(),
+                'params_schema'   => $c->paramsSchema(),
+                'default_severity' => $c->defaultSeverity()->value,
+            ];
+        }
+    }
+    wp_send_json_success( [ 'operations' => $ops, 'checks' => $chk ] );
+} );
+
+// ─── Pipelines ─────────────────────────────────────────────────────
+
+function hsync_serialize_pipeline( \HiveSync\Core\Pipeline\Pipeline $p ): array {
+    $steps = [];
+    foreach ( $p->steps as $s ) {
+        $steps[] = [
+            'kind'   => $s->kind->value,
+            'ref_id' => $s->refId,
+            'params' => $s->params,
+            'note'   => $s->note,
+        ];
+    }
+    return [
+        'slug'  => $p->id,
+        'name'  => $p->name,
+        'steps' => $steps,
+        'meta'  => $p->meta,
+    ];
+}
+
+add_action( 'wp_ajax_hsync_ajax_pipelines_list', function () {
+    hsync_ajax_guard();
+    $repo = new \HiveSync\Core\Pipeline\PipelineRepository();
+    $out  = array_map( 'hsync_serialize_pipeline', $repo->all() );
+    wp_send_json_success( [ 'pipelines' => $out ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_pipeline_get', function () {
+    hsync_ajax_guard();
+    $slug = hsync_post_text( 'slug' );
+    if ( $slug === '' ) wp_send_json_error( [ 'message' => 'slug richiesto.' ] );
+    $repo = new \HiveSync\Core\Pipeline\PipelineRepository();
+    $p    = $repo->find( $slug );
+    if ( ! $p ) wp_send_json_error( [ 'message' => 'Pipeline non trovata.' ] );
+    wp_send_json_success( hsync_serialize_pipeline( $p ) );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_pipeline_save', function () {
+    hsync_ajax_guard();
+    $slug  = hsync_post_text( 'slug' );
+    $name  = hsync_post_text( 'name' );
+    $steps = hsync_post_json( 'steps' );
+    if ( $name === '' ) wp_send_json_error( [ 'message' => 'name richiesto.' ] );
+
+    $stepObjs = [];
+    foreach ( $steps as $s ) {
+        $kind = \HiveSync\Core\Pipeline\PipelineStepKind::tryFrom( (string) ( $s['kind'] ?? '' ) );
+        if ( ! $kind ) continue;
+        $stepObjs[] = new \HiveSync\Core\Pipeline\PipelineStep(
+            kind: $kind,
+            refId: (string) ( $s['ref_id'] ?? '' ),
+            params: (array) ( $s['params'] ?? [] ),
+            note: isset( $s['note'] ) && $s['note'] !== '' ? (string) $s['note'] : null,
+        );
+    }
+
+    $repo = new \HiveSync\Core\Pipeline\PipelineRepository();
+    $stored = $repo->save( new \HiveSync\Core\Pipeline\Pipeline(
+        id: $slug, name: $name, steps: $stepObjs,
+    ) );
+    wp_send_json_success( [ 'slug' => $stored ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_pipeline_delete', function () {
+    hsync_ajax_guard();
+    $slug = hsync_post_text( 'slug' );
+    if ( $slug === '' ) wp_send_json_error( [ 'message' => 'slug richiesto.' ] );
+    $repo = new \HiveSync\Core\Pipeline\PipelineRepository();
+    wp_send_json_success( [ 'deleted' => $repo->delete( $slug ) ] );
+} );
+
 // ─── Run ───────────────────────────────────────────────────────────
 
 add_action( 'wp_ajax_hsync_ajax_run_now', function () {

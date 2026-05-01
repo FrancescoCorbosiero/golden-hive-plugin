@@ -17,8 +17,15 @@
             sources: [],
             mappings: [],
             sourceConfigs: [],
+            pipelines: [],
+            rules: [],
+            jobs: [],
+            registry: { operations: [], checks: [] },
             currentTab: 'sources',
             editingMapping: null,
+            editingPipeline: null,
+            editingRule: null,
+            editingJob: null,
         },
     };
     window.HSync = HSync;
@@ -67,8 +74,182 @@
         $$('.hsync-panel').forEach(p => {
             p.classList.toggle('is-active', p.dataset.panel === name);
         });
-        if (name === 'mappings') HSync.loadMappings();
-        if (name === 'runs')     HSync.loadRuns();
+        if (name === 'mappings')  HSync.loadMappings();
+        if (name === 'runs')      HSync.loadRuns();
+        if (name === 'pipelines') HSync.loadPipelines();
+        if (name === 'rules')     HSync.loadRules();
+        if (name === 'jobs')      HSync.loadJobs();
+    };
+
+    HSync.loadRegistry = async function () {
+        if (HSync.state.registry.operations.length || HSync.state.registry.checks.length) return;
+        try {
+            const data = await HSync.ajax('registry_list', {});
+            HSync.state.registry = { operations: data.operations || [], checks: data.checks || [] };
+        } catch (e) { console.warn('registry_list:', e.message); }
+    };
+
+    // ─── Pipelines ────────────────────────────────────────────────
+
+    HSync.loadPipelines = async function () {
+        const region = $('[data-region="pipelines-list"]');
+        try {
+            await HSync.loadRegistry();
+            const data = await HSync.ajax('pipelines_list', {});
+            HSync.state.pipelines = data.pipelines || [];
+            HSync.renderPipelinesList();
+        } catch (e) {
+            region.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+        }
+    };
+
+    HSync.renderPipelinesList = function () {
+        const region = $('[data-region="pipelines-list"]');
+        if (!HSync.state.pipelines.length) {
+            region.innerHTML = '<div class="hsync-empty">Nessuna pipeline salvata.</div>';
+            return;
+        }
+        region.innerHTML = HSync.state.pipelines.map(p => ''
+            + '<div class="hsync-mapping-row">'
+            +   '<div class="hsync-row-main">'
+            +     '<div class="hsync-row-name">' + esc(p.name) + '</div>'
+            +     '<div class="hsync-row-meta"><code>' + esc(p.slug) + '</code> · ' + (p.steps || []).length + ' step</div>'
+            +   '</div>'
+            +   '<button class="button" data-action="pipeline-edit" data-slug="' + esc(p.slug) + '">Modifica</button>'
+            +   '<button class="button" data-action="pipeline-delete" data-slug="' + esc(p.slug) + '">Elimina</button>'
+            + '</div>'
+        ).join('');
+    };
+
+    HSync.openPipelineEditor = function (pipeline) {
+        HSync.state.editingPipeline = pipeline ? JSON.parse(JSON.stringify(pipeline)) : { slug: '', name: '', steps: [] };
+        $('[data-region="pipelines-list"]').classList.add('is-hidden');
+        $('[data-region="pipeline-editor"]').classList.remove('is-hidden');
+        HSync.renderPipelineEditor();
+    };
+
+    HSync.closePipelineEditor = function () {
+        HSync.state.editingPipeline = null;
+        $('[data-region="pipeline-editor"]').classList.add('is-hidden');
+        $('[data-region="pipelines-list"]').classList.remove('is-hidden');
+    };
+
+    HSync.renderPipelineEditor = function () {
+        const p = HSync.state.editingPipeline;
+        const root = $('[data-region="pipeline-editor"]');
+        const opts  = HSync.state.registry.operations.map(o =>
+            '<option value="' + esc(o.id) + '">' + esc(o.label) + ' (' + esc(o.id) + ')</option>'
+        ).join('');
+        const chkOpts = HSync.state.registry.checks.map(c =>
+            '<option value="' + esc(c.id) + '">' + esc(c.label) + ' (' + esc(c.id) + ')</option>'
+        ).join('');
+        const stepsHtml = (p.steps || []).map((s, i) => HSync.renderPipelineStep(s, i)).join('');
+        root.innerHTML = ''
+            + '<h2>' + (p.slug ? 'Modifica pipeline' : 'Nuova pipeline') + '</h2>'
+            + '<label>Nome <input type="text" data-field="pipeline-name" value="' + esc(p.name) + '"></label>'
+            + '<div class="hsync-pipeline-steps">' + (stepsHtml || '<p class="hsync-muted">Nessuno step. Usa i pulsanti qui sotto per aggiungere.</p>') + '</div>'
+            + '<div class="hsync-actions">'
+            +   '<select data-field="pipeline-add-op-id"><option value="">Operazione…</option>' + opts + '</select>'
+            +   '<button class="button" data-action="pipeline-add-op">+ Operation</button>'
+            +   '<select data-field="pipeline-add-chk-id"><option value="">Check…</option>' + chkOpts + '</select>'
+            +   '<button class="button" data-action="pipeline-add-chk">+ Check</button>'
+            + '</div>'
+            + '<div class="hsync-actions" style="margin-top:24px;border-top:1px solid #ccd0d4;padding-top:16px;">'
+            +   '<button class="button button-primary" data-action="pipeline-save">Salva</button>'
+            +   '<button class="button" data-action="pipeline-cancel">Annulla</button>'
+            + '</div>';
+    };
+
+    HSync.renderPipelineStep = function (step, idx) {
+        const reg = step.kind === 'check' ? HSync.state.registry.checks : HSync.state.registry.operations;
+        const def = reg.find(r => r.id === step.ref_id);
+        const schema = def ? def.params_schema : {};
+        const kindLabel = step.kind === 'check' ? 'Check' : 'Operation';
+        const fields = Object.entries(schema || {}).map(([f, spec]) => {
+            const id = 'pl-step-' + idx + '-' + f;
+            const val = step.params && step.params[f] !== undefined ? step.params[f] : (spec.default !== undefined ? spec.default : '');
+            let input;
+            if (spec.type === 'enum') {
+                input = '<select data-step-idx="' + idx + '" data-step-field="' + esc(f) + '">'
+                    + (spec.options || []).map(o => '<option value="' + esc(o) + '"' + (val === o ? ' selected' : '') + '>' + esc(o) + '</option>').join('')
+                    + '</select>';
+            } else if (spec.type === 'bool') {
+                input = '<input type="checkbox" data-step-idx="' + idx + '" data-step-field="' + esc(f) + '"' + (val ? ' checked' : '') + '>';
+            } else if (spec.type === 'int') {
+                input = '<input type="number" data-step-idx="' + idx + '" data-step-field="' + esc(f) + '" value="' + esc(val) + '">';
+            } else {
+                input = '<input type="text" data-step-idx="' + idx + '" data-step-field="' + esc(f) + '" value="' + esc(val) + '">';
+            }
+            return '<label style="display:inline-grid;gap:2px;margin-right:12px;font-size:12px;">' + esc(spec.label || f) + input + '</label>';
+        }).join('');
+        return ''
+            + '<div class="hsync-mapping-row">'
+            +   '<div class="hsync-row-main">'
+            +     '<div class="hsync-row-name"><span class="hsync-action-pill is-' + (step.kind === 'check' ? 'updated' : 'created') + '">' + kindLabel + '</span> <code>' + esc(step.ref_id) + '</code>' + (def ? ' — ' + esc(def.label) : ' <em>(sconosciuto)</em>') + '</div>'
+            +     '<div class="hsync-row-meta">' + (fields || '<em>nessun parametro</em>') + '</div>'
+            +   '</div>'
+            +   '<button class="button" data-action="step-up" data-idx="' + idx + '">↑</button>'
+            +   '<button class="button" data-action="step-down" data-idx="' + idx + '">↓</button>'
+            +   '<button class="button" data-action="step-delete" data-idx="' + idx + '">✕</button>'
+            + '</div>';
+    };
+
+    HSync.collectPipelineSteps = function () {
+        const p = HSync.state.editingPipeline;
+        if (!p || !p.steps) return;
+        $$('[data-step-idx]').forEach(el => {
+            const idx = parseInt(el.dataset.stepIdx, 10);
+            const f   = el.dataset.stepField;
+            if (!p.steps[idx]) return;
+            p.steps[idx].params = p.steps[idx].params || {};
+            if (el.type === 'checkbox') p.steps[idx].params[f] = el.checked;
+            else if (el.value !== '')   p.steps[idx].params[f] = el.value;
+            else                        delete p.steps[idx].params[f];
+        });
+    };
+
+    HSync.addPipelineStep = function (kind) {
+        const sel = $(kind === 'check' ? '[data-field="pipeline-add-chk-id"]' : '[data-field="pipeline-add-op-id"]');
+        const refId = sel ? sel.value : '';
+        if (!refId) return;
+        HSync.collectPipelineSteps();
+        HSync.state.editingPipeline.steps.push({ kind: kind, ref_id: refId, params: {} });
+        HSync.renderPipelineEditor();
+    };
+
+    HSync.movePipelineStep = function (idx, dir) {
+        HSync.collectPipelineSteps();
+        const steps = HSync.state.editingPipeline.steps;
+        const target = idx + dir;
+        if (target < 0 || target >= steps.length) return;
+        [steps[idx], steps[target]] = [steps[target], steps[idx]];
+        HSync.renderPipelineEditor();
+    };
+
+    HSync.deletePipelineStep = function (idx) {
+        HSync.collectPipelineSteps();
+        HSync.state.editingPipeline.steps.splice(idx, 1);
+        HSync.renderPipelineEditor();
+    };
+
+    HSync.savePipeline = async function () {
+        HSync.collectPipelineSteps();
+        const p = HSync.state.editingPipeline;
+        const name = $('[data-field="pipeline-name"]').value;
+        if (!name) { alert('Nome richiesto.'); return; }
+        try {
+            await HSync.ajax('pipeline_save', { slug: p.slug || '', name: name, steps: p.steps });
+            HSync.closePipelineEditor();
+            HSync.loadPipelines();
+        } catch (e) { alert('Errore: ' + e.message); }
+    };
+
+    HSync.deletePipeline = async function (slug) {
+        if (!confirm('Eliminare questa pipeline?')) return;
+        try {
+            await HSync.ajax('pipeline_delete', { slug: slug });
+            HSync.loadPipelines();
+        } catch (e) { alert('Errore: ' + e.message); }
     };
 
     // ─── Legacy migration ─────────────────────────────────────────
@@ -563,6 +744,21 @@
         if (t.matches('[data-action="runs-refresh"]'))   return HSync.loadRuns();
         if (t.matches('[data-action="legacy-audit"]'))   return HSync.legacyAudit();
         if (t.matches('[data-action="legacy-import"]'))  return HSync.legacyImport();
+
+        // Pipelines
+        if (t.matches('[data-action="pipeline-new"]'))    return HSync.openPipelineEditor(null);
+        if (t.matches('[data-action="pipeline-edit"]')) {
+            const p = HSync.state.pipelines.find(x => x.slug === t.dataset.slug);
+            return HSync.openPipelineEditor(p);
+        }
+        if (t.matches('[data-action="pipeline-delete"]')) return HSync.deletePipeline(t.dataset.slug);
+        if (t.matches('[data-action="pipeline-save"]'))   return HSync.savePipeline();
+        if (t.matches('[data-action="pipeline-cancel"]')) return HSync.closePipelineEditor();
+        if (t.matches('[data-action="pipeline-add-op"]'))  return HSync.addPipelineStep('operation');
+        if (t.matches('[data-action="pipeline-add-chk"]')) return HSync.addPipelineStep('check');
+        if (t.matches('[data-action="step-up"]'))     return HSync.movePipelineStep(parseInt(t.dataset.idx, 10), -1);
+        if (t.matches('[data-action="step-down"]'))   return HSync.movePipelineStep(parseInt(t.dataset.idx, 10), 1);
+        if (t.matches('[data-action="step-delete"]')) return HSync.deletePipelineStep(parseInt(t.dataset.idx, 10));
     });
 
     document.addEventListener('change', function (e) {

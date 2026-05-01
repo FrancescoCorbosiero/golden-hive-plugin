@@ -143,3 +143,23 @@
     background: #fbd0d2; border-left: 3px solid #d63638; padding: 8px 12px;
     margin: 12px 0; font-size: 13px;
 }
+
+/* Export cards: 2-column grid */
+.hsync-wrap .hsync-export-cards {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;
+}
+.hsync-wrap .hsync-export-cards .hsync-source-card { margin-bottom: 0; }
+
+/* Pipeline / rule / job editors */
+.hsync-wrap .hsync-pipeline-editor,
+.hsync-wrap .hsync-rule-editor,
+.hsync-wrap .hsync-job-editor {
+    background: #f6f7f7; border: 1px solid #ccd0d4; border-radius: 4px; padding: 16px;
+}
+.hsync-wrap .hsync-pipeline-editor label,
+.hsync-wrap .hsync-rule-editor label,
+.hsync-wrap .hsync-job-editor label {
+    display: grid; gap: 4px; max-width: 720px; margin-bottom: 12px;
+    font-size: 13px; font-weight: 600;
+}
+.hsync-wrap .hsync-pipeline-steps { margin: 12px 0; }

@@ -22,6 +22,9 @@ class ComposerStaticInit8ec97cf8e32aa119124e2c238cc20b92
 
     public static $classMap = array (
         'Composer\\InstalledVersions' => __DIR__ . '/..' . '/composer/InstalledVersions.php',
+        'HiveSync\\Checks\\Media\\HasImages' => __DIR__ . '/../..' . '/src/Checks/Media/HasImages.php',
+        'HiveSync\\Checks\\Support\\Severity' => __DIR__ . '/../..' . '/src/Checks/Support/Severity.php',
+        'HiveSync\\Checks\\Taxonomy\\HasCategory' => __DIR__ . '/../..' . '/src/Checks/Taxonomy/HasCategory.php',
         'HiveSync\\Core\\Bootstrap' => __DIR__ . '/../..' . '/src/Core/Bootstrap.php',
         'HiveSync\\Core\\Check\\Check' => __DIR__ . '/../..' . '/src/Core/Check/Check.php',
         'HiveSync\\Core\\Check\\CheckRegistry' => __DIR__ . '/../..' . '/src/Core/Check/CheckRegistry.php',
@@ -55,6 +58,12 @@ class ComposerStaticInit8ec97cf8e32aa119124e2c238cc20b92
         'HiveSync\\Core\\Source\\Source' => __DIR__ . '/../..' . '/src/Core/Source/Source.php',
         'HiveSync\\Core\\Source\\SourceCapabilities' => __DIR__ . '/../..' . '/src/Core/Source/SourceCapabilities.php',
         'HiveSync\\Core\\Source\\SourceRegistry' => __DIR__ . '/../..' . '/src/Core/Source/SourceRegistry.php',
+        'HiveSync\\Operations\\Pricing\\AdjustPrice' => __DIR__ . '/../..' . '/src/Operations/Pricing/AdjustPrice.php',
+        'HiveSync\\Operations\\Status\\SetStatus' => __DIR__ . '/../..' . '/src/Operations/Status/SetStatus.php',
+        'HiveSync\\Operations\\Stock\\SetStockQuantity' => __DIR__ . '/../..' . '/src/Operations/Stock/SetStockQuantity.php',
+        'HiveSync\\Operations\\Stock\\SetStockStatus' => __DIR__ . '/../..' . '/src/Operations/Stock/SetStockStatus.php',
+        'HiveSync\\Sources\\CsvSource' => __DIR__ . '/../..' . '/src/Sources/CsvSource.php',
+        'HiveSync\\Sources\\GoldenSneakersSource' => __DIR__ . '/../..' . '/src/Sources/GoldenSneakersSource.php',
     );
 
     public static function getInitializer(ClassLoader $loader)

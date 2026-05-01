@@ -7,6 +7,9 @@ $baseDir = dirname($vendorDir);
 
 return array(
     'Composer\\InstalledVersions' => $vendorDir . '/composer/InstalledVersions.php',
+    'HiveSync\\Checks\\Media\\HasImages' => $baseDir . '/src/Checks/Media/HasImages.php',
+    'HiveSync\\Checks\\Support\\Severity' => $baseDir . '/src/Checks/Support/Severity.php',
+    'HiveSync\\Checks\\Taxonomy\\HasCategory' => $baseDir . '/src/Checks/Taxonomy/HasCategory.php',
     'HiveSync\\Core\\Bootstrap' => $baseDir . '/src/Core/Bootstrap.php',
     'HiveSync\\Core\\Check\\Check' => $baseDir . '/src/Core/Check/Check.php',
     'HiveSync\\Core\\Check\\CheckRegistry' => $baseDir . '/src/Core/Check/CheckRegistry.php',
@@ -40,4 +43,10 @@ return array(
     'HiveSync\\Core\\Source\\Source' => $baseDir . '/src/Core/Source/Source.php',
     'HiveSync\\Core\\Source\\SourceCapabilities' => $baseDir . '/src/Core/Source/SourceCapabilities.php',
     'HiveSync\\Core\\Source\\SourceRegistry' => $baseDir . '/src/Core/Source/SourceRegistry.php',
+    'HiveSync\\Operations\\Pricing\\AdjustPrice' => $baseDir . '/src/Operations/Pricing/AdjustPrice.php',
+    'HiveSync\\Operations\\Status\\SetStatus' => $baseDir . '/src/Operations/Status/SetStatus.php',
+    'HiveSync\\Operations\\Stock\\SetStockQuantity' => $baseDir . '/src/Operations/Stock/SetStockQuantity.php',
+    'HiveSync\\Operations\\Stock\\SetStockStatus' => $baseDir . '/src/Operations/Stock/SetStockStatus.php',
+    'HiveSync\\Sources\\CsvSource' => $baseDir . '/src/Sources/CsvSource.php',
+    'HiveSync\\Sources\\GoldenSneakersSource' => $baseDir . '/src/Sources/GoldenSneakersSource.php',
 );

@@ -14,6 +14,11 @@
  *   filter  hive_sync/host/conflict/resolve   ($result_or_null, $product_id, $incoming, $source_id)
  *   filter  hive_sync/host/selection/resolve  ($ids_or_null, $selection)
  *
+ * Source-specific delegation (legacy adapter pattern — phase 5 absorbs):
+ *   filter  hive_sync/host/source/gs/fetch        ($resp_or_null, $config, $options)
+ *   filter  hive_sync/host/source/gs/diff         ($resp_or_null, $items_data)
+ *   filter  hive_sync/host/source/gs/materialize  ($resp_or_null, $item_data, $dry_run, $sideload)
+ *
  * Phase 1 wires only the hook names + thin helper functions. Internal
  * fallbacks throw NotImplemented so missing wiring fails loud, not silent.
  */
@@ -85,4 +90,37 @@ function hsync_resolve_conflict( int $product_id, array $incoming, string $sourc
         'blocked'        => [],
         'applied_rule'   => null,
     ];
+}
+
+/**
+ * Delegating wrappers for the Golden Sneakers source. The legacy GS
+ * module (rp_rc_gs_*) stays the source of truth until phase 5 — these
+ * helpers route Hive Sync's GoldenSneakersSource through host filters
+ * so Hive Sync never imports the legacy module directly.
+ *
+ * Each helper returns null when the host is unavailable. Concrete
+ * sources translate null into a graceful warning.
+ *
+ * @return array{items: array, stats?: array, warnings?: array}|null
+ */
+function hsync_gs_fetch( array $config, array $options = [] ): ?array {
+    $resp = apply_filters( 'hive_sync/host/source/gs/fetch', null, $config, $options );
+    return is_array( $resp ) ? $resp : null;
+}
+
+/**
+ * @param array<int, array> $items_data Raw woo-shaped product arrays.
+ * @return array{new: array, update: array, unchanged: array}|null
+ */
+function hsync_gs_diff( array $items_data ): ?array {
+    $resp = apply_filters( 'hive_sync/host/source/gs/diff', null, $items_data );
+    return is_array( $resp ) ? $resp : null;
+}
+
+/**
+ * @return array{action: string, id: int, reason?: string}|null
+ */
+function hsync_gs_materialize( array $item_data, bool $dry_run = false, bool $sideload = true ): ?array {
+    $resp = apply_filters( 'hive_sync/host/source/gs/materialize', null, $item_data, $dry_run, $sideload );
+    return is_array( $resp ) ? $resp : null;
 }

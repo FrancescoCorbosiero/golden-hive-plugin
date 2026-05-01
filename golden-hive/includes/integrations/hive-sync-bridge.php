@@ -14,9 +14,12 @@
  *   - hive_sync/host/conflict/resolve   → gh_conflict_resolve
  *   - hive_sync/host/selection/resolve  → gh_filter_product_ids (Filter mode)
  *
- * Deferred to phase 3 (need concrete data shape locked):
- *   - hive_sync/host/media/preimport
- *   - hive_sync/host/product/upsert
+ * Bound (phase 3):
+ *   - hive_sync/host/media/preimport       → media_sideload_image (single-URL path)
+ *   - hive_sync/host/product/upsert        → gh_create_simple_product / wc fallback
+ *   - hive_sync/host/source/gs/fetch       → rp_rc_gs_fetch + transform
+ *   - hive_sync/host/source/gs/diff        → rp_rc_gs_diff
+ *   - hive_sync/host/source/gs/materialize → rp_rc_gs_create_product / _update_product
  *
  * Contract version: 1 (matches HSYNC_HOST_CONTRACT_VERSION).
  */
@@ -99,3 +102,162 @@ add_filter( 'hive_sync/host/selection/resolve', function ( $ids, $selection ) {
     // PipelineExecutor uses its empty fallback.
     return null;
 }, 10, 2 );
+
+// ─── Phase 3 bindings ───────────────────────────────────────────────
+
+/**
+ * Single-URL media sideload. Returns the resulting attachment_id or null.
+ * The high-throughput parallel path (gh_parallel_sideload_to_product) is
+ * used internally by GS materialize; this helper covers the one-off case
+ * the CSV source uses.
+ */
+add_filter( 'hive_sync/host/media/preimport', function ( $attachment_id, string $url, array $context = [] ) {
+    if ( $attachment_id ) return $attachment_id;
+    if ( $url === '' ) return null;
+
+    if ( ! function_exists( 'media_sideload_image' ) ) {
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+    }
+    $attach_post_id = (int) ( $context['attach_to'] ?? 0 );
+    $result = media_sideload_image( $url, $attach_post_id ?: 0, null, 'id' );
+    if ( is_wp_error( $result ) ) return null;
+    $id = (int) $result;
+    return $id > 0 ? $id : null;
+}, 10, 3 );
+
+/**
+ * Product upsert. Routes simple/variable to the existing factory; falls
+ * back to a minimal WC create when the factory is not loaded (so a
+ * standalone Hive Sync deployment without Golden Hive still creates
+ * basic products).
+ */
+add_filter( 'hive_sync/host/product/upsert', function ( $product_id, array $data, array $context = [] ) {
+    if ( $product_id ) return $product_id;
+
+    $existing = (int) ( $data['_existing_id'] ?? 0 );
+    $type     = (string) ( $data['type'] ?? 'simple' );
+
+    if ( $existing > 0 ) {
+        if ( ! function_exists( 'wc_get_product' ) ) return null;
+        $p = wc_get_product( $existing );
+        if ( ! $p instanceof WC_Product ) return null;
+        if ( isset( $data['name'] ) )           $p->set_name( (string) $data['name'] );
+        if ( isset( $data['regular_price'] ) )  $p->set_regular_price( (string) $data['regular_price'] );
+        if ( isset( $data['sale_price'] ) )     $p->set_sale_price( (string) $data['sale_price'] );
+        if ( isset( $data['stock_status'] ) )   $p->set_stock_status( (string) $data['stock_status'] );
+        if ( isset( $data['stock_quantity'] ) ) {
+            $p->set_manage_stock( true );
+            $p->set_stock_quantity( (int) $data['stock_quantity'] );
+        }
+        if ( isset( $data['description'] ) )       $p->set_description( (string) $data['description'] );
+        if ( isset( $data['short_description'] ) ) $p->set_short_description( (string) $data['short_description'] );
+        $p->save();
+        return $existing;
+    }
+
+    if ( $type === 'variable' && function_exists( 'gh_create_variable_product' ) ) {
+        $id = gh_create_variable_product( $data );
+        return $id > 0 ? $id : null;
+    }
+    if ( function_exists( 'gh_create_simple_product' ) ) {
+        $id = gh_create_simple_product( $data );
+        return $id > 0 ? $id : null;
+    }
+
+    if ( ! function_exists( 'wc_get_product' ) ) return null;
+    $p = new WC_Product_Simple();
+    if ( ! empty( $data['name'] ) )           $p->set_name( (string) $data['name'] );
+    if ( ! empty( $data['sku'] ) )            $p->set_sku( (string) $data['sku'] );
+    if ( isset( $data['regular_price'] ) )    $p->set_regular_price( (string) $data['regular_price'] );
+    if ( isset( $data['stock_status'] ) )     $p->set_stock_status( (string) $data['stock_status'] );
+    if ( isset( $data['description'] ) )      $p->set_description( (string) $data['description'] );
+    $id = $p->save();
+    return $id > 0 ? (int) $id : null;
+}, 10, 3 );
+
+// ─── GS source delegation ──────────────────────────────────────────
+
+/**
+ * Fetch + normalize + transform GS feed. Returns Hive-Sync-shaped
+ * envelope: ['items' => [['sku','data','raw'], ...], 'stats' => [...],
+ * 'warnings' => [...]].
+ */
+add_filter( 'hive_sync/host/source/gs/fetch', function ( $resp, array $config, array $options ) {
+    if ( $resp !== null ) return $resp;
+    if ( ! function_exists( 'rp_rc_gs_fetch' )
+        || ! function_exists( 'rp_rc_gs_transform_all' )
+        || ! function_exists( 'rp_rc_gs_normalize_hierarchical' )
+        || ! function_exists( 'rp_rc_gs_normalize_flat' ) ) {
+        return null;
+    }
+
+    $raw = rp_rc_gs_fetch( $config );
+    if ( is_wp_error( $raw ) ) {
+        return [ 'items' => [], 'warnings' => [ (string) $raw->get_error_message() ] ];
+    }
+    if ( ! is_array( $raw ) ) {
+        return [ 'items' => [], 'warnings' => [ 'Fetch GS: risposta non array.' ] ];
+    }
+
+    $format = (string) ( $config['format'] ?? 'hierarchical' );
+    $normalized = $format === 'flat'
+        ? rp_rc_gs_normalize_flat( $raw )
+        : rp_rc_gs_normalize_hierarchical( $raw );
+
+    $priceMode = (string) ( $options['price_mode'] ?? 'direct' );
+    $saleMult  = (float) ( $options['sale_mult'] ?? 1.3 );
+    $woo       = rp_rc_gs_transform_all( $normalized, $priceMode, $saleMult );
+
+    $items = [];
+    foreach ( $woo as $i => $w ) {
+        $items[] = [
+            'sku'  => (string) ( $w['sku'] ?? '' ),
+            'data' => $w,
+            'raw'  => $normalized[ $i ] ?? [],
+        ];
+    }
+
+    return [
+        'items' => $items,
+        'stats' => [
+            'total'      => count( $items ),
+            'format'     => $format,
+            'price_mode' => $priceMode,
+        ],
+    ];
+}, 10, 3 );
+
+/**
+ * GS diff: incoming items_data is an array of woo-shaped product arrays
+ * (NOT FeedItem-wrapped). Returns the legacy bucketed shape verbatim.
+ */
+add_filter( 'hive_sync/host/source/gs/diff', function ( $resp, array $items_data ) {
+    if ( $resp !== null ) return $resp;
+    if ( ! function_exists( 'rp_rc_gs_diff' ) ) return null;
+    return rp_rc_gs_diff( $items_data );
+}, 10, 2 );
+
+/**
+ * GS materialize: route to legacy create/update by presence of
+ * _existing_id (or SKU lookup fallback).
+ */
+add_filter( 'hive_sync/host/source/gs/materialize', function ( $resp, array $item_data, bool $dry_run, bool $sideload ) {
+    if ( $resp !== null ) return $resp;
+    if ( $dry_run ) return [ 'action' => 'skipped', 'id' => 0, 'reason' => 'dry_run' ];
+    if ( ! function_exists( 'rp_rc_gs_create_product' ) || ! function_exists( 'rp_rc_gs_update_product' ) ) {
+        return null;
+    }
+
+    $existing = (int) ( $item_data['_existing_id'] ?? 0 );
+    if ( $existing === 0 && function_exists( 'wc_get_product_id_by_sku' ) && ! empty( $item_data['sku'] ) ) {
+        $existing = (int) wc_get_product_id_by_sku( (string) $item_data['sku'] );
+    }
+
+    if ( $existing > 0 ) {
+        $item_data['_existing_id'] = $existing;
+        return rp_rc_gs_update_product( $item_data );
+    }
+    return rp_rc_gs_create_product( $item_data, $sideload );
+}, 10, 4 );

@@ -35,6 +35,11 @@ require_once HSYNC_DIR . 'includes/migrate.php';
 require_once HSYNC_DIR . 'includes/host-adapter.php';
 require_once HSYNC_DIR . 'includes/admin-page.php';
 
+// Concrete sources / operations / checks self-register on the
+// 'hive_sync/core_booted' action. Required BEFORE Bootstrap::boot()
+// so the listener is in place when boot() fires the hook.
+require_once HSYNC_DIR . 'includes/registrations.php';
+
 register_activation_hook( __FILE__, 'hsync_activate' );
 
 function hsync_activate(): void {

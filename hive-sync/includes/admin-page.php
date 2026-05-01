@@ -56,6 +56,7 @@ function hsync_render_admin_page(): void {
                     <option value="">Tutte le sorgenti</option>
                 </select>
                 <button class="button button-primary" data-action="mapping-new">+ Nuova mapping</button>
+                <button class="button" data-action="install-defaults">Installa default</button>
             </div>
             <div class="hsync-mappings-list" data-region="mappings-list">
                 <p class="hsync-loading">Caricamento…</p>

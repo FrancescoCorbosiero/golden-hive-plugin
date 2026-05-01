@@ -66,10 +66,13 @@ class ComposerStaticInit8ec97cf8e32aa119124e2c238cc20b92
         'HiveSync\\Sources\\CsvSource' => __DIR__ . '/../..' . '/src/Sources/CsvSource.php',
         'HiveSync\\Sources\\GoldenSneakersSource' => __DIR__ . '/../..' . '/src/Sources/GoldenSneakersSource.php',
         'HiveSync\\Workflow\\Export\\Exporter' => __DIR__ . '/../..' . '/src/Workflow/Export/Exporter.php',
+        'HiveSync\\Workflow\\Mapping\\PathResolver' => __DIR__ . '/../..' . '/src/Workflow/Mapping/PathResolver.php',
+        'HiveSync\\Workflow\\Mapping\\Template' => __DIR__ . '/../..' . '/src/Workflow/Mapping/Template.php',
         'HiveSync\\Workflow\\Migration\\LegacyImporter' => __DIR__ . '/../..' . '/src/Workflow/Migration/LegacyImporter.php',
         'HiveSync\\Workflow\\Run\\ImportRunner' => __DIR__ . '/../..' . '/src/Workflow/Run/ImportRunner.php',
         'HiveSync\\Workflow\\Schedule\\CronExpr' => __DIR__ . '/../..' . '/src/Workflow/Schedule/CronExpr.php',
         'HiveSync\\Workflow\\Schedule\\JobRunner' => __DIR__ . '/../..' . '/src/Workflow/Schedule/JobRunner.php',
+        'HiveSync\\Workflow\\Seed\\Defaults' => __DIR__ . '/../..' . '/src/Workflow/Seed/Defaults.php',
     );
 
     public static function getInitializer(ClassLoader $loader)

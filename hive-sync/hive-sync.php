@@ -49,6 +49,16 @@ register_activation_hook( __FILE__, 'hsync_activate' );
 function hsync_activate(): void {
     hsync_migrate_schema();
     update_option( 'hsync_db_version', HSYNC_VERSION, false );
+    hsync_install_defaults();
+}
+
+function hsync_install_defaults(): array {
+    if ( ! class_exists( '\\HiveSync\\Workflow\\Seed\\Defaults' ) ) return [ 'mappings' => 0, 'pipelines' => 0 ];
+    $seeder = new \HiveSync\Workflow\Seed\Defaults(
+        new \HiveSync\Core\Repo\MappingRepository(),
+        new \HiveSync\Core\Pipeline\PipelineRepository(),
+    );
+    return $seeder->install();
 }
 
 add_action( 'plugins_loaded', function () {

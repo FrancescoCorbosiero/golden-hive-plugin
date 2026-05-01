@@ -431,6 +431,14 @@ add_action( 'wp_ajax_hsync_ajax_jobs_tick_now', function () {
     wp_send_json_success( hsync_run_tick() );
 } );
 
+// ─── Defaults reinstall (mappings + pipelines) ────────────────────
+
+add_action( 'wp_ajax_hsync_ajax_install_defaults', function () {
+    hsync_ajax_guard();
+    $result = hsync_install_defaults();
+    wp_send_json_success( $result );
+} );
+
 // ─── Action Scheduler health (helpful when DISABLE_WP_CRON) ───────
 
 add_action( 'wp_ajax_hsync_ajax_as_health', function () {

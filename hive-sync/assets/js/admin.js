@@ -932,6 +932,20 @@
         }
     };
 
+    HSync.installDefaults = async function () {
+        try {
+            const data = await HSync.ajax('install_defaults', {});
+            const m = data.mappings || 0, p = data.pipelines || 0;
+            if (m === 0 && p === 0) {
+                alert('Default già installati — nessuna modifica.');
+            } else {
+                alert('Installati ' + m + ' mapping + ' + p + ' pipeline di default.');
+            }
+            HSync.loadMappings();
+            if (HSync.state.pipelines.length || HSync.state.currentTab === 'pipelines') HSync.loadPipelines();
+        } catch (e) { alert('Errore: ' + e.message); }
+    };
+
     HSync.deleteMapping = async function (slug) {
         if (!confirm('Eliminare questa mapping?')) return;
         try {
@@ -1176,6 +1190,7 @@
         if (t.matches('[data-action="mapping-delete"]')) return HSync.deleteMapping(t.dataset.slug);
         if (t.matches('[data-action="mapping-save"]'))   return HSync.saveMapping();
         if (t.matches('[data-action="mapping-cancel"]')) return HSync.closeMappingEditor();
+        if (t.matches('[data-action="install-defaults"]')) return HSync.installDefaults();
         if (t.matches('[data-action="run-now"]'))        return HSync.runNow();
         if (t.matches('[data-action="run-test-fetch"]')) return HSync.testFetchFromRun();
         if (t.matches('[data-action="run-save-config"]'))return HSync.saveCurrentConfig();

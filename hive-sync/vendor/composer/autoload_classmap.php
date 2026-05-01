@@ -51,8 +51,11 @@ return array(
     'HiveSync\\Sources\\CsvSource' => $baseDir . '/src/Sources/CsvSource.php',
     'HiveSync\\Sources\\GoldenSneakersSource' => $baseDir . '/src/Sources/GoldenSneakersSource.php',
     'HiveSync\\Workflow\\Export\\Exporter' => $baseDir . '/src/Workflow/Export/Exporter.php',
+    'HiveSync\\Workflow\\Mapping\\PathResolver' => $baseDir . '/src/Workflow/Mapping/PathResolver.php',
+    'HiveSync\\Workflow\\Mapping\\Template' => $baseDir . '/src/Workflow/Mapping/Template.php',
     'HiveSync\\Workflow\\Migration\\LegacyImporter' => $baseDir . '/src/Workflow/Migration/LegacyImporter.php',
     'HiveSync\\Workflow\\Run\\ImportRunner' => $baseDir . '/src/Workflow/Run/ImportRunner.php',
     'HiveSync\\Workflow\\Schedule\\CronExpr' => $baseDir . '/src/Workflow/Schedule/CronExpr.php',
     'HiveSync\\Workflow\\Schedule\\JobRunner' => $baseDir . '/src/Workflow/Schedule/JobRunner.php',
+    'HiveSync\\Workflow\\Seed\\Defaults' => $baseDir . '/src/Workflow/Seed/Defaults.php',
 );

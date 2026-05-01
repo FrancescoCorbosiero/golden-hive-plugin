@@ -36,6 +36,7 @@ function hsync_render_admin_page(): void {
             <button class="hsync-tab" data-tab="mappings" role="tab" aria-selected="false">Mappings</button>
             <button class="hsync-tab" data-tab="run" role="tab" aria-selected="false">Run</button>
             <button class="hsync-tab" data-tab="runs" role="tab" aria-selected="false">Runs</button>
+            <button class="hsync-tab" data-tab="migrate" role="tab" aria-selected="false">Migra da Golden Hive</button>
         </nav>
 
         <section class="hsync-panel is-active" data-panel="sources">
@@ -97,6 +98,25 @@ function hsync_render_admin_page(): void {
             <div data-region="runs-list">
                 <p class="hsync-loading">Caricamento…</p>
             </div>
+        </section>
+
+        <section class="hsync-panel" data-panel="migrate">
+            <p class="hsync-muted">
+                Importa pipelines / mapping / jobs salvati in Golden Hive (<code>wp_options</code>)
+                nelle tabelle dedicate di Hive Sync. Operazione idempotente:
+                rilanciarla salta record già importati.
+            </p>
+            <p class="hsync-muted">
+                I jobs vengono importati <strong>disabilitati</strong> di default —
+                riabilitali manualmente dopo verifica. Le mapping rule legacy hanno
+                shape diversa: il payload originale è preservato come JSON dentro
+                <code>config.legacy_payload</code> per ricostruzione manuale.
+            </p>
+            <div class="hsync-actions">
+                <button class="button" data-action="legacy-audit">Audit (anteprima)</button>
+                <button class="button button-primary" data-action="legacy-import">Importa ora</button>
+            </div>
+            <div data-region="legacy-output"></div>
         </section>
     </div>
     <?php

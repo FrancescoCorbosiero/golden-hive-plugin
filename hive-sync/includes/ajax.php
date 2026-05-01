@@ -178,3 +178,23 @@ add_action( 'wp_ajax_hsync_ajax_runs_recent', function () {
     $repo  = new \HiveSync\Core\Repo\RunRepository();
     wp_send_json_success( [ 'runs' => $repo->recent( $limit ) ] );
 } );
+
+// ─── Legacy migration ──────────────────────────────────────────────
+
+function hsync_legacy_importer(): \HiveSync\Workflow\Migration\LegacyImporter {
+    return new \HiveSync\Workflow\Migration\LegacyImporter(
+        new \HiveSync\Core\Pipeline\PipelineRepository(),
+        new \HiveSync\Core\Repo\MappingRepository(),
+        new \HiveSync\Core\Repo\JobRepository(),
+    );
+}
+
+add_action( 'wp_ajax_hsync_ajax_legacy_audit', function () {
+    hsync_ajax_guard();
+    wp_send_json_success( hsync_legacy_importer()->audit() );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_legacy_import', function () {
+    hsync_ajax_guard();
+    wp_send_json_success( hsync_legacy_importer()->run() );
+} );

@@ -70,6 +70,54 @@
         if (name === 'runs')     HSync.loadRuns();
     };
 
+    // ─── Legacy migration ─────────────────────────────────────────
+
+    HSync.legacyAudit = async function () {
+        const out = $('[data-region="legacy-output"]');
+        out.innerHTML = '<p class="hsync-loading">Audit…</p>';
+        try {
+            const data = await HSync.ajax('legacy_audit', {});
+            const warns = (data.warnings || []).map(w => '<div class="hsync-warning">' + esc(w) + '</div>').join('');
+            out.innerHTML = ''
+                + '<div class="hsync-summary" style="grid-template-columns:repeat(3,1fr);">'
+                +   '<div class="hsync-stat"><div class="hsync-stat-num">' + (data.pipelines || 0) + '</div><div class="hsync-stat-label">Pipelines</div></div>'
+                +   '<div class="hsync-stat"><div class="hsync-stat-num">' + (data.mappings  || 0) + '</div><div class="hsync-stat-label">Mappings</div></div>'
+                +   '<div class="hsync-stat"><div class="hsync-stat-num">' + (data.jobs      || 0) + '</div><div class="hsync-stat-label">Jobs</div></div>'
+                + '</div>'
+                + (warns ? '<div class="hsync-warnings">' + warns + '</div>' : '');
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+        }
+    };
+
+    HSync.legacyImport = async function () {
+        if (!confirm('Procedere con l\'import dei dati legacy? L\'operazione è idempotente.')) return;
+        const out = $('[data-region="legacy-output"]');
+        out.innerHTML = '<p class="hsync-loading">Import in corso…</p>';
+        try {
+            const data = await HSync.ajax('legacy_import', {});
+            const renderBucket = (label, b) => {
+                const errs = (b.errors || []).map(e => '<div class="hsync-warning">' + esc(e) + '</div>').join('');
+                return ''
+                    + '<h4>' + esc(label) + '</h4>'
+                    + '<p>'
+                    +   '<strong>' + (b.copied || 0) + '</strong> copiati · '
+                    +   (b.skipped || 0) + ' saltati (già esistenti)'
+                    + '</p>'
+                    + errs;
+            };
+            out.innerHTML = ''
+                + '<h3>Import completato</h3>'
+                + renderBucket('Pipelines', data.pipelines || {})
+                + renderBucket('Mappings',  data.mappings  || {})
+                + renderBucket('Jobs',      data.jobs      || {});
+            // Refresh whatever tab the user goes to next.
+            HSync.state.mappings = [];
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+        }
+    };
+
     // ─── Sources ──────────────────────────────────────────────────
 
     HSync.loadSources = async function () {
@@ -447,6 +495,8 @@
         if (t.matches('[data-action="run-now"]'))        return HSync.runNow();
         if (t.matches('[data-action="run-test-fetch"]')) return HSync.testFetchFromRun();
         if (t.matches('[data-action="runs-refresh"]'))   return HSync.loadRuns();
+        if (t.matches('[data-action="legacy-audit"]'))   return HSync.legacyAudit();
+        if (t.matches('[data-action="legacy-import"]'))  return HSync.legacyImport();
     });
 
     document.addEventListener('change', function (e) {

@@ -49,5 +49,6 @@ return array(
     'HiveSync\\Operations\\Stock\\SetStockStatus' => $baseDir . '/src/Operations/Stock/SetStockStatus.php',
     'HiveSync\\Sources\\CsvSource' => $baseDir . '/src/Sources/CsvSource.php',
     'HiveSync\\Sources\\GoldenSneakersSource' => $baseDir . '/src/Sources/GoldenSneakersSource.php',
+    'HiveSync\\Workflow\\Migration\\LegacyImporter' => $baseDir . '/src/Workflow/Migration/LegacyImporter.php',
     'HiveSync\\Workflow\\Run\\ImportRunner' => $baseDir . '/src/Workflow/Run/ImportRunner.php',
 );

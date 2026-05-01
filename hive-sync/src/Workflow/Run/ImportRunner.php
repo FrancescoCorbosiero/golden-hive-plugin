@@ -35,6 +35,11 @@ final class ImportRunner
      * @param array<string, mixed> $config   Source config (validated by AbstractSource)
      * @param array<string, mixed> $options  Fetch-time options (mapping, price_mode, …)
      * @param array<string, mixed> $meta     Run-context meta (sideload flag, trigger, …)
+     * @param array{index?:int,run_id?:int}|null $cursor
+     *        When present (typically from a prior tick that yielded
+     *        status=continue), skip past index and reuse the existing
+     *        run_id so progress accumulates against the same wp_hsync_runs
+     *        row instead of opening a fresh one each tick.
      */
     public function run(
         Source $source,
@@ -43,8 +48,13 @@ final class ImportRunner
         array $meta = [],
         bool $dryRun = false,
         ?int $deadline = null,
+        ?array $cursor = null,
     ): array {
-        $runId = $this->runs->start( 0, 'source.import', $source->id() );
+        $startIndex = isset( $cursor['index'] ) ? max( 0, (int) $cursor['index'] ) : 0;
+        $runId      = isset( $cursor['run_id'] ) && (int) $cursor['run_id'] > 0
+            ? (int) $cursor['run_id']
+            : $this->runs->start( 0, 'source.import', $source->id() );
+
         $ctx = new Context(
             runId: (string) $runId,
             dryRun: $dryRun,
@@ -73,27 +83,29 @@ final class ImportRunner
             'failed'    => 0,
         ];
 
-        $rows = [];
+        $rows    = [];
         $process = array_merge( $diff->new, $diff->update );
         $total   = count( $process );
 
-        foreach ( $process as $i => $item ) {
+        for ( $i = $startIndex; $i < $total; $i++ ) {
             if ( $ctx->isOverDeadline() ) {
                 $this->runs->progress( $runId, $total, $summary['created'] + $summary['updated'], $summary['failed'] );
                 $this->runs->finish( $runId, 'continue', [ 'summary' => $summary, 'cursor' => [ 'index' => $i ] ] );
                 return [
                     'status'   => 'continue',
                     'run_id'   => $runId,
+                    'cursor'   => [ 'index' => $i, 'run_id' => $runId ],
                     'summary'  => $summary,
                     'warnings' => $fetch->warnings,
                     'rows'     => array_slice( $rows, 0, 100 ),
+                    'progress' => [ 'done' => $i, 'total' => $total ],
                 ];
             }
 
+            $item = $process[ $i ];
             try {
                 $r = $source->materialize( $item, $ctx );
             } catch ( \Throwable $e ) {
-                $r = null;
                 $rows[] = [ 'sku' => $item->sku, 'action' => 'failed', 'error' => $e->getMessage() ];
                 $summary['failed']++;
                 continue;
@@ -127,6 +139,7 @@ final class ImportRunner
             'summary'  => $summary,
             'warnings' => $fetch->warnings,
             'rows'     => array_slice( $rows, 0, 100 ),
+            'progress' => [ 'done' => $total, 'total' => $total ],
         ];
     }
 }

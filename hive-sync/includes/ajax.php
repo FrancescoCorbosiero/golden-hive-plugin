@@ -341,6 +341,7 @@ add_action( 'wp_ajax_hsync_ajax_run_now', function () {
     $config     = hsync_resolve_source_config( hsync_post_json( 'config' ), $configSlug );
     $options    = hsync_post_json( 'options' );
     $dryRun     = hsync_post_bool( 'dry_run' );
+    $cursor     = hsync_post_json( 'cursor' );
 
     if ( ! \HiveSync\Core\Bootstrap::$sources ) {
         wp_send_json_error( [ 'message' => 'Bootstrap non inizializzato.' ] );
@@ -359,6 +360,7 @@ add_action( 'wp_ajax_hsync_ajax_run_now', function () {
         meta: [ 'trigger' => 'adhoc' ],
         dryRun: $dryRun,
         deadline: $deadline,
+        cursor: $cursor ?: null,
     );
     wp_send_json_success( $envelope );
 } );

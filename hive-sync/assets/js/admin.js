@@ -1123,6 +1123,16 @@
         }
     };
 
+    /**
+     * Run the configured source, auto-resuming whenever the server
+     * yields with status='continue' (cooperative deadline). Each tick
+     * is capped server-side at ~25s so Apache workers don't stall;
+     * the JS loops fresh AJAX calls until the run finishes or fails.
+     *
+     * Accumulates rows across ticks so the result table grows
+     * incrementally — the user sees progress live instead of staring
+     * at a spinner for the full duration.
+     */
     HSync.runNow = async function () {
         const sourceId = $('[data-field="run-source"]').value;
         if (!sourceId) { alert('Scegli una sorgente.'); return; }
@@ -1135,26 +1145,82 @@
         const options = mapping ? { mapping: mapping.config } : {};
 
         const out = $('[data-region="run-output"]');
-        out.innerHTML = '<p class="hsync-loading">Run in corso…</p>';
+        out.innerHTML = '<p class="hsync-loading">Tick 1: starting…</p>';
+
+        const accumulated = { rows: [], summary: null, warnings: [], runId: null };
+        let cursor = null;
+        let tick = 0;
+        const maxTicks = 200;  // hard cap — refuse to loop forever on a misbehaving source
+
         try {
-            const data = await HSync.ajax('run_now', {
-                source_id:   sourceId,
-                config_slug: configSlug,
-                config:      config,
-                options:     options,
-                dry_run:     dryRun ? '1' : '0',
-            });
-            HSync.renderRunResult(data);
+            while (tick < maxTicks) {
+                tick++;
+                const data = await HSync.ajax('run_now', {
+                    source_id:   sourceId,
+                    config_slug: configSlug,
+                    config:      config,
+                    options:     options,
+                    dry_run:     dryRun ? '1' : '0',
+                    cursor:      cursor || {},
+                });
+
+                accumulated.runId    = data.run_id || accumulated.runId;
+                accumulated.summary  = data.summary || accumulated.summary;
+                accumulated.warnings = data.warnings || accumulated.warnings;
+                if (Array.isArray(data.rows)) {
+                    // Server returns rows from THIS tick only; concat to grow live.
+                    accumulated.rows = accumulated.rows.concat(data.rows).slice(0, 1000);
+                }
+
+                HSync.renderRunResult({
+                    status:   data.status,
+                    run_id:   accumulated.runId,
+                    summary:  accumulated.summary,
+                    warnings: accumulated.warnings,
+                    rows:     accumulated.rows,
+                    progress: data.progress,
+                    tick:     tick,
+                });
+
+                if (data.status === 'continue') {
+                    cursor = data.cursor || null;
+                    if (!cursor || cursor.index === undefined) break;  // server forgot a cursor — bail
+                    continue;
+                }
+                break;  // 'done' or 'failed'
+            }
+            if (tick >= maxTicks) {
+                out.insertAdjacentHTML('beforeend',
+                    '<div class="hsync-warning">Auto-resume cap raggiunto (' + maxTicks + ' tick). Run interrotto. Apri Runs per riprendere se necessario.</div>');
+            }
         } catch (e) {
-            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+            out.innerHTML = '<div class="hsync-error">Tick ' + tick + ' fallito: ' + esc(e.message) + '</div>';
         }
     };
 
     HSync.renderRunResult = function (data) {
         const out = $('[data-region="run-output"]');
-        const s = data.summary || {};
+        const s   = data.summary || {};
+        const p   = data.progress || {};
         const stat = (label, num, kind) =>
             '<div class="hsync-stat ' + (kind || '') + '"><div class="hsync-stat-num">' + (num || 0) + '</div><div class="hsync-stat-label">' + label + '</div></div>';
+
+        // Status banner: continue→spinner, done→green, failed→red.
+        let status = data.status || '';
+        let statusBadge;
+        if (status === 'continue') {
+            const pct = p.total ? Math.round((p.done || 0) * 100 / p.total) : 0;
+            statusBadge = '<span class="hsync-action-pill is-updated">running</span> '
+                + 'tick ' + (data.tick || 1)
+                + ' · ' + (p.done || 0) + '/' + (p.total || '?')
+                + ' (' + pct + '%)';
+        } else if (status === 'done') {
+            statusBadge = '<span class="hsync-action-pill is-created">done</span>';
+        } else if (status === 'failed') {
+            statusBadge = '<span class="hsync-action-pill is-failed">failed</span>';
+        } else {
+            statusBadge = '<span class="hsync-action-pill is-skipped">' + esc(status) + '</span>';
+        }
 
         const summary = ''
             + '<div class="hsync-summary">'
@@ -1184,7 +1250,7 @@
         }).join('');
 
         out.innerHTML = ''
-            + '<h3>Run #' + (data.run_id || '?') + ' — ' + esc(data.status) + '</h3>'
+            + '<h3>Run #' + (data.run_id || '?') + ' — ' + statusBadge + '</h3>'
             + summary
             + (warns ? '<div class="hsync-warnings">' + warns + '</div>' : '')
             + (rows

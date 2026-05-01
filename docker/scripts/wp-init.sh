@@ -37,6 +37,11 @@ fi
 echo "[wp-init] activating golden-hive"
 $WP plugin activate golden-hive
 
+if [ -d /var/www/html/wp-content/plugins/hive-sync ]; then
+    echo "[wp-init] activating hive-sync"
+    $WP plugin activate hive-sync
+fi
+
 echo "[wp-init] setting pretty permalinks"
 $WP rewrite structure '/%postname%/' --hard
 

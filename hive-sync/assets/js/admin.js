@@ -600,6 +600,43 @@
         } catch (e) { alert('Errore: ' + e.message); }
     };
 
+    // ─── Exports ──────────────────────────────────────────────────
+
+    HSync.downloadBlob = function (filename, mime, body) {
+        const blob = new Blob([body], { type: mime || 'application/octet-stream' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url; a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+    };
+
+    HSync.exportInventory = async function (format) {
+        const out = $('[data-region="exports-output"]');
+        out.innerHTML = '<p class="hsync-loading">Generating ' + esc(format) + '…</p>';
+        try {
+            const data = await HSync.ajax('export_inventory', { format: format });
+            HSync.downloadBlob(data.filename, data.mime, data.body);
+            out.innerHTML = '<p>' + (data.count || 0) + ' prodotti esportati come <code>' + esc(data.filename) + '</code>.</p>';
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+        }
+    };
+
+    HSync.exportCatalog = async function () {
+        const out = $('[data-region="exports-output"]');
+        out.innerHTML = '<p class="hsync-loading">Generating catalog…</p>';
+        try {
+            const data = await HSync.ajax('export_catalog', {});
+            HSync.downloadBlob(data.filename, data.mime, data.body);
+            out.innerHTML = '<p>' + (data.count || 0) + ' gruppi esportati come <code>' + esc(data.filename) + '</code>.</p>';
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+        }
+    };
+
     HSync.tickNow = async function () {
         try {
             const data = await HSync.ajax('jobs_tick_now', {});
@@ -1142,6 +1179,10 @@
         if (t.matches('[data-action="job-save"]'))     return HSync.saveJob();
         if (t.matches('[data-action="job-cancel"]'))   return HSync.closeJobEditor();
         if (t.matches('[data-action="jobs-tick-now"]'))return HSync.tickNow();
+
+        // Exports
+        if (t.matches('[data-action="export-inventory"]')) return HSync.exportInventory(t.dataset.format || 'csv');
+        if (t.matches('[data-action="export-catalog"]'))   return HSync.exportCatalog();
     });
 
     document.addEventListener('change', function (e) {

@@ -431,6 +431,41 @@ add_action( 'wp_ajax_hsync_ajax_jobs_tick_now', function () {
     wp_send_json_success( hsync_run_tick() );
 } );
 
+// ─── Exports ───────────────────────────────────────────────────────
+
+add_action( 'wp_ajax_hsync_ajax_export_inventory', function () {
+    hsync_ajax_guard();
+    $format = hsync_post_text( 'format', 'csv' );
+    $exporter = new \HiveSync\Workflow\Export\Exporter();
+    $rows = $exporter->inventoryRows();
+    if ( $format === 'json' ) {
+        wp_send_json_success( [
+            'filename' => 'hive-sync-inventory-' . gmdate( 'Y-m-d-His' ) . '.json',
+            'mime'     => 'application/json',
+            'body'     => wp_json_encode( $rows, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE ),
+            'count'    => count( $rows ),
+        ] );
+    }
+    wp_send_json_success( [
+        'filename' => 'hive-sync-inventory-' . gmdate( 'Y-m-d-His' ) . '.csv',
+        'mime'     => 'text/csv',
+        'body'     => \HiveSync\Workflow\Export\Exporter::rowsToCsv( $rows ),
+        'count'    => count( $rows ),
+    ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_export_catalog', function () {
+    hsync_ajax_guard();
+    $exporter = new \HiveSync\Workflow\Export\Exporter();
+    $tree = $exporter->catalogTree();
+    wp_send_json_success( [
+        'filename' => 'hive-sync-catalog-' . gmdate( 'Y-m-d-His' ) . '.json',
+        'mime'     => 'application/json',
+        'body'     => wp_json_encode( $tree, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE ),
+        'count'    => array_sum( array_map( 'count', $tree ) ),
+    ] );
+} );
+
 // ─── Legacy migration ──────────────────────────────────────────────
 
 function hsync_legacy_importer(): \HiveSync\Workflow\Migration\LegacyImporter {

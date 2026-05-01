@@ -291,6 +291,47 @@ add_action( 'wp_ajax_hsync_ajax_pipeline_delete', function () {
     wp_send_json_success( [ 'deleted' => $repo->delete( $slug ) ] );
 } );
 
+// ─── Rules ─────────────────────────────────────────────────────────
+
+add_action( 'wp_ajax_hsync_ajax_rules_list', function () {
+    hsync_ajax_guard();
+    $repo = new \HiveSync\Core\Repo\RuleRepository();
+    wp_send_json_success( [ 'rules' => $repo->all() ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_rule_get', function () {
+    hsync_ajax_guard();
+    $slug = hsync_post_text( 'slug' );
+    if ( $slug === '' ) wp_send_json_error( [ 'message' => 'slug richiesto.' ] );
+    $repo = new \HiveSync\Core\Repo\RuleRepository();
+    $r    = $repo->find( $slug );
+    if ( ! $r ) wp_send_json_error( [ 'message' => 'Rule non trovata.' ] );
+    wp_send_json_success( $r );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_rule_save', function () {
+    hsync_ajax_guard();
+    $data = [
+        'slug'       => hsync_post_text( 'slug' ),
+        'name'       => hsync_post_text( 'name' ),
+        'selection'  => hsync_post_json( 'selection' ),
+        'operations' => hsync_post_json( 'operations' ),
+        'checks'     => hsync_post_json( 'checks' ),
+        'enabled'    => hsync_post_bool( 'enabled' ),
+    ];
+    if ( $data['name'] === '' ) wp_send_json_error( [ 'message' => 'name richiesto.' ] );
+    $repo = new \HiveSync\Core\Repo\RuleRepository();
+    wp_send_json_success( [ 'slug' => $repo->save( $data ) ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_rule_delete', function () {
+    hsync_ajax_guard();
+    $slug = hsync_post_text( 'slug' );
+    if ( $slug === '' ) wp_send_json_error( [ 'message' => 'slug richiesto.' ] );
+    $repo = new \HiveSync\Core\Repo\RuleRepository();
+    wp_send_json_success( [ 'deleted' => $repo->delete( $slug ) ] );
+} );
+
 // ─── Run ───────────────────────────────────────────────────────────
 
 add_action( 'wp_ajax_hsync_ajax_run_now', function () {

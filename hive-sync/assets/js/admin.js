@@ -252,6 +252,216 @@
         } catch (e) { alert('Errore: ' + e.message); }
     };
 
+    // ─── Rules (scoped pipelines) ─────────────────────────────────
+
+    HSync.loadRules = async function () {
+        const region = $('[data-region="rules-list"]');
+        try {
+            await HSync.loadRegistry();
+            const data = await HSync.ajax('rules_list', {});
+            HSync.state.rules = data.rules || [];
+            HSync.renderRulesList();
+        } catch (e) {
+            region.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+        }
+    };
+
+    HSync.renderRulesList = function () {
+        const region = $('[data-region="rules-list"]');
+        if (!HSync.state.rules.length) {
+            region.innerHTML = '<div class="hsync-empty">Nessuna rule salvata.</div>';
+            return;
+        }
+        region.innerHTML = HSync.state.rules.map(r => ''
+            + '<div class="hsync-mapping-row">'
+            +   '<div class="hsync-row-main">'
+            +     '<div class="hsync-row-name">'
+            +       esc(r.name)
+            +       (r.enabled ? ' <span class="hsync-action-pill is-created">on</span>' : ' <span class="hsync-action-pill is-skipped">off</span>')
+            +     '</div>'
+            +     '<div class="hsync-row-meta"><code>' + esc(r.slug) + '</code> · '
+            +       (r.operations || []).length + ' op · '
+            +       (r.checks     || []).length + ' check</div>'
+            +   '</div>'
+            +   '<button class="button" data-action="rule-edit" data-slug="' + esc(r.slug) + '">Modifica</button>'
+            +   '<button class="button" data-action="rule-delete" data-slug="' + esc(r.slug) + '">Elimina</button>'
+            + '</div>'
+        ).join('');
+    };
+
+    HSync.openRuleEditor = function (rule) {
+        HSync.state.editingRule = rule
+            ? JSON.parse(JSON.stringify(rule))
+            : { slug: '', name: '', selection: { mode: 'all', filter: {} }, operations: [], checks: [], enabled: false };
+        $('[data-region="rules-list"]').classList.add('is-hidden');
+        $('[data-region="rule-editor"]').classList.remove('is-hidden');
+        HSync.renderRuleEditor();
+    };
+
+    HSync.closeRuleEditor = function () {
+        HSync.state.editingRule = null;
+        $('[data-region="rule-editor"]').classList.add('is-hidden');
+        $('[data-region="rules-list"]').classList.remove('is-hidden');
+    };
+
+    HSync.renderRuleEditor = function () {
+        const r = HSync.state.editingRule;
+        const root = $('[data-region="rule-editor"]');
+        const opts = HSync.state.registry.operations.map(o =>
+            '<option value="' + esc(o.id) + '">' + esc(o.label) + '</option>'
+        ).join('');
+        const chkOpts = HSync.state.registry.checks.map(c =>
+            '<option value="' + esc(c.id) + '">' + esc(c.label) + '</option>'
+        ).join('');
+        const opSteps = (r.operations || []).map((s, i) => HSync.renderRuleStep(s, i, 'op')).join('');
+        const chkSteps = (r.checks || []).map((s, i) => HSync.renderRuleStep(s, i, 'chk')).join('');
+        const selMode = (r.selection && r.selection.mode) || 'all';
+        const selFilter = JSON.stringify((r.selection && r.selection.filter) || {}, null, 2);
+
+        root.innerHTML = ''
+            + '<h2>' + (r.slug ? 'Modifica rule' : 'Nuova rule') + '</h2>'
+            + '<label>Nome <input type="text" data-field="rule-name" value="' + esc(r.name) + '"></label>'
+            + '<label class="hsync-dryrun"><input type="checkbox" data-field="rule-enabled"' + (r.enabled ? ' checked' : '') + '> Abilitata</label>'
+            + '<h3>Scope</h3>'
+            + '<label>Modalità selezione'
+            +   '<select data-field="rule-sel-mode">'
+            +     '<option value="all"'    + (selMode === 'all'    ? ' selected' : '') + '>Tutti i prodotti</option>'
+            +     '<option value="filter"' + (selMode === 'filter' ? ' selected' : '') + '>Filtro condizionale</option>'
+            +     '<option value="ids"'    + (selMode === 'ids'    ? ' selected' : '') + '>Lista ID (manuale)</option>'
+            +   '</select>'
+            + '</label>'
+            + '<label>Filtro / IDs (JSON)'
+            +   '<textarea data-field="rule-sel-payload" rows="4" style="font-family:monospace;font-size:12px;">' + esc(selFilter) + '</textarea>'
+            + '</label>'
+            + '<h3>Operazioni (ordinate)</h3>'
+            + '<div class="hsync-pipeline-steps">' + (opSteps || '<p class="hsync-muted">Nessuna operazione.</p>') + '</div>'
+            + '<div class="hsync-actions">'
+            +   '<select data-field="rule-add-op-id"><option value="">Operazione…</option>' + opts + '</select>'
+            +   '<button class="button" data-action="rule-add-op">+ Operation</button>'
+            + '</div>'
+            + '<h3>Check</h3>'
+            + '<div class="hsync-pipeline-steps">' + (chkSteps || '<p class="hsync-muted">Nessun check.</p>') + '</div>'
+            + '<div class="hsync-actions">'
+            +   '<select data-field="rule-add-chk-id"><option value="">Check…</option>' + chkOpts + '</select>'
+            +   '<button class="button" data-action="rule-add-chk">+ Check</button>'
+            + '</div>'
+            + '<div class="hsync-actions" style="margin-top:24px;border-top:1px solid #ccd0d4;padding-top:16px;">'
+            +   '<button class="button button-primary" data-action="rule-save">Salva</button>'
+            +   '<button class="button" data-action="rule-cancel">Annulla</button>'
+            + '</div>';
+    };
+
+    HSync.renderRuleStep = function (step, idx, kindKey) {
+        const reg = kindKey === 'chk' ? HSync.state.registry.checks : HSync.state.registry.operations;
+        const def = reg.find(r => r.id === step.ref_id);
+        const schema = def ? def.params_schema : {};
+        const fields = Object.entries(schema || {}).map(([f, spec]) => {
+            const val = step.params && step.params[f] !== undefined ? step.params[f] : (spec.default !== undefined ? spec.default : '');
+            const dataAttrs = 'data-rule-step-kind="' + kindKey + '" data-rule-step-idx="' + idx + '" data-rule-step-field="' + esc(f) + '"';
+            let input;
+            if (spec.type === 'enum') {
+                input = '<select ' + dataAttrs + '>'
+                    + (spec.options || []).map(o => '<option value="' + esc(o) + '"' + (val === o ? ' selected' : '') + '>' + esc(o) + '</option>').join('')
+                    + '</select>';
+            } else if (spec.type === 'bool') {
+                input = '<input type="checkbox" ' + dataAttrs + (val ? ' checked' : '') + '>';
+            } else if (spec.type === 'int') {
+                input = '<input type="number" ' + dataAttrs + ' value="' + esc(val) + '">';
+            } else {
+                input = '<input type="text" ' + dataAttrs + ' value="' + esc(val) + '">';
+            }
+            return '<label style="display:inline-grid;gap:2px;margin-right:12px;font-size:12px;">' + esc(spec.label || f) + input + '</label>';
+        }).join('');
+        return ''
+            + '<div class="hsync-mapping-row">'
+            +   '<div class="hsync-row-main">'
+            +     '<div class="hsync-row-name"><code>' + esc(step.ref_id) + '</code>' + (def ? ' — ' + esc(def.label) : ' <em>(sconosciuto)</em>') + '</div>'
+            +     '<div class="hsync-row-meta">' + (fields || '<em>nessun parametro</em>') + '</div>'
+            +   '</div>'
+            +   '<button class="button" data-action="rule-step-up"     data-kind="' + kindKey + '" data-idx="' + idx + '">↑</button>'
+            +   '<button class="button" data-action="rule-step-down"   data-kind="' + kindKey + '" data-idx="' + idx + '">↓</button>'
+            +   '<button class="button" data-action="rule-step-delete" data-kind="' + kindKey + '" data-idx="' + idx + '">✕</button>'
+            + '</div>';
+    };
+
+    HSync.collectRuleSteps = function () {
+        const r = HSync.state.editingRule;
+        if (!r) return;
+        $$('[data-rule-step-idx]').forEach(el => {
+            const kindKey = el.dataset.ruleStepKind;
+            const idx = parseInt(el.dataset.ruleStepIdx, 10);
+            const f = el.dataset.ruleStepField;
+            const arr = kindKey === 'chk' ? r.checks : r.operations;
+            if (!arr[idx]) return;
+            arr[idx].params = arr[idx].params || {};
+            if (el.type === 'checkbox') arr[idx].params[f] = el.checked;
+            else if (el.value !== '')   arr[idx].params[f] = el.value;
+            else                        delete arr[idx].params[f];
+        });
+    };
+
+    HSync.addRuleStep = function (kindKey) {
+        const r = HSync.state.editingRule;
+        const sel = $(kindKey === 'chk' ? '[data-field="rule-add-chk-id"]' : '[data-field="rule-add-op-id"]');
+        const refId = sel ? sel.value : '';
+        if (!refId) return;
+        HSync.collectRuleSteps();
+        const target = kindKey === 'chk' ? r.checks : r.operations;
+        target.push({ ref_id: refId, params: {} });
+        HSync.renderRuleEditor();
+    };
+
+    HSync.moveRuleStep = function (kindKey, idx, dir) {
+        HSync.collectRuleSteps();
+        const r = HSync.state.editingRule;
+        const arr = kindKey === 'chk' ? r.checks : r.operations;
+        const t = idx + dir;
+        if (t < 0 || t >= arr.length) return;
+        [arr[idx], arr[t]] = [arr[t], arr[idx]];
+        HSync.renderRuleEditor();
+    };
+
+    HSync.deleteRuleStep = function (kindKey, idx) {
+        HSync.collectRuleSteps();
+        const r = HSync.state.editingRule;
+        const arr = kindKey === 'chk' ? r.checks : r.operations;
+        arr.splice(idx, 1);
+        HSync.renderRuleEditor();
+    };
+
+    HSync.saveRule = async function () {
+        HSync.collectRuleSteps();
+        const r = HSync.state.editingRule;
+        r.name    = $('[data-field="rule-name"]').value;
+        r.enabled = $('[data-field="rule-enabled"]').checked;
+        const mode = $('[data-field="rule-sel-mode"]').value;
+        let payload = {};
+        try { payload = JSON.parse($('[data-field="rule-sel-payload"]').value || '{}'); }
+        catch (e) { alert('JSON selezione non valido: ' + e.message); return; }
+        r.selection = { mode: mode, filter: mode === 'filter' ? payload : {}, ids: mode === 'ids' ? (payload.ids || []) : [] };
+        if (!r.name) { alert('Nome richiesto.'); return; }
+        try {
+            await HSync.ajax('rule_save', {
+                slug:       r.slug || '',
+                name:       r.name,
+                selection:  r.selection,
+                operations: r.operations,
+                checks:     r.checks,
+                enabled:    r.enabled ? '1' : '0',
+            });
+            HSync.closeRuleEditor();
+            HSync.loadRules();
+        } catch (e) { alert('Errore: ' + e.message); }
+    };
+
+    HSync.deleteRule = async function (slug) {
+        if (!confirm('Eliminare questa rule?')) return;
+        try {
+            await HSync.ajax('rule_delete', { slug: slug });
+            HSync.loadRules();
+        } catch (e) { alert('Errore: ' + e.message); }
+    };
+
     // ─── Legacy migration ─────────────────────────────────────────
 
     HSync.legacyAudit = async function () {
@@ -759,6 +969,21 @@
         if (t.matches('[data-action="step-up"]'))     return HSync.movePipelineStep(parseInt(t.dataset.idx, 10), -1);
         if (t.matches('[data-action="step-down"]'))   return HSync.movePipelineStep(parseInt(t.dataset.idx, 10), 1);
         if (t.matches('[data-action="step-delete"]')) return HSync.deletePipelineStep(parseInt(t.dataset.idx, 10));
+
+        // Rules
+        if (t.matches('[data-action="rule-new"]')) return HSync.openRuleEditor(null);
+        if (t.matches('[data-action="rule-edit"]')) {
+            const r = HSync.state.rules.find(x => x.slug === t.dataset.slug);
+            return HSync.openRuleEditor(r);
+        }
+        if (t.matches('[data-action="rule-delete"]'))     return HSync.deleteRule(t.dataset.slug);
+        if (t.matches('[data-action="rule-save"]'))       return HSync.saveRule();
+        if (t.matches('[data-action="rule-cancel"]'))     return HSync.closeRuleEditor();
+        if (t.matches('[data-action="rule-add-op"]'))     return HSync.addRuleStep('op');
+        if (t.matches('[data-action="rule-add-chk"]'))    return HSync.addRuleStep('chk');
+        if (t.matches('[data-action="rule-step-up"]'))    return HSync.moveRuleStep(t.dataset.kind, parseInt(t.dataset.idx,10), -1);
+        if (t.matches('[data-action="rule-step-down"]'))  return HSync.moveRuleStep(t.dataset.kind, parseInt(t.dataset.idx,10), 1);
+        if (t.matches('[data-action="rule-step-delete"]'))return HSync.deleteRuleStep(t.dataset.kind, parseInt(t.dataset.idx,10));
     });
 
     document.addEventListener('change', function (e) {

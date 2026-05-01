@@ -118,6 +118,31 @@ services:
       - ${BACKUP_DIR:-./backups}:/backups
     networks: [internal]
 
+  # Pings wp-cron.php every 60s on the internal network so WP-Cron +
+  # WC Action Scheduler + Hive Sync's hsync_5min tick fire reliably
+  # without depending on admin page traffic. Hits the WP container
+  # directly (not through Caddy) — no TLS round-trip, no public DNS.
+  # Required if DISABLE_WP_CRON is set; otherwise the WP cron lock
+  # prevents redundant work so leaving it on is harmless.
+  wp-cron:
+    image: curlimages/curl:latest
+    restart: unless-stopped
+    depends_on:
+      - wordpress
+    entrypoint:
+      - sh
+      - -c
+      - |
+        sleep 30
+        while true; do
+          curl -fsS -o /dev/null --max-time 50 \
+            -H "Host: ${SITE_DOMAIN}" \
+            "http://wordpress/wp-cron.php?doing_wp_cron=$$(date +%s)" \
+            || echo "[wp-cron] ping failed at $$(date -Iseconds)"
+          sleep 60
+        done
+    networks: [internal]
+
 volumes:
   db_data:
   wp_core:

@@ -182,6 +182,10 @@ require_once GH_DIR . 'includes/email-lite/campaign-tool.php';
 require_once GH_DIR . 'includes/tools/nuclear-cleanup.php';
 require_once GH_DIR . 'includes/tools/ajax.php';
 
+// Hive Sync host bridge — binds the Hive Sync host adapter contract to
+// existing Golden Hive functions. Inert when Hive Sync is not installed.
+require_once GH_DIR . 'includes/integrations/hive-sync-bridge.php';
+
 // Admin UI
 require_once GH_DIR . 'includes/admin-page.php';
 

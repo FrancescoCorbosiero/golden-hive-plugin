@@ -1,0 +1,165 @@
+/* Hive Sync — admin styles. All scoped under .hsync-wrap. */
+
+.hsync-wrap { max-width: 1400px; }
+.hsync-wrap .hsync-title { display: flex; align-items: baseline; gap: 12px; }
+.hsync-wrap .hsync-version { font-size: 12px; color: #777; font-weight: normal; }
+
+.hsync-wrap .hsync-tabs {
+    display: flex; gap: 2px; margin: 16px 0 0; border-bottom: 1px solid #ccd0d4;
+}
+.hsync-wrap .hsync-tab {
+    background: transparent; border: 1px solid transparent; border-bottom: none;
+    padding: 8px 16px; cursor: pointer; font-size: 14px;
+    color: #50575e; border-radius: 4px 4px 0 0;
+}
+.hsync-wrap .hsync-tab:hover { background: #f0f0f1; color: #1d2327; }
+.hsync-wrap .hsync-tab.is-active {
+    background: #fff; border-color: #ccd0d4; color: #1d2327;
+    margin-bottom: -1px;
+}
+
+.hsync-wrap .hsync-panel {
+    display: none; background: #fff; border: 1px solid #ccd0d4; border-top: none;
+    padding: 20px; min-height: 320px;
+}
+.hsync-wrap .hsync-panel.is-active { display: block; }
+
+.hsync-wrap .hsync-muted { color: #646970; font-size: 13px; margin: 0 0 16px; }
+.hsync-wrap .hsync-loading { color: #646970; font-style: italic; }
+
+.hsync-wrap .hsync-toolbar {
+    display: flex; gap: 12px; align-items: center; margin-bottom: 16px;
+}
+.hsync-wrap .hsync-actions {
+    display: flex; gap: 8px; align-items: center; margin-top: 12px;
+}
+.hsync-wrap .hsync-dryrun { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; }
+
+.hsync-wrap .is-hidden { display: none; }
+
+/* Sources cards */
+.hsync-wrap .hsync-source-card {
+    border: 1px solid #ccd0d4; border-radius: 4px; padding: 16px; margin-bottom: 12px;
+    background: #fff;
+}
+.hsync-wrap .hsync-source-card h3 { margin: 0 0 4px; font-size: 15px; }
+.hsync-wrap .hsync-source-card .hsync-source-id { color: #646970; font-size: 12px; font-family: monospace; }
+.hsync-wrap .hsync-source-card .hsync-caps {
+    display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;
+}
+.hsync-wrap .hsync-cap-pill {
+    font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #f0f0f1; color: #2c3338;
+}
+.hsync-wrap .hsync-cap-pill.is-on { background: #d1f4d6; color: #1e4022; }
+.hsync-wrap .hsync-source-card details { margin-top: 12px; }
+.hsync-wrap .hsync-source-card summary { cursor: pointer; font-size: 13px; color: #2271b1; }
+
+/* Schema-driven config form */
+.hsync-wrap .hsync-config-form { margin-top: 12px; display: grid; gap: 10px; max-width: 720px; }
+.hsync-wrap .hsync-config-form label {
+    display: grid; gap: 4px; font-size: 13px; color: #1d2327; font-weight: 600;
+}
+.hsync-wrap .hsync-config-form .hsync-required { color: #d63638; margin-left: 4px; }
+.hsync-wrap .hsync-config-form input[type="text"],
+.hsync-wrap .hsync-config-form input[type="url"],
+.hsync-wrap .hsync-config-form input[type="password"],
+.hsync-wrap .hsync-config-form input[type="number"],
+.hsync-wrap .hsync-config-form select,
+.hsync-wrap .hsync-config-form textarea {
+    width: 100%; padding: 6px 10px; border: 1px solid #8c8f94; border-radius: 4px;
+    font-size: 13px; font-weight: normal;
+}
+
+/* Run form */
+.hsync-wrap .hsync-run-form {
+    display: grid; gap: 12px; max-width: 760px; padding: 16px;
+    background: #f6f7f7; border: 1px solid #ccd0d4; border-radius: 4px;
+}
+.hsync-wrap .hsync-run-form > label { display: grid; gap: 4px; font-size: 13px; font-weight: 600; }
+.hsync-wrap .hsync-run-form select, .hsync-wrap .hsync-run-form input { font-weight: normal; }
+
+.hsync-wrap .hsync-run-output { margin-top: 16px; }
+.hsync-wrap .hsync-summary {
+    display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; margin-bottom: 12px;
+}
+.hsync-wrap .hsync-stat {
+    background: #fff; border: 1px solid #ccd0d4; border-radius: 4px;
+    padding: 10px; text-align: center;
+}
+.hsync-wrap .hsync-stat .hsync-stat-num { font-size: 18px; font-weight: 600; color: #1d2327; }
+.hsync-wrap .hsync-stat .hsync-stat-label { font-size: 11px; color: #646970; text-transform: uppercase; }
+.hsync-wrap .hsync-stat.is-good .hsync-stat-num { color: #1e7e34; }
+.hsync-wrap .hsync-stat.is-bad  .hsync-stat-num { color: #d63638; }
+
+.hsync-wrap .hsync-warnings { margin: 12px 0; }
+.hsync-wrap .hsync-warning {
+    background: #fcf9e8; border-left: 3px solid #dba617; padding: 8px 12px;
+    margin-bottom: 4px; font-size: 13px;
+}
+
+.hsync-wrap table.hsync-table {
+    width: 100%; border-collapse: collapse; background: #fff;
+    border: 1px solid #ccd0d4; margin-top: 12px;
+}
+.hsync-wrap table.hsync-table th, .hsync-wrap table.hsync-table td {
+    padding: 6px 10px; text-align: left; font-size: 13px; border-bottom: 1px solid #f0f0f1;
+}
+.hsync-wrap table.hsync-table th { background: #f6f7f7; font-weight: 600; }
+.hsync-wrap table.hsync-table tr.is-error td { background: #fef0f1; }
+
+.hsync-wrap .hsync-action-pill {
+    display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px;
+    text-transform: uppercase; font-weight: 600;
+}
+.hsync-wrap .hsync-action-pill.is-created { background: #d1f4d6; color: #1e4022; }
+.hsync-wrap .hsync-action-pill.is-updated { background: #d2e8f5; color: #194a6b; }
+.hsync-wrap .hsync-action-pill.is-failed  { background: #fbd0d2; color: #7a1d20; }
+.hsync-wrap .hsync-action-pill.is-skipped { background: #f0f0f1; color: #50575e; }
+
+/* Mapping editor */
+.hsync-wrap .hsync-mapping-editor textarea {
+    width: 100%; max-width: 720px; font-family: monospace; font-size: 13px;
+    padding: 8px; border: 1px solid #8c8f94; border-radius: 4px;
+}
+.hsync-wrap .hsync-mapping-editor label {
+    display: grid; gap: 4px; max-width: 720px; margin-bottom: 12px; font-size: 13px; font-weight: 600;
+}
+
+.hsync-wrap .hsync-mapping-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px; border: 1px solid #ccd0d4; border-radius: 4px;
+    margin-bottom: 8px; background: #fff;
+}
+.hsync-wrap .hsync-mapping-row .hsync-row-main { flex: 1; }
+.hsync-wrap .hsync-mapping-row .hsync-row-name { font-weight: 600; }
+.hsync-wrap .hsync-mapping-row .hsync-row-meta { font-size: 12px; color: #646970; }
+
+.hsync-wrap .hsync-empty {
+    text-align: center; padding: 32px; color: #646970; font-style: italic;
+    background: #f6f7f7; border-radius: 4px;
+}
+
+.hsync-wrap .hsync-error {
+    background: #fbd0d2; border-left: 3px solid #d63638; padding: 8px 12px;
+    margin: 12px 0; font-size: 13px;
+}
+
+/* Export cards: 2-column grid */
+.hsync-wrap .hsync-export-cards {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;
+}
+.hsync-wrap .hsync-export-cards .hsync-source-card { margin-bottom: 0; }
+
+/* Pipeline / rule / job editors */
+.hsync-wrap .hsync-pipeline-editor,
+.hsync-wrap .hsync-rule-editor,
+.hsync-wrap .hsync-job-editor {
+    background: #f6f7f7; border: 1px solid #ccd0d4; border-radius: 4px; padding: 16px;
+}
+.hsync-wrap .hsync-pipeline-editor label,
+.hsync-wrap .hsync-rule-editor label,
+.hsync-wrap .hsync-job-editor label {
+    display: grid; gap: 4px; max-width: 720px; margin-bottom: 12px;
+    font-size: 13px; font-weight: 600;
+}
+.hsync-wrap .hsync-pipeline-steps { margin: 12px 0; }

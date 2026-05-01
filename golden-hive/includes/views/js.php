@@ -4,28 +4,55 @@ const GH = (function() {
     let state = { roundtripData:null, importJSON:null, bulkJSON:null };
     let taxTree=[], taxSelected=null, taxCollapsed={}, gsProducts=null, gsSelected=new Set(), gsDiffData=null;
 
+    // ── Global ajax-in-flight progress bar ─────────────────────────
+    // Lazily creates a 2px bar inside #gh and toggles .gh-loading on
+    // body whenever there's at least one in-flight GH.ajax() call.
+    // CSS does the heavy lifting (indeterminate sliding gradient).
+    let inflight = 0;
+    function ensureProgressBar() {
+        if (document.getElementById('gh-progress')) return;
+        const bar = document.createElement('div');
+        bar.id = 'gh-progress';
+        const host = document.getElementById('gh') || document.body;
+        host.insertBefore(bar, host.firstChild);
+    }
+    function progressInc() {
+        ensureProgressBar();
+        inflight++;
+        if (inflight === 1) document.body.classList.add('gh-loading');
+    }
+    function progressDec() {
+        inflight = Math.max(0, inflight - 1);
+        if (inflight === 0) document.body.classList.remove('gh-loading');
+    }
+
     async function ajax(action, body={}) {
-        const fd=new FormData(); fd.append('action',action); fd.append('nonce',NONCE);
-        Object.entries(body).forEach(([k,v])=>fd.append(k,v));
-        // Non far throw-are il Promise: ogni chiamante si aspetta { success, data }.
-        // Se fetch o .json() falliscono (es. server risponde HTML/PHP notice o
-        // 500 con body non-JSON), parsiamo il testo e ritorniamo success:false
-        // con il body raw in .data. Senza questo, TUTTI i bottoni che fanno
-        // `await ajax(...)` muoiono silenziosamente con una unhandled promise
-        // rejection — sintomo classico di "ho cliccato e non succede niente".
-        let res;
-        try { res = await fetch(AJAX, { method:'POST', body: fd, credentials:'same-origin' }); }
-        catch (e) {
-            console.error('[GH.ajax] network failure', action, e);
-            return { success:false, data:'network: ' + (e && e.message || 'fetch failed') };
-        }
-        const text = await res.text();
-        try { return JSON.parse(text); }
-        catch (e) {
-            console.error('[GH.ajax] non-JSON response', action, 'status=' + res.status, text.slice(0, 500));
-            // Strippa eventuale HTML per leggibilita nel toast.
-            const plain = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
-            return { success:false, data:'server returned non-JSON (HTTP ' + res.status + '): ' + (plain || '(empty body)') };
+        progressInc();
+        try {
+            const fd=new FormData(); fd.append('action',action); fd.append('nonce',NONCE);
+            Object.entries(body).forEach(([k,v])=>fd.append(k,v));
+            // Non far throw-are il Promise: ogni chiamante si aspetta { success, data }.
+            // Se fetch o .json() falliscono (es. server risponde HTML/PHP notice o
+            // 500 con body non-JSON), parsiamo il testo e ritorniamo success:false
+            // con il body raw in .data. Senza questo, TUTTI i bottoni che fanno
+            // `await ajax(...)` muoiono silenziosamente con una unhandled promise
+            // rejection — sintomo classico di "ho cliccato e non succede niente".
+            let res;
+            try { res = await fetch(AJAX, { method:'POST', body: fd, credentials:'same-origin' }); }
+            catch (e) {
+                console.error('[GH.ajax] network failure', action, e);
+                return { success:false, data:'network: ' + (e && e.message || 'fetch failed') };
+            }
+            const text = await res.text();
+            try { return JSON.parse(text); }
+            catch (e) {
+                console.error('[GH.ajax] non-JSON response', action, 'status=' + res.status, text.slice(0, 500));
+                // Strippa eventuale HTML per leggibilita nel toast.
+                const plain = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+                return { success:false, data:'server returned non-JSON (HTTP ' + res.status + '): ' + (plain || '(empty body)') };
+            }
+        } finally {
+            progressDec();
         }
     }
     function toast(msg,type='ok',ms=3000) {

@@ -153,10 +153,21 @@ final class GoldenSneakersSource extends AbstractSource
             return new Diff();
         }
 
+        $newItems       = self::wrapBucket((array) ($resp['new']       ?? []));
+        $unchangedItems = self::wrapBucket((array) ($resp['unchanged'] ?? []));
+        $updateRaw      = self::wrapBucket((array) ($resp['update']    ?? []));
+
+        // Refine the bridge's `update` bucket into full vs stock-only
+        // by comparing each item against the current Woo product. The
+        // fast-stock-patch path in ImportRunner picks up `updateStock`
+        // and skips media + taxonomy + full upsert.
+        [ $fullBucket, $stockBucket ] = StockOnlyClassifier::split( $updateRaw );
+
         return new Diff(
-            new: self::wrapBucket((array) ($resp['new'] ?? [])),
-            update: self::wrapBucket((array) ($resp['update'] ?? [])),
-            unchanged: self::wrapBucket((array) ($resp['unchanged'] ?? [])),
+            new: $newItems,
+            update: $fullBucket,
+            unchanged: $unchangedItems,
+            updateStock: $stockBucket,
         );
     }
 

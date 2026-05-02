@@ -447,6 +447,7 @@ add_action( 'wp_ajax_hsync_ajax_job_run_now', function () {
         new \HiveSync\Core\Repo\RunRepository(),
         new \HiveSync\Core\Repo\RuleRepository(),
         new \HiveSync\Core\Repo\SourceConfigRepository(),
+        new \HiveSync\Core\Repo\MappingRepository(),
     );
     wp_send_json_success( $runner->runJobNow( $id ) );
 } );

@@ -53,10 +53,11 @@ function hsync_activate(): void {
 }
 
 function hsync_install_defaults( bool $force = false ): array {
-    if ( ! class_exists( '\\HiveSync\\Workflow\\Seed\\Defaults' ) ) return [ 'mappings' => 0, 'pipelines' => 0 ];
+    if ( ! class_exists( '\\HiveSync\\Workflow\\Seed\\Defaults' ) ) return [ 'mappings' => 0, 'pipelines' => 0, 'jobs' => 0 ];
     $seeder = new \HiveSync\Workflow\Seed\Defaults(
         new \HiveSync\Core\Repo\MappingRepository(),
         new \HiveSync\Core\Pipeline\PipelineRepository(),
+        new \HiveSync\Core\Repo\JobRepository(),
     );
     return $seeder->install( $force );
 }

@@ -195,16 +195,24 @@ add_action( 'wp_ajax_hsync_ajax_mappings_delete', function () {
 add_action( 'wp_ajax_hsync_ajax_registry_list', function () {
     hsync_ajax_guard();
     $ops = [];
+    $importRules = [];
     $chk = [];
+    $importChecks = [];
     if ( \HiveSync\Core\Bootstrap::$operations ) {
         foreach ( \HiveSync\Core\Bootstrap::$operations->all() as $op ) {
-            $ops[] = [
+            $isImportRule = $op instanceof \HiveSync\Core\Operation\ImportRule;
+            $row = [
                 'id'             => $op->id(),
                 'label'          => $op->label(),
                 'params_schema'  => $op->paramsSchema(),
                 'applies_to'     => $op->appliesTo(),
-                'is_import_rule' => $op instanceof \HiveSync\Core\Operation\ImportRule,
+                'is_import_rule' => $isImportRule,
             ];
+            // Operations split into two registries from the UI's POV: a
+            // class implementing ImportRule appears in BOTH lists so the
+            // composer can stack it as either a post-op or import-rule.
+            $ops[] = $row;
+            if ( $isImportRule ) $importRules[] = $row;
         }
     }
     if ( \HiveSync\Core\Bootstrap::$checks ) {
@@ -213,11 +221,26 @@ add_action( 'wp_ajax_hsync_ajax_registry_list', function () {
                 'id'              => $c->id(),
                 'label'           => $c->label(),
                 'params_schema'   => $c->paramsSchema(),
-                'default_severity' => $c->defaultSeverity()->value,
+                'default_severity'=> $c->defaultSeverity()->value,
             ];
         }
     }
-    wp_send_json_success( [ 'operations' => $ops, 'checks' => $chk ] );
+    if ( \HiveSync\Core\Bootstrap::$importChecks ) {
+        foreach ( \HiveSync\Core\Bootstrap::$importChecks->all() as $c ) {
+            $importChecks[] = [
+                'id'              => $c->id(),
+                'label'           => $c->label(),
+                'params_schema'   => $c->paramsSchema(),
+                'default_severity'=> $c->defaultSeverity()->value,
+            ];
+        }
+    }
+    wp_send_json_success( [
+        'operations'    => $ops,
+        'import_rules'  => $importRules,
+        'checks'        => $chk,
+        'import_checks' => $importChecks,
+    ] );
 } );
 
 // ─── Pipelines ─────────────────────────────────────────────────────

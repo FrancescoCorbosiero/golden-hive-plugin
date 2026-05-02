@@ -3,27 +3,38 @@ declare(strict_types=1);
 
 namespace HiveSync\Workflow\Run;
 
+use HiveSync\Core\Bootstrap;
+use HiveSync\Core\Check\CheckSeverity;
+use HiveSync\Core\Operation\ImportRule;
+use HiveSync\Core\Operation\OperationContext;
+use HiveSync\Core\Pipeline\Pipeline;
+use HiveSync\Core\Pipeline\PipelineRepository;
+use HiveSync\Core\Pipeline\PipelineStepKind;
 use HiveSync\Core\Repo\RunRepository;
 use HiveSync\Core\Source\Context;
+use HiveSync\Core\Source\FeedItem;
 use HiveSync\Core\Source\FetchRequest;
 use HiveSync\Core\Source\Source;
 
 /**
- * Orchestrates one source.import run: fetch → diff → materialize each
- * item, recording progress against wp_hsync_runs and respecting the
- * cooperative deadline (so a long import yields cleanly to the next
- * job tick).
+ * Orchestrates one source.import run with the full lifecycle:
  *
- * Returns a structured envelope the AJAX layer renders verbatim:
- *   ['status'   => 'done' | 'continue' | 'failed',
- *    'run_id'   => int,
- *    'summary'  => ['fetched','new','update','unchanged','created','updated','failed','skipped'],
- *    'warnings' => string[],
- *    'rows'     => [ [pid, sku, action, error?], ... ]   // capped at 100 for UI
- *   ]
+ *   fetch (Source::fetch)
+ *     → diff (Source::diff)
+ *     → for each item in (new ∪ update):
+ *         → pre-import checks (FeedItem-scoped)  — block-severity skips item
+ *         → import-rule operations               — mutate the draft
+ *         → materialize (Source::materialize)
+ *         → post-import checks (productId-scoped) — block-severity counts toward
+ *                                                    blocking_failures
  *
- * Phase 3b uses this for ad-hoc "Run now" — same path will back the
- * Job runner in phase 4 by passing $cursor through.
+ * Pipeline lookup is via options.pipeline_slug — when absent, NO
+ * pre/import/post processing happens (backward compatible: behaves
+ * exactly like the phase-3b runner did).
+ *
+ * Cooperative deadline + cursor resume preserved from the previous
+ * implementation: ticks yield with status=continue + cursor before
+ * starting a new item, never mid-item.
  */
 final class ImportRunner
 {
@@ -32,14 +43,11 @@ final class ImportRunner
     ) {}
 
     /**
-     * @param array<string, mixed> $config   Source config (validated by AbstractSource)
-     * @param array<string, mixed> $options  Fetch-time options (mapping, price_mode, …)
-     * @param array<string, mixed> $meta     Run-context meta (sideload flag, trigger, …)
+     * @param array<string, mixed> $config   Source config
+     * @param array<string, mixed> $options  options.pipeline_slug enables lifecycle;
+     *                                       options.mapping passes through to fetch
+     * @param array<string, mixed> $meta     Run-context meta (trigger, …)
      * @param array{index?:int,run_id?:int}|null $cursor
-     *        When present (typically from a prior tick that yielded
-     *        status=continue), skip past index and reuse the existing
-     *        run_id so progress accumulates against the same wp_hsync_runs
-     *        row instead of opening a fresh one each tick.
      */
     public function run(
         Source $source,
@@ -61,6 +69,10 @@ final class ImportRunner
             deadline: $deadline,
             meta: $meta,
         );
+        $opCtx = new OperationContext( base: $ctx, sourceId: $source->id() );
+
+        // Pipeline (optional). Each step's registry lookup is lazy.
+        $pipeline = self::loadPipeline( (string) ( $options['pipeline_slug'] ?? '' ) );
 
         try {
             $fetch = $source->fetch( new FetchRequest( $config, $options ), $ctx );
@@ -81,6 +93,8 @@ final class ImportRunner
             'updated'   => 0,
             'skipped'   => count( $diff->unchanged ),
             'failed'    => 0,
+            'pre_blocked'  => 0,
+            'post_blocked' => 0,
         ];
 
         $rows    = [];
@@ -103,28 +117,93 @@ final class ImportRunner
             }
 
             $item = $process[ $i ];
-            try {
-                $r = $source->materialize( $item, $ctx );
-            } catch ( \Throwable $e ) {
-                $rows[] = [ 'sku' => $item->sku, 'action' => 'failed', 'error' => $e->getMessage() ];
-                $summary['failed']++;
+            $rowTrace = [ 'sku' => $item->sku, 'pid' => null, 'action' => 'skipped', 'error' => null, 'pre' => [], 'post' => [] ];
+
+            // ─── Pre-import checks ──────────────────────────────────
+            $preBlocked = false;
+            if ( $pipeline ) {
+                foreach ( $pipeline->preCheckSteps() as $step ) {
+                    $check = Bootstrap::$importChecks?->get( $step->refId );
+                    if ( ! $check ) continue;
+                    try {
+                        $cr = $check->evaluate( $item, $step->params );
+                    } catch ( \Throwable $e ) {
+                        $rowTrace['pre'][] = [ 'ref' => $step->refId, 'error' => $e->getMessage() ];
+                        continue;
+                    }
+                    $rowTrace['pre'][] = [ 'ref' => $step->refId, 'passed' => $cr->passed, 'message' => $cr->message ];
+                    if ( ! $cr->passed && $cr->severity === CheckSeverity::Block ) {
+                        $preBlocked = true;
+                        break;
+                    }
+                }
+            }
+            if ( $preBlocked ) {
+                $summary['pre_blocked']++;
+                $rowTrace['action'] = 'pre_blocked';
+                $rowTrace['error']  = 'pre-import check block-severity failure';
+                $rows[] = $rowTrace;
                 continue;
             }
 
-            $action = $r->action;
-            switch ( $action ) {
+            // ─── Import-rule operations (mutate the draft) ─────────
+            $draft = $item->data;
+            if ( $pipeline ) {
+                foreach ( $pipeline->importRuleSteps() as $step ) {
+                    $op = Bootstrap::$operations?->get( $step->refId );
+                    if ( ! $op instanceof ImportRule ) continue;
+                    try {
+                        $op->applyDuringImport( $item, $draft, $step->params, $opCtx );
+                    } catch ( \Throwable $e ) {
+                        // An import-rule failure doesn't block — log + continue
+                        $rowTrace['pre'][] = [ 'ref' => $step->refId, 'rule_error' => $e->getMessage() ];
+                    }
+                }
+            }
+            $effectiveItem = $draft === $item->data
+                ? $item
+                : new FeedItem( sku: $item->sku, data: $draft, raw: $item->raw );
+
+            // ─── Materialize ───────────────────────────────────────
+            try {
+                $r = $source->materialize( $effectiveItem, $ctx );
+            } catch ( \Throwable $e ) {
+                $rowTrace['action'] = 'failed';
+                $rowTrace['error']  = $e->getMessage();
+                $summary['failed']++;
+                $rows[] = $rowTrace;
+                continue;
+            }
+
+            $rowTrace['pid']    = $r->productId;
+            $rowTrace['action'] = $r->action;
+            $rowTrace['error']  = $r->error;
+            switch ( $r->action ) {
                 case 'created': $summary['created']++; break;
                 case 'updated': $summary['updated']++; break;
                 case 'failed':  $summary['failed']++;  break;
                 case 'skipped': $summary['skipped']++; break;
             }
 
-            $rows[] = [
-                'pid'    => $r->productId,
-                'sku'    => $item->sku,
-                'action' => $action,
-                'error'  => $r->error,
-            ];
+            // ─── Post-import checks ────────────────────────────────
+            if ( $pipeline && $r->isSuccess() && $r->productId !== null ) {
+                foreach ( $pipeline->checkSteps() as $step ) {
+                    $check = Bootstrap::$checks?->get( $step->refId );
+                    if ( ! $check ) continue;
+                    try {
+                        $cr = $check->evaluate( $r->productId, $step->params );
+                    } catch ( \Throwable $e ) {
+                        $rowTrace['post'][] = [ 'ref' => $step->refId, 'error' => $e->getMessage() ];
+                        continue;
+                    }
+                    $rowTrace['post'][] = [ 'ref' => $step->refId, 'passed' => $cr->passed, 'message' => $cr->message ];
+                    if ( ! $cr->passed && $cr->severity === CheckSeverity::Block ) {
+                        $summary['post_blocked']++;
+                    }
+                }
+            }
+
+            $rows[] = $rowTrace;
         }
 
         $this->runs->progress( $runId, $total, $summary['created'] + $summary['updated'], $summary['failed'] );
@@ -142,4 +221,12 @@ final class ImportRunner
             'progress' => [ 'done' => $total, 'total' => $total ],
         ];
     }
+
+    private static function loadPipeline( string $slug ): ?Pipeline
+    {
+        if ( $slug === '' ) return null;
+        $repo = new PipelineRepository();
+        return $repo->find( $slug );
+    }
 }
+

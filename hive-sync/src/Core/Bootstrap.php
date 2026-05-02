@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace HiveSync\Core;
 
 use HiveSync\Core\Check\CheckRegistry;
+use HiveSync\Core\Check\ImportCheckRegistry;
 use HiveSync\Core\Operation\OperationRegistry;
 use HiveSync\Core\Source\SourceRegistry;
 
@@ -21,6 +22,7 @@ final class Bootstrap
     public static ?SourceRegistry $sources = null;
     public static ?OperationRegistry $operations = null;
     public static ?CheckRegistry $checks = null;
+    public static ?ImportCheckRegistry $importChecks = null;
 
     private static bool $booted = false;
 
@@ -29,9 +31,10 @@ final class Bootstrap
         if ( self::$booted ) return;
         self::$booted = true;
 
-        self::$sources    = new SourceRegistry();
-        self::$operations = new OperationRegistry();
-        self::$checks     = new CheckRegistry();
+        self::$sources      = new SourceRegistry();
+        self::$operations   = new OperationRegistry();
+        self::$checks       = new CheckRegistry();
+        self::$importChecks = new ImportCheckRegistry();
 
         do_action( 'hive_sync/core_booted' );
     }

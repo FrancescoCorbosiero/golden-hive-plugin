@@ -985,6 +985,22 @@
         if (HSync.state.mappings.length === 0) HSync.loadMappings();
         else HSync.populateRunMappings();
         HSync.loadSourceConfigs(sourceId);
+        HSync.populateRunPipelinePicker();
+    };
+
+    HSync.populateRunPipelinePicker = async function () {
+        const sel = $('[data-field="run-pipeline"]');
+        if (!sel) return;
+        if (!HSync.state.pipelines.length) {
+            try { await HSync.loadPipelines(); } catch {}
+        }
+        const previous = sel.value;
+        sel.innerHTML = '<option value="">— nessuna (fetch → diff → materialize) —</option>'
+            + HSync.state.pipelines.map(p =>
+                '<option value="' + esc(p.slug) + '"' + (p.slug === 'import-default' && !previous ? ' selected' : '') + '>'
+                + esc(p.name) + '</option>'
+            ).join('');
+        if (previous) sel.value = previous;
     };
 
     HSync.loadSourceConfigs = async function (sourceId) {
@@ -1142,7 +1158,10 @@
         const dryRun = $('[data-field="run-dry-run"]').checked;
         const mappingSlug = $('[data-field="run-mapping"]').value;
         const mapping = mappingSlug ? HSync.state.mappings.find(m => m.slug === mappingSlug) : null;
-        const options = mapping ? { mapping: mapping.config } : {};
+        const pipelineSlug = ($('[data-field="run-pipeline"]') || {}).value || '';
+        const options = {};
+        if (mapping)        options.mapping = mapping.config;
+        if (pipelineSlug)   options.pipeline_slug = pipelineSlug;
 
         const out = $('[data-region="run-output"]');
         out.innerHTML = '<p class="hsync-loading">Tick 1: starting…</p>';
@@ -1232,7 +1251,13 @@
             +   stat('Updated',   s.updated, 'is-good')
             +   stat('Skipped',   s.skipped)
             +   stat('Failed',    s.failed,  'is-bad')
-            + '</div>';
+            + '</div>'
+            + ((s.pre_blocked || s.post_blocked)
+                ? '<div class="hsync-summary" style="grid-template-columns:repeat(2,1fr);">'
+                +   stat('Pre-import blocked',  s.pre_blocked,  s.pre_blocked  > 0 ? 'is-bad' : '')
+                +   stat('Post-import blocking',s.post_blocked, s.post_blocked > 0 ? 'is-bad' : '')
+                + '</div>'
+                : '');
 
         const warns = (data.warnings || []).map(w =>
             '<div class="hsync-warning">' + esc(w) + '</div>'

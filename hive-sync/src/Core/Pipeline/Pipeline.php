@@ -59,4 +59,13 @@ final class Pipeline
             static fn(PipelineStep $s): bool => $s->kind === PipelineStepKind::Check,
         ));
     }
+
+    /** @return PipelineStep[] Pre-import checks (FeedItem-scoped). */
+    public function preCheckSteps(): array
+    {
+        return array_values(array_filter(
+            $this->steps,
+            static fn(PipelineStep $s): bool => $s->kind === PipelineStepKind::PreCheck,
+        ));
+    }
 }

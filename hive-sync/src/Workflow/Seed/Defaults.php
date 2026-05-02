@@ -140,6 +140,46 @@ final class Defaults
     {
         return [
             [
+                'slug'  => 'import-default',
+                'name'  => 'Import — pre-checks + media download + taxonomy resolve',
+                'steps' => [
+                    [
+                        'kind'   => 'pre_check',
+                        'ref_id' => 'import.has_required_fields',
+                        'params' => [ 'fields' => 'sku,name', 'severity' => 'block' ],
+                        'note'   => 'Skip rows missing sku or name',
+                    ],
+                    [
+                        'kind'   => 'pre_check',
+                        'ref_id' => 'import.has_media_url',
+                        'params' => [ 'severity' => 'warn' ],
+                        'note'   => 'Flag rows without any media URL — does not block',
+                    ],
+                    [
+                        'kind'   => 'import_rule',
+                        'ref_id' => 'media.download',
+                        'params' => [ 'concurrency' => 10, 'skip_if_set' => true ],
+                        'note'   => 'Parallel curl_multi sideload (host adapter)',
+                    ],
+                    [
+                        'kind'   => 'import_rule',
+                        'ref_id' => 'taxonomy.resolve',
+                        'params' => [ 'create_missing' => true ],
+                        'note'   => 'Resolve categories/brands/tags + pa_* attributes',
+                    ],
+                    [
+                        'kind'   => 'check',
+                        'ref_id' => 'media.has_images',
+                        'params' => [ 'min' => 1, 'severity' => 'warn' ],
+                    ],
+                    [
+                        'kind'   => 'check',
+                        'ref_id' => 'taxonomy.has_category',
+                        'params' => [ 'taxonomy' => 'product_cat', 'min' => 1, 'severity' => 'warn' ],
+                    ],
+                ],
+            ],
+            [
                 'slug'  => 'validate-basics',
                 'name'  => 'Validate basics — has image + has category',
                 'steps' => [

@@ -85,7 +85,12 @@
         if (HSync.state.registry.operations.length || HSync.state.registry.checks.length) return;
         try {
             const data = await HSync.ajax('registry_list', {});
-            HSync.state.registry = { operations: data.operations || [], checks: data.checks || [] };
+            HSync.state.registry = {
+                operations:    data.operations    || [],
+                import_rules:  data.import_rules  || [],
+                checks:        data.checks        || [],
+                import_checks: data.import_checks || [],
+            };
         } catch (e) { console.warn('registry_list:', e.message); }
     };
 
@@ -137,22 +142,37 @@
     HSync.renderPipelineEditor = function () {
         const p = HSync.state.editingPipeline;
         const root = $('[data-region="pipeline-editor"]');
-        const opts  = HSync.state.registry.operations.map(o =>
-            '<option value="' + esc(o.id) + '">' + esc(o.label) + ' (' + esc(o.id) + ')</option>'
-        ).join('');
+        const opts = HSync.state.registry.operations
+            .filter(o => !o.is_import_rule)
+            .map(o => '<option value="' + esc(o.id) + '">' + esc(o.label) + ' (' + esc(o.id) + ')</option>')
+            .join('');
+        const importRules = HSync.state.registry.operations
+            .filter(o => o.is_import_rule)
+            .map(o => '<option value="' + esc(o.id) + '">' + esc(o.label) + ' (' + esc(o.id) + ')</option>')
+            .join('');
         const chkOpts = HSync.state.registry.checks.map(c =>
             '<option value="' + esc(c.id) + '">' + esc(c.label) + ' (' + esc(c.id) + ')</option>'
         ).join('');
+        const preChkOpts = (HSync.state.registry.import_checks || []).map(c =>
+            '<option value="' + esc(c.id) + '">' + esc(c.label) + ' (' + esc(c.id) + ')</option>'
+        ).join('');
+
         const stepsHtml = (p.steps || []).map((s, i) => HSync.renderPipelineStep(s, i)).join('');
+
         root.innerHTML = ''
             + '<h2>' + (p.slug ? 'Modifica pipeline' : 'Nuova pipeline') + '</h2>'
             + '<label>Nome <input type="text" data-field="pipeline-name" value="' + esc(p.name) + '"></label>'
-            + '<div class="hsync-pipeline-steps">' + (stepsHtml || '<p class="hsync-muted">Nessuno step. Usa i pulsanti qui sotto per aggiungere.</p>') + '</div>'
-            + '<div class="hsync-actions">'
-            +   '<select data-field="pipeline-add-op-id"><option value="">Operazione…</option>' + opts + '</select>'
+            + '<p class="hsync-muted">Step ordinati. Ciclo per item: <code>pre_check</code> → <code>import_rule</code> → materialize → <code>check</code>.</p>'
+            + '<div class="hsync-pipeline-steps">' + (stepsHtml || '<p class="hsync-muted">Nessuno step. Aggiungi qui sotto.</p>') + '</div>'
+            + '<div class="hsync-actions" style="flex-wrap:wrap;">'
+            +   '<select data-field="pipeline-add-pre-id"><option value="">Pre-check (FeedItem)…</option>' + preChkOpts + '</select>'
+            +   '<button class="button" data-action="pipeline-add-pre">+ Pre-check</button>'
+            +   '<select data-field="pipeline-add-rule-id"><option value="">Import-rule (mutate draft)…</option>' + importRules + '</select>'
+            +   '<button class="button" data-action="pipeline-add-rule">+ Import-rule</button>'
+            +   '<select data-field="pipeline-add-op-id"><option value="">Post-import operation…</option>' + opts + '</select>'
             +   '<button class="button" data-action="pipeline-add-op">+ Operation</button>'
-            +   '<select data-field="pipeline-add-chk-id"><option value="">Check…</option>' + chkOpts + '</select>'
-            +   '<button class="button" data-action="pipeline-add-chk">+ Check</button>'
+            +   '<select data-field="pipeline-add-chk-id"><option value="">Post-check (productId)…</option>' + chkOpts + '</select>'
+            +   '<button class="button" data-action="pipeline-add-chk">+ Post-check</button>'
             + '</div>'
             + '<div class="hsync-actions" style="margin-top:24px;border-top:1px solid #ccd0d4;padding-top:16px;">'
             +   '<button class="button button-primary" data-action="pipeline-save">Salva</button>'
@@ -161,10 +181,30 @@
     };
 
     HSync.renderPipelineStep = function (step, idx) {
-        const reg = step.kind === 'check' ? HSync.state.registry.checks : HSync.state.registry.operations;
+        let reg, kindLabel, pillKind;
+        switch (step.kind) {
+            case 'pre_check':
+                reg = HSync.state.registry.import_checks || [];
+                kindLabel = 'Pre-check';
+                pillKind = 'is-skipped';
+                break;
+            case 'import_rule':
+                reg = HSync.state.registry.import_rules || HSync.state.registry.operations.filter(o => o.is_import_rule);
+                kindLabel = 'Import-rule';
+                pillKind = 'is-updated';
+                break;
+            case 'check':
+                reg = HSync.state.registry.checks;
+                kindLabel = 'Post-check';
+                pillKind = 'is-skipped';
+                break;
+            default:
+                reg = HSync.state.registry.operations;
+                kindLabel = 'Operation';
+                pillKind = 'is-created';
+        }
         const def = reg.find(r => r.id === step.ref_id);
         const schema = def ? def.params_schema : {};
-        const kindLabel = step.kind === 'check' ? 'Check' : 'Operation';
         const fields = Object.entries(schema || {}).map(([f, spec]) => {
             const id = 'pl-step-' + idx + '-' + f;
             const val = step.params && step.params[f] !== undefined ? step.params[f] : (spec.default !== undefined ? spec.default : '');
@@ -185,13 +225,29 @@
         return ''
             + '<div class="hsync-mapping-row">'
             +   '<div class="hsync-row-main">'
-            +     '<div class="hsync-row-name"><span class="hsync-action-pill is-' + (step.kind === 'check' ? 'updated' : 'created') + '">' + kindLabel + '</span> <code>' + esc(step.ref_id) + '</code>' + (def ? ' — ' + esc(def.label) : ' <em>(sconosciuto)</em>') + '</div>'
+            +     '<div class="hsync-row-name"><span class="hsync-action-pill ' + pillKind + '">' + kindLabel + '</span> <code>' + esc(step.ref_id) + '</code>' + (def ? ' — ' + esc(def.label) : ' <em>(sconosciuto)</em>') + '</div>'
             +     '<div class="hsync-row-meta">' + (fields || '<em>nessun parametro</em>') + '</div>'
             +   '</div>'
             +   '<button class="button" data-action="step-up" data-idx="' + idx + '">↑</button>'
             +   '<button class="button" data-action="step-down" data-idx="' + idx + '">↓</button>'
             +   '<button class="button" data-action="step-delete" data-idx="' + idx + '">✕</button>'
             + '</div>';
+    };
+
+    HSync.addPipelineStep = function (kind) {
+        let selSelector;
+        switch (kind) {
+            case 'pre_check':   selSelector = '[data-field="pipeline-add-pre-id"]'; break;
+            case 'import_rule': selSelector = '[data-field="pipeline-add-rule-id"]'; break;
+            case 'check':       selSelector = '[data-field="pipeline-add-chk-id"]'; break;
+            default:            selSelector = '[data-field="pipeline-add-op-id"]';
+        }
+        const sel = $(selSelector);
+        const refId = sel ? sel.value : '';
+        if (!refId) return;
+        HSync.collectPipelineSteps();
+        HSync.state.editingPipeline.steps.push({ kind: kind, ref_id: refId, params: {} });
+        HSync.renderPipelineEditor();
     };
 
     HSync.collectPipelineSteps = function () {
@@ -206,15 +262,6 @@
             else if (el.value !== '')   p.steps[idx].params[f] = el.value;
             else                        delete p.steps[idx].params[f];
         });
-    };
-
-    HSync.addPipelineStep = function (kind) {
-        const sel = $(kind === 'check' ? '[data-field="pipeline-add-chk-id"]' : '[data-field="pipeline-add-op-id"]');
-        const refId = sel ? sel.value : '';
-        if (!refId) return;
-        HSync.collectPipelineSteps();
-        HSync.state.editingPipeline.steps.push({ kind: kind, ref_id: refId, params: {} });
-        HSync.renderPipelineEditor();
     };
 
     HSync.movePipelineStep = function (idx, dir) {
@@ -1371,8 +1418,10 @@
         if (t.matches('[data-action="pipeline-delete"]')) return HSync.deletePipeline(t.dataset.slug);
         if (t.matches('[data-action="pipeline-save"]'))   return HSync.savePipeline();
         if (t.matches('[data-action="pipeline-cancel"]')) return HSync.closePipelineEditor();
-        if (t.matches('[data-action="pipeline-add-op"]'))  return HSync.addPipelineStep('operation');
-        if (t.matches('[data-action="pipeline-add-chk"]')) return HSync.addPipelineStep('check');
+        if (t.matches('[data-action="pipeline-add-op"]'))   return HSync.addPipelineStep('operation');
+        if (t.matches('[data-action="pipeline-add-chk"]'))  return HSync.addPipelineStep('check');
+        if (t.matches('[data-action="pipeline-add-pre"]'))  return HSync.addPipelineStep('pre_check');
+        if (t.matches('[data-action="pipeline-add-rule"]')) return HSync.addPipelineStep('import_rule');
         if (t.matches('[data-action="step-up"]'))     return HSync.movePipelineStep(parseInt(t.dataset.idx, 10), -1);
         if (t.matches('[data-action="step-down"]'))   return HSync.movePipelineStep(parseInt(t.dataset.idx, 10), 1);
         if (t.matches('[data-action="step-delete"]')) return HSync.deletePipelineStep(parseInt(t.dataset.idx, 10));

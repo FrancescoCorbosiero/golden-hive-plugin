@@ -460,8 +460,13 @@ add_action( 'wp_ajax_hsync_ajax_jobs_tick_now', function () {
 
 add_action( 'wp_ajax_hsync_ajax_install_defaults', function () {
     hsync_ajax_guard();
-    $result = hsync_install_defaults();
-    wp_send_json_success( $result );
+    // `force=1` overwrites existing mappings/pipelines that share a slug
+    // with a built-in default. Used by the "Reinstalla (sovrascrivi)"
+    // button to ship code-level updates to installs that already ran
+    // the activation seeder.
+    $force  = hsync_post_bool( 'force' );
+    $result = hsync_install_defaults( $force );
+    wp_send_json_success( $result + [ 'force' => $force ] );
 } );
 
 // ─── Action Scheduler health (helpful when DISABLE_WP_CRON) ───────

@@ -1566,14 +1566,15 @@
         }
     };
 
-    HSync.installDefaults = async function () {
+    HSync.installDefaults = async function (force) {
+        if (force && !confirm('Sovrascrive le mappature e i flussi default con la versione del codice. Eventuali modifiche fatte a "gs-default" / "import-default" andranno perse. Procedere?')) return;
         try {
-            const data = await HSync.ajax('install_defaults', {});
+            const data = await HSync.ajax('install_defaults', force ? { force: '1' } : {});
             const m = data.mappings || 0, p = data.pipelines || 0;
             if (m === 0 && p === 0) {
                 alert('Default già installati — nessuna modifica.');
             } else {
-                alert('Installati ' + m + ' mapping + ' + p + ' pipeline di default.');
+                alert((force ? 'Aggiornati ' : 'Installati ') + m + ' mappature + ' + p + ' flussi default.');
             }
             HSync.loadMappings();
             if (HSync.state.pipelines.length || HSync.state.currentTab === 'pipelines') HSync.loadPipelines();
@@ -2027,7 +2028,8 @@
         if (t.matches('[data-action="mapping-custom-delete"]'))  return HSync.deleteCustomMappingRow(parseInt(t.dataset.idx, 10));
         if (t.matches('[data-action="mapping-json-apply"]'))     return HSync.applyMappingJson();
         if (t.matches('[data-action="mapping-insert-token"]'))   return HSync.insertMappingToken(t.dataset.token);
-        if (t.matches('[data-action="install-defaults"]')) return HSync.installDefaults();
+        if (t.matches('[data-action="install-defaults"]'))       return HSync.installDefaults(false);
+        if (t.matches('[data-action="install-defaults-force"]')) return HSync.installDefaults(true);
         if (t.matches('[data-action="run-now"]'))        return HSync.runNow();
         if (t.matches('[data-action="run-test-fetch"]')) return HSync.testFetchFromRun();
         if (t.matches('[data-action="run-save-config"]'))return HSync.saveCurrentConfig();

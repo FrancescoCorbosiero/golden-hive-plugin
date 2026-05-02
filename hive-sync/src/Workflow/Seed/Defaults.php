@@ -30,27 +30,33 @@ final class Defaults
     ) {}
 
     /**
-     * @return array{mappings: int, pipelines: int}  counts of newly inserted rows
+     * @param bool $force  When true, overwrite existing mappings/pipelines
+     *                     with the same slug so code-level changes ship to
+     *                     installs that already ran the activation seeder.
+     *                     User-edited entities are clobbered — call only
+     *                     when the operator explicitly asks for it.
+     * @return array{mappings: int, pipelines: int}  counts of inserted+updated rows
      */
-    public function install(): array
+    public function install( bool $force = false ): array
     {
         return [
-            'mappings'  => $this->seedMappings(),
-            'pipelines' => $this->seedPipelines(),
+            'mappings'  => $this->seedMappings( $force ),
+            'pipelines' => $this->seedPipelines( $force ),
         ];
     }
 
     // ─── Mappings ─────────────────────────────────────────────────
 
-    private function seedMappings(): int
+    private function seedMappings( bool $force ): int
     {
-        $inserted = 0;
+        $touched = 0;
         foreach ( self::defaultMappings() as $m ) {
-            if ( $this->mappings->find( $m['slug'] ) !== null ) continue;
+            $exists = $this->mappings->find( $m['slug'] ) !== null;
+            if ( $exists && ! $force ) continue;
             $this->mappings->save( $m );
-            $inserted++;
+            $touched++;
         }
-        return $inserted;
+        return $touched;
     }
 
     /**
@@ -104,11 +110,12 @@ final class Defaults
 
     // ─── Pipelines ────────────────────────────────────────────────
 
-    private function seedPipelines(): int
+    private function seedPipelines( bool $force ): int
     {
-        $inserted = 0;
+        $touched = 0;
         foreach ( self::defaultPipelines() as $def ) {
-            if ( $this->pipelines->find( $def['slug'] ) !== null ) continue;
+            $exists = $this->pipelines->find( $def['slug'] ) !== null;
+            if ( $exists && ! $force ) continue;
             $steps = [];
             foreach ( $def['steps'] as $s ) {
                 $kind = PipelineStepKind::tryFrom( (string) $s['kind'] ) ?? PipelineStepKind::Operation;
@@ -124,9 +131,9 @@ final class Defaults
                 name: (string) $def['name'],
                 steps: $steps,
             ) );
-            $inserted++;
+            $touched++;
         }
-        return $inserted;
+        return $touched;
     }
 
     /**
@@ -163,9 +170,19 @@ final class Defaults
                     ],
                     [
                         'kind'   => 'import_rule',
+                        'ref_id' => 'taxonomy.auto_categorize',
+                        'params' => [
+                            'sneakers_label' => 'Sneakers',
+                            'apparel_label'  => 'Abbigliamento',
+                            'override'       => false,
+                        ],
+                        'note'   => 'Fill categories from size shape when feed lacks taxonomy',
+                    ],
+                    [
+                        'kind'   => 'import_rule',
                         'ref_id' => 'taxonomy.resolve',
                         'params' => [ 'create_missing' => true ],
-                        'note'   => 'Resolve categories/brands/tags + pa_* attributes',
+                        'note'   => 'Resolve categories/brands/tags + pa_* attributes (creates Sneakers/Abbigliamento if missing)',
                     ],
                     [
                         'kind'   => 'check',

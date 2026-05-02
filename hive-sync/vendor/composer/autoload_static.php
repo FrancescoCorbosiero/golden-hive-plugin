@@ -73,6 +73,7 @@ class ComposerStaticInit8ec97cf8e32aa119124e2c238cc20b92
         'HiveSync\\Operations\\Status\\SetStatus' => __DIR__ . '/../..' . '/src/Operations/Status/SetStatus.php',
         'HiveSync\\Operations\\Stock\\SetStockQuantity' => __DIR__ . '/../..' . '/src/Operations/Stock/SetStockQuantity.php',
         'HiveSync\\Operations\\Stock\\SetStockStatus' => __DIR__ . '/../..' . '/src/Operations/Stock/SetStockStatus.php',
+        'HiveSync\\Operations\\Taxonomy\\AutoCategorize' => __DIR__ . '/../..' . '/src/Operations/Taxonomy/AutoCategorize.php',
         'HiveSync\\Operations\\Taxonomy\\ResolveTaxonomy' => __DIR__ . '/../..' . '/src/Operations/Taxonomy/ResolveTaxonomy.php',
         'HiveSync\\Sources\\CsvSource' => __DIR__ . '/../..' . '/src/Sources/CsvSource.php',
         'HiveSync\\Sources\\GoldenSneakersSource' => __DIR__ . '/../..' . '/src/Sources/GoldenSneakersSource.php',

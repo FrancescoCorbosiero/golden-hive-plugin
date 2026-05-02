@@ -75,6 +75,7 @@ function hsync_render_admin_page(): void {
                 </select>
                 <button class="button button-primary" data-action="mapping-new">+ Nuova mappatura</button>
                 <button class="button" data-action="install-defaults">Installa default</button>
+                <button class="button" data-action="install-defaults-force" title="Sovrascrive le mappature/flussi default per tirare dentro le ultime modifiche del codice (es. la categorizzazione automatica). I tuoi dati rimangono.">Aggiorna default</button>
             </div>
             <div class="hsync-mappings-list" data-region="mappings-list">
                 <p class="hsync-loading">Caricamento…</p>

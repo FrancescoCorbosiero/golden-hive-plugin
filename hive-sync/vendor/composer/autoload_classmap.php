@@ -58,6 +58,7 @@ return array(
     'HiveSync\\Operations\\Status\\SetStatus' => $baseDir . '/src/Operations/Status/SetStatus.php',
     'HiveSync\\Operations\\Stock\\SetStockQuantity' => $baseDir . '/src/Operations/Stock/SetStockQuantity.php',
     'HiveSync\\Operations\\Stock\\SetStockStatus' => $baseDir . '/src/Operations/Stock/SetStockStatus.php',
+    'HiveSync\\Operations\\Taxonomy\\AutoCategorize' => $baseDir . '/src/Operations/Taxonomy/AutoCategorize.php',
     'HiveSync\\Operations\\Taxonomy\\ResolveTaxonomy' => $baseDir . '/src/Operations/Taxonomy/ResolveTaxonomy.php',
     'HiveSync\\Sources\\CsvSource' => $baseDir . '/src/Sources/CsvSource.php',
     'HiveSync\\Sources\\GoldenSneakersSource' => $baseDir . '/src/Sources/GoldenSneakersSource.php',

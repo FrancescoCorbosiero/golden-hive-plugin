@@ -25,6 +25,7 @@ add_action( 'hive_sync/core_booted', function () {
 
     // Operations (import-rules — mutate the FeedItem draft during import)
     \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Media\DownloadMedia() );
+    \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Taxonomy\AutoCategorize() );
     \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Taxonomy\ResolveTaxonomy() );
 
     // Checks (post-import — productId-scoped)

@@ -1100,10 +1100,25 @@
         (rows || []).forEach(r => {
             const k = (r.wooField || '').trim();
             const v = (r.value || '').trim();
-            if (k !== '') out[k] = v;
+            // Skip rows with no key OR no value — empty values are
+            // typically left over from "Aggiungi campi Woo standard"
+            // and shouldn't pollute the saved mapping.
+            if (k !== '' && v !== '') out[k] = v;
         });
         return out;
     };
+
+    // Pre-canned templates the user can pick instead of typing from
+    // scratch. Each snippet is rendered as a button under a focused
+    // value input; clicking inserts at the caret.
+    HSync.MAPPING_SNIPPETS = [
+        { label: 'Brand + nome',                   value: '{brand_name} {name}' },
+        { label: 'Descrizione lunga (HTML)',       value: '<p>{brand_name} <strong>{name}</strong> originali — {colorway}</p>' },
+        { label: 'Descrizione breve',              value: '{brand_name} {name}' },
+        { label: 'SEO title',                      value: '{name} | {brand_name} | Sneakers' },
+        { label: 'SEO meta description',           value: 'Acquista {name} di {brand_name}. Modello {colorway}, taglie disponibili. Spedizione veloce.' },
+        { label: 'SKU pattern (brand-sku)',        value: '{brand_name}-{sku}' },
+    ];
 
     HSync.renderMappingRows = function () {
         const region = $('[data-region="mapping-rows"]');
@@ -1122,13 +1137,38 @@
             + paths.map(p => '<option value="' + esc(p) + '">').join('')
             + '</datalist>';
 
+        // Reusable palette: chips for each path + snippets dropdown +
+        // syntax help. Hidden by default; shown under the focused row
+        // via toggleMappingPalette() so it follows whichever input is
+        // active.
+        const chips = paths.length
+            ? paths.map(p => '<button type="button" class="hsync-chip" data-action="mapping-insert-token" data-token="{' + esc(p) + '}">{' + esc(p) + '}</button>').join('')
+            : '<span class="hsync-muted">Esegui <em>Sonda sorgente</em> per popolare i path.</span>';
+        const snippets = HSync.MAPPING_SNIPPETS.map((s, i) =>
+            '<option value="' + i + '">' + esc(s.label) + '</option>',
+        ).join('');
+        const palette = ''
+            + '<div class="hsync-mapping-palette is-hidden" data-region="mapping-palette">'
+            +   '<div class="hsync-palette-row">'
+            +     '<strong>Inserisci placeholder:</strong> ' + chips
+            +   '</div>'
+            +   '<div class="hsync-palette-row">'
+            +     '<strong>Template suggeriti:</strong> '
+            +     '<select data-action="mapping-insert-snippet">'
+            +       '<option value="">— scegli —</option>'
+            +       snippets
+            +     '</select>'
+            +     '<span class="hsync-muted">Sintassi: <code>{path}</code> sostituisce il valore della sorgente. HTML libero supportato.</span>'
+            +   '</div>'
+            + '</div>';
+
         if (!rows.length) {
-            region.innerHTML = datalist
+            region.innerHTML = datalist + palette
                 + '<div class="hsync-empty">Nessun campo mappato. Clicca <em>Aggiungi campi Woo standard</em> per partire, oppure <em>+ Campo personalizzato</em>.</div>';
             return;
         }
 
-        region.innerHTML = datalist + rows.map((r, i) => {
+        region.innerHTML = datalist + palette + rows.map((r, i) => {
             const known = HSync.WOO_FIELDS.find(f => f.key === r.wooField);
             const fieldCell = known
                 ? '<select data-mapping-field="wooField" data-idx="' + i + '">'
@@ -1159,6 +1199,61 @@
                 +   '<button type="button" class="button button-small" data-action="mapping-row-delete" data-idx="' + i + '" title="Elimina">✕</button>'
                 + '</div>';
         }).join('');
+    };
+
+    /**
+     * Track which value input is focused so the palette knows where
+     * to insert tokens. We use a state slot rather than document.
+     * activeElement because clicking a chip moves focus to the button
+     * — by then activeElement is wrong.
+     */
+    HSync.state.mappingFocusedRow = null;
+
+    HSync.onMappingValueFocus = function (input) {
+        const idx = parseInt(input.dataset.idx, 10);
+        if (Number.isNaN(idx)) return;
+        HSync.state.mappingFocusedRow = idx;
+        const palette = $('[data-region="mapping-palette"]');
+        if (palette) palette.classList.remove('is-hidden');
+    };
+
+    HSync.insertMappingToken = function (token) {
+        const idx = HSync.state.mappingFocusedRow;
+        if (idx === null || !HSync.state.mappingRows[idx]) {
+            alert('Clicca prima un campo "valore" per scegliere dove inserire il placeholder.');
+            return;
+        }
+        const input = document.querySelector(
+            '[data-mapping-field="value"][data-idx="' + idx + '"]',
+        );
+        if (!input) return;
+        const start = input.selectionStart ?? input.value.length;
+        const end   = input.selectionEnd   ?? input.value.length;
+        const next  = input.value.slice(0, start) + token + input.value.slice(end);
+        input.value = next;
+        HSync.state.mappingRows[idx].value = next;
+        // Restore focus + caret right after the inserted token.
+        input.focus();
+        const caret = start + token.length;
+        try { input.setSelectionRange(caret, caret); } catch {}
+    };
+
+    HSync.insertMappingSnippet = function (snippetIdx) {
+        const snippet = HSync.MAPPING_SNIPPETS[snippetIdx];
+        if (!snippet) return;
+        const idx = HSync.state.mappingFocusedRow;
+        if (idx === null || !HSync.state.mappingRows[idx]) {
+            alert('Clicca prima un campo "valore" per scegliere dove inserire il template.');
+            return;
+        }
+        if (HSync.state.mappingRows[idx].value && !confirm('Sovrascrivere il valore corrente con il template?')) return;
+        HSync.state.mappingRows[idx].value = snippet.value;
+        HSync.renderMappingRows();
+        // Re-focus the same row so the palette stays anchored.
+        const input = document.querySelector(
+            '[data-mapping-field="value"][data-idx="' + idx + '"]',
+        );
+        if (input) input.focus();
     };
 
     HSync.addMappingRow = function (preset) {
@@ -1755,6 +1850,7 @@
         if (t.matches('[data-action="mapping-row-down"]'))     return HSync.moveMappingRow(parseInt(t.dataset.idx, 10),  1);
         if (t.matches('[data-action="mapping-row-delete"]'))   return HSync.deleteMappingRow(parseInt(t.dataset.idx, 10));
         if (t.matches('[data-action="mapping-json-apply"]'))   return HSync.applyMappingJson();
+        if (t.matches('[data-action="mapping-insert-token"]')) return HSync.insertMappingToken(t.dataset.token);
         if (t.matches('[data-action="install-defaults"]')) return HSync.installDefaults();
         if (t.matches('[data-action="run-now"]'))        return HSync.runNow();
         if (t.matches('[data-action="run-test-fetch"]')) return HSync.testFetchFromRun();
@@ -1838,6 +1934,12 @@
         if (e.target.matches('[data-field="job-ref"]'))           { HSync.state.editingJob.runnable_ref  = e.target.value; if (HSync.state.editingJob.runnable_type === 'source.import') HSync.loadSourceConfigs(e.target.value).then(() => HSync.renderJobEditor()); }
         if (e.target.matches('[data-action="media-toggle"]'))     HSync.toggleMediaSelection(parseInt(e.target.dataset.id, 10));
         if (e.target.matches('[data-action="mapping-toggle-json"]')) HSync.toggleMappingJson(e.target.checked);
+        if (e.target.matches('[data-action="mapping-insert-snippet"]')) {
+            const sel = e.target;
+            const idx = parseInt(sel.value, 10);
+            sel.value = '';  // reset so picking the same snippet twice still fires
+            if (!Number.isNaN(idx)) HSync.insertMappingSnippet(idx);
+        }
 
         // Mapping row inline edits — wooField select / value input.
         if (e.target.matches('[data-mapping-field]')) {
@@ -1872,6 +1974,10 @@
                 HSync.state.mappingRows[idx].wooField = e.target.value;
             }
         }
+    });
+
+    document.addEventListener('focusin', function (e) {
+        if (e.target.matches('[data-mapping-field="value"]')) HSync.onMappingValueFocus(e.target);
     });
 
     document.addEventListener('keydown', function (e) {

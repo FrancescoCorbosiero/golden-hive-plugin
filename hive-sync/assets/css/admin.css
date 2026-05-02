@@ -265,6 +265,32 @@
     width: 100%; max-width: 100%;
 }
 
+/* Placeholder palette + snippets — anchored above the rows once the
+   user focuses a value input. Sticky so it stays in view while
+   scrolling long mapping lists. */
+.hsync-wrap .hsync-mapping-palette {
+    position: sticky; top: 0; z-index: 5;
+    background: #fffbe6; border: 1px solid #e5d97b; border-radius: 4px;
+    padding: 10px 12px; margin-bottom: 10px;
+}
+.hsync-wrap .hsync-palette-row {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+    font-size: 12px; line-height: 1.6;
+}
+.hsync-wrap .hsync-palette-row + .hsync-palette-row {
+    margin-top: 6px; padding-top: 6px; border-top: 1px dashed #e5d97b;
+}
+.hsync-wrap .hsync-palette-row strong { color: #5b4500; }
+.hsync-wrap .hsync-chip {
+    background: #fff; border: 1px solid #e5d97b; color: #5b4500;
+    padding: 2px 8px; border-radius: 12px; font-size: 11px;
+    font-family: monospace; cursor: pointer;
+}
+.hsync-wrap .hsync-chip:hover { background: #f8e98a; }
+.hsync-wrap .hsync-palette-row select {
+    padding: 3px 6px; border: 1px solid #c2b46c; border-radius: 4px; font-size: 12px;
+}
+
 /* Tools tab — Nuclear Cleanup */
 .hsync-wrap .hsync-tools-targets {
     display: flex; flex-direction: column; gap: 8px;

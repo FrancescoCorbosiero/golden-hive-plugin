@@ -91,11 +91,16 @@ function hsync_render_admin_page(): void {
                 <div class="hsync-mapping-help">
                     <strong>Come funziona.</strong>
                     A sinistra ci sono i campi standard di WooCommerce — sono fissi.
-                    A destra scegli cosa farci entrare: il <em>nome di un campo</em> della
-                    tua sorgente (es. <code>SKU</code>, <code>sizes.size_eu</code>),
+                    A destra scegli quale campo del <strong>feed esterno</strong>
+                    ci finisce (es. <code>presented_price</code>, <code>brand_name</code>),
                     oppure un <em>template</em> per costruire contenuti dinamici
                     (es. <code>{brand_name} originali — {name}</code>).
                     I campi con <span class="hsync-required-marker">*</span> sono obbligatori.
+                    <br>
+                    <strong>Varianti?</strong> Resta tutto piatto: per le taglie/colori basta
+                    puntare a un campo che restituisce una lista
+                    (es. <code>pa_taglia</code> ← <code>sizes.size_eu</code>) — il sistema
+                    crea le varianti automaticamente al momento dell'import.
                 </div>
 
                 <div class="hsync-mapping-toolbar">

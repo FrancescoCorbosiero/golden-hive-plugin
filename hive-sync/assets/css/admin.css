@@ -321,6 +321,10 @@
 .hsync-wrap .hsync-palette-row + .hsync-palette-row {
     margin-top: 6px; padding-top: 6px; border-top: 1px dashed #e5d97b;
 }
+.hsync-wrap .hsync-palette-row-secondary { opacity: 0.75; }
+.hsync-wrap .hsync-palette-row-secondary .hsync-chip {
+    background: #f8f8f8; border-color: #ccc; color: #555;
+}
 .hsync-wrap .hsync-palette-row strong { color: #5b4500; }
 .hsync-wrap .hsync-chip {
     background: #fff; border: 1px solid #e5d97b; color: #5b4500;

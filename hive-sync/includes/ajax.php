@@ -720,26 +720,33 @@ add_action( 'wp_ajax_hsync_ajax_mapping_probe', function () {
     $sample = $fetch->items[0] ?? null;
     if ( ! $sample ) {
         wp_send_json_success( [
-            'paths'    => [],
-            'sample'   => null,
+            'paths_raw'  => [],
+            'paths_data' => [],
+            'sample_raw'  => null,
+            'sample_data' => null,
             'count'    => 0,
             'warnings' => $fetch->warnings,
         ] );
     }
 
-    // Flatten the sample's `data` payload into dot-paths so the editor
-    // can offer an autocomplete. We deliberately walk into nested
-    // assoc-arrays and stop at first scalar / first list-of-scalars —
-    // anything deeper is rare enough that the user can hand-type it.
-    $paths = hsync_flatten_paths( $sample->data );
-    sort( $paths );
+    // The mapping editor wants the user to map FROM the source's native
+    // shape, so we expose the raw upstream payload as the primary path
+    // list. Some sources (e.g. legacy GS bridge) only populate `data` —
+    // we still return its paths separately so the user can see what's
+    // available even when the bridge doesn't preserve raw.
+    $pathsRaw  = hsync_flatten_paths( $sample->raw  );
+    $pathsData = hsync_flatten_paths( $sample->data );
+    sort( $pathsRaw );
+    sort( $pathsData );
 
     wp_send_json_success( [
-        'paths'    => $paths,
-        'sample'   => $sample->data,
-        'sku'      => $sample->sku,
-        'count'    => count( $fetch->items ),
-        'warnings' => $fetch->warnings,
+        'paths_raw'   => $pathsRaw,
+        'paths_data'  => $pathsData,
+        'sample_raw'  => $sample->raw  ?: null,
+        'sample_data' => $sample->data ?: null,
+        'sku'         => $sample->sku,
+        'count'       => count( $fetch->items ),
+        'warnings'    => $fetch->warnings,
     ] );
 } );
 

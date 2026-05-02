@@ -109,10 +109,25 @@ final class GoldenSneakersSource extends AbstractSource
         $items = [];
         foreach ((array) ($resp['items'] ?? []) as $row) {
             if (! is_array($row)) continue;
+            $data = (array) ($row['data'] ?? []);
+            $raw  = (array) ($row['raw']  ?? []);
+            // Bridge contract preferred: bridge sends `raw` separate
+            // from the (post-normalization) `data`. When the bridge
+            // doesn't populate `raw` (older bridge versions), the
+            // upstream JSON often comes through inline at the top
+            // level — preserve everything-not-data as a heuristic raw
+            // payload so the mapping editor still has something to
+            // probe against. Worst case we expose `data` again, which
+            // is what we'd have shown anyway.
+            if (! $raw) {
+                $extra = $row;
+                unset($extra['data'], $extra['raw'], $extra['sku']);
+                $raw = $extra ?: $data;
+            }
             $items[] = new FeedItem(
                 sku: (string) ($row['sku'] ?? ''),
-                data: (array) ($row['data'] ?? []),
-                raw: (array) ($row['raw'] ?? []),
+                data: $data,
+                raw:  $raw,
             );
         }
 

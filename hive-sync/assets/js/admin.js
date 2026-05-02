@@ -1093,7 +1093,7 @@
         HSync.state.editingMapping = mapping || null;
         HSync.state.mappingValues = {};
         HSync.state.mappingCustomKeys = [];
-        HSync.state.mappingProbe = { paths: [], sample: null };
+        HSync.state.mappingProbe = { pathsRaw: [], pathsData: [], sampleRaw: null, sampleData: null };
         HSync.state.mappingFocusedKey = null;
 
         const cfg = (mapping && mapping.config) || {};
@@ -1140,30 +1140,64 @@
 
     HSync.renderMappingRows = function () {
         const region = $('[data-region="mapping-rows"]');
-        const paths = HSync.state.mappingProbe?.paths || [];
+        const probe = HSync.state.mappingProbe || {};
+        // Two path groups:
+        // - rawPaths: native upstream fields (e.g. GS API: presented_price,
+        //   offer_price, available_summary_quantity, sizes.size_eu).
+        //   This is what the user wants to map FROM.
+        // - dataPaths: post-bridge payload (sometimes partially Woo-shaped).
+        //   Shown as a fallback for sources that don't expose raw fields.
+        const rawPaths  = probe.pathsRaw  || [];
+        const dataPaths = probe.pathsData || [];
         const datalistId = 'hsync-paths-datalist';
+        // Datalist combines both so autocomplete works regardless. Raw
+        // entries come first (what we recommend).
+        const allPaths = Array.from(new Set([...rawPaths, ...dataPaths]));
         const datalist = '<datalist id="' + datalistId + '">'
-            + paths.map(p => '<option value="' + esc(p) + '">').join('')
+            + allPaths.map(p => '<option value="' + esc(p) + '">').join('')
             + '</datalist>';
 
-        const chips = paths.length
-            ? paths.map(p => '<button type="button" class="hsync-chip" data-action="mapping-insert-token" data-token="{' + esc(p) + '}">{' + esc(p) + '}</button>').join('')
-            : '<span class="hsync-muted">Premi <em>Anteprima sorgente</em> qui sopra per scoprire quali campi puoi inserire.</span>';
+        const buildChips = (list) => list.map(p =>
+            '<button type="button" class="hsync-chip" data-action="mapping-insert-token" data-token="{' + esc(p) + '}">{' + esc(p) + '}</button>',
+        ).join('');
+
         const snippetOpts = HSync.MAPPING_SNIPPETS.map((s, i) =>
             '<option value="' + i + '">' + esc(s.label) + '</option>',
         ).join('');
+
+        let paletteRows;
+        if (!rawPaths.length && !dataPaths.length) {
+            paletteRows = '<div class="hsync-palette-row">'
+                + '<span class="hsync-muted">Premi <em>Anteprima sorgente</em> qui sopra per scoprire quali campi puoi inserire.</span>'
+                + '</div>';
+        } else {
+            const rawSection = rawPaths.length
+                ? '<div class="hsync-palette-row">'
+                +   '<strong>Campi del feed esterno:</strong> ' + buildChips(rawPaths)
+                + '</div>'
+                : '';
+            const dataSection = dataPaths.length
+                ? '<div class="hsync-palette-row hsync-palette-row-secondary">'
+                +   '<strong>Campi normalizzati' + (rawPaths.length ? ' (alternativa)' : '') + ':</strong> '
+                +   buildChips(dataPaths)
+                +   (!rawPaths.length
+                          ? ' <small class="hsync-muted">Questa sorgente non espone i campi grezzi: i nomi qui sotto possono assomigliare a quelli di WooCommerce.</small>'
+                          : '')
+                + '</div>'
+                : '';
+            paletteRows = rawSection + dataSection;
+        }
+
         const palette = ''
             + '<div class="hsync-mapping-palette is-hidden" data-region="mapping-palette">'
-            +   '<div class="hsync-palette-row">'
-            +     '<strong>Inserisci un campo della sorgente:</strong> ' + chips
-            +   '</div>'
+            +   paletteRows
             +   '<div class="hsync-palette-row">'
             +     '<strong>Oppure parti da un esempio:</strong> '
             +     '<select data-action="mapping-insert-snippet">'
             +       '<option value="">— scegli un esempio —</option>'
             +       snippetOpts
             +     '</select>'
-            +     '<span class="hsync-muted">Le parentesi <code>{ }</code> contengono il campo della sorgente. Puoi mescolare testo libero e HTML.</span>'
+            +     '<span class="hsync-muted">Le parentesi <code>{ }</code> contengono il campo del feed. Puoi mescolare testo libero e HTML.</span>'
             +   '</div>'
             + '</div>';
 
@@ -1189,8 +1223,8 @@
                 +     '<input type="text" data-mapping-key="' + esc(f.key) + '"'
                 +       ' value="' + esc(value) + '"'
                 +       ' list="' + datalistId + '"'
-                +       ' placeholder="es. SKU, sizes.size_eu, oppure {brand_name} {name}">'
-                +     (!paths.length
+                +       ' placeholder="es. presented_price, sizes.size_eu, oppure {brand_name} {name}">'
+                +     (!allPaths.length
                           ? '<small class="hsync-muted">Premi <em>Anteprima sorgente</em> per vedere i campi disponibili.</small>'
                           : '')
                 +   '</div>'
@@ -1446,17 +1480,45 @@
             const data = await HSync.ajax('mapping_probe', {
                 source_id: sourceId, config_slug: cfg.slug,
             });
-            HSync.state.mappingProbe = { paths: data.paths || [], sample: data.sample };
+            const rawPaths  = data.paths_raw  || [];
+            const dataPaths = data.paths_data || [];
+            HSync.state.mappingProbe = {
+                pathsRaw:   rawPaths,
+                pathsData:  dataPaths,
+                sampleRaw:  data.sample_raw,
+                sampleData: data.sample_data,
+            };
             const warns = (data.warnings || []).map(w =>
                 '<div class="hsync-warning">' + esc(w) + '</div>').join('');
-            const sampleSummary = data.sample
-                ? '<details><summary>Vedi un prodotto di esempio (' + data.count + ' totali nella sorgente)</summary>'
-                  + '<pre class="hsync-pre">' + esc(JSON.stringify(data.sample, null, 2)) + '</pre>'
+
+            const renderSampleBlock = (label, payload) => payload
+                ? '<details><summary>' + esc(label) + '</summary>'
+                  + '<pre class="hsync-pre">' + esc(JSON.stringify(payload, null, 2)) + '</pre>'
                   + '</details>'
+                : '';
+
+            const sampleSummary = (data.sample_raw || data.sample_data)
+                ? renderSampleBlock(
+                    'Vedi il prodotto grezzo dal feed (' + data.count + ' totali nella sorgente)',
+                    data.sample_raw,
+                  )
+                  + renderSampleBlock(
+                    'Vedi il prodotto dopo la normalizzazione (alternativa)',
+                    data.sample_data,
+                  )
                 : '<div class="hsync-empty">La sorgente non ha restituito alcun prodotto.</div>';
+
+            const tally = rawPaths.length
+                ? '<strong>' + rawPaths.length + '</strong> campi del feed disponibili'
+                  + (dataPaths.length ? ' (+ ' + dataPaths.length + ' normalizzati come fallback)' : '')
+                : (dataPaths.length
+                    ? '<strong>' + dataPaths.length + '</strong> campi disponibili '
+                      + '<em>(la sorgente non espone i campi grezzi separatamente)</em>'
+                    : 'Nessun campo rilevato');
+
             out.innerHTML = ''
                 + '<div class="hsync-summary-label">Anteprima da ' + esc(cfg.name) + '</div>'
-                + '<p class="hsync-muted">Trovati <strong>' + (data.paths || []).length + '</strong> campi disponibili. Adesso puoi mapparli.</p>'
+                + '<p class="hsync-muted">' + tally + '. Clicca su un campo qui sotto per inserirlo.</p>'
                 + warns
                 + sampleSummary;
             HSync.renderMappingRows();

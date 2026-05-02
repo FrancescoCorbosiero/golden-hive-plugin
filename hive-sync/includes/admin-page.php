@@ -136,6 +136,9 @@ function hsync_render_admin_page(): void {
                 <label>Mapping (opzionale)
                     <select data-field="run-mapping"><option value="">— nessuna —</option></select>
                 </label>
+                <label>Pipeline (pre-checks + import-rules + post-checks)
+                    <select data-field="run-pipeline"><option value="">— nessuna (fetch → diff → materialize) —</option></select>
+                </label>
                 <div data-region="run-config-fields"></div>
                 <div class="hsync-actions">
                     <button class="button" data-action="run-test-fetch">Test fetch</button>

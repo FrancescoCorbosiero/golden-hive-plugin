@@ -17,13 +17,21 @@ add_action( 'hive_sync/core_booted', function () {
     \HiveSync\Core\Bootstrap::$sources->register( new \HiveSync\Sources\GoldenSneakersSource() );
     \HiveSync\Core\Bootstrap::$sources->register( new \HiveSync\Sources\CsvSource() );
 
-    // Operations
+    // Operations (post-import)
     \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Status\SetStatus() );
     \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Pricing\AdjustPrice() );
     \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Stock\SetStockStatus() );
     \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Stock\SetStockQuantity() );
 
-    // Checks
+    // Operations (import-rules — mutate the FeedItem draft during import)
+    \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Media\DownloadMedia() );
+    \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Taxonomy\ResolveTaxonomy() );
+
+    // Checks (post-import — productId-scoped)
     \HiveSync\Core\Bootstrap::$checks->register( new \HiveSync\Checks\Media\HasImages() );
     \HiveSync\Core\Bootstrap::$checks->register( new \HiveSync\Checks\Taxonomy\HasCategory() );
+
+    // Import checks (pre-import — FeedItem-scoped)
+    \HiveSync\Core\Bootstrap::$importChecks->register( new \HiveSync\Checks\Import\HasRequiredFields() );
+    \HiveSync\Core\Bootstrap::$importChecks->register( new \HiveSync\Checks\Import\HasMediaUrl() );
 } );

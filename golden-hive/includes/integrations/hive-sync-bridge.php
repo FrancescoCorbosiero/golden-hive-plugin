@@ -106,10 +106,30 @@ add_filter( 'hive_sync/host/selection/resolve', function ( $ids, $selection ) {
 // ─── Phase 3 bindings ───────────────────────────────────────────────
 
 /**
+ * Batch parallel media sideload — delegates to gh_preimport_download_batch
+ * (curl_multi sliding window, 8-16 concurrent). Returns map url=>attachment_id.
+ * This is what the Hive Sync media.download import-rule hits for any
+ * import processing > 1 image — single-URL path is the fallback.
+ */
+add_filter( 'hive_sync/host/media/preimport_batch', function ( $resolved, array $urls, array $context = [] ) {
+    if ( $resolved !== null ) return $resolved;
+    if ( ! function_exists( 'gh_preimport_download_batch' ) ) return null;
+    $concurrency = max( 1, min( 32, (int) ( $context['concurrency'] ?? 10 ) ) );
+    $r = gh_preimport_download_batch( $urls, $concurrency );
+    // gh_preimport_download_batch returns map url => attachment_id (or
+    // an array with WP_Error markers). Keep only the successful int ids.
+    $out = [];
+    foreach ( (array) $r as $url => $id ) {
+        if ( is_int( $id ) && $id > 0 ) $out[ (string) $url ] = $id;
+    }
+    return $out;
+}, 10, 3 );
+
+/**
  * Single-URL media sideload. Returns the resulting attachment_id or null.
- * The high-throughput parallel path (gh_parallel_sideload_to_product) is
- * used internally by GS materialize; this helper covers the one-off case
- * the CSV source uses.
+ * The high-throughput parallel path is used internally by GS materialize
+ * + the new media.download import-rule batch helper above; this single
+ * variant is the fallback for one-off lookups.
  */
 add_filter( 'hive_sync/host/media/preimport', function ( $attachment_id, string $url, array $context = [] ) {
     if ( $attachment_id ) return $attachment_id;

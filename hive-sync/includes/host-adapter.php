@@ -9,6 +9,7 @@
  *
  *   filter  hive_sync/host/taxonomy/resolve   ($term_id_or_null, $taxonomy, $name, $context)
  *   filter  hive_sync/host/media/preimport    ($attachment_id_or_null, $url, $context)
+ *   filter  hive_sync/host/media/preimport_batch  ($map_or_null, $urls, $context)
  *   filter  hive_sync/host/product/upsert     ($product_id_or_null, $product_data, $context)
  *   action  hive_sync/host/conflict/record    ($product_id, $source, $field_changes, $context)
  *   filter  hive_sync/host/conflict/resolve   ($result_or_null, $product_id, $incoming, $source_id)
@@ -50,6 +51,39 @@ function hsync_preimport_media( string $url, array $context = [] ): ?int {
     $resolved = apply_filters( 'hive_sync/host/media/preimport', null, $url, $context );
     if ( is_int( $resolved ) && $resolved > 0 ) return $resolved;
     return null;
+}
+
+/**
+ * Batch variant — download N URLs in parallel (curl_multi sliding
+ * window). Returns map url => attachment_id; URLs that failed are
+ * absent from the result.
+ *
+ * Falls back to sequential single-URL calls when the host filter is
+ * unbound, so the plugin keeps working (slowly) without Golden Hive.
+ *
+ * @param string[] $urls
+ * @return array<string, int>
+ */
+function hsync_preimport_media_batch( array $urls, array $context = [] ): array {
+    $urls = array_values( array_unique( array_filter( $urls, 'is_string' ) ) );
+    if ( ! $urls ) return [];
+
+    $resolved = apply_filters( 'hive_sync/host/media/preimport_batch', null, $urls, $context );
+    if ( is_array( $resolved ) ) {
+        $out = [];
+        foreach ( $resolved as $url => $id ) {
+            if ( is_string( $url ) && is_int( $id ) && $id > 0 ) $out[ $url ] = $id;
+        }
+        return $out;
+    }
+
+    // Sequential fallback.
+    $out = [];
+    foreach ( $urls as $url ) {
+        $id = hsync_preimport_media( $url, $context );
+        if ( $id !== null ) $out[ $url ] = $id;
+    }
+    return $out;
 }
 
 /**

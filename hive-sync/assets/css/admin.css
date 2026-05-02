@@ -53,6 +53,21 @@
 .hsync-wrap .hsync-cap-pill.is-on { background: #d1f4d6; color: #1e4022; }
 .hsync-wrap .hsync-source-card details { margin-top: 12px; }
 .hsync-wrap .hsync-source-card summary { cursor: pointer; font-size: 13px; color: #2271b1; }
+.hsync-wrap .hsync-source-section {
+    margin-top: 14px; padding-top: 12px; border-top: 1px dashed #ccd0d4;
+}
+.hsync-wrap .hsync-source-section .hsync-summary-label { margin-bottom: 8px; }
+.hsync-wrap .hsync-config-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border: 1px solid #ccd0d4; border-radius: 4px;
+    background: #f6f7f7; margin-bottom: 6px;
+}
+.hsync-wrap .hsync-config-row .hsync-row-main { flex: 1; }
+.hsync-wrap .hsync-config-row .hsync-row-name { font-weight: 600; font-size: 13px; }
+.hsync-wrap .hsync-config-row .hsync-row-meta { font-size: 12px; color: #646970; }
+.hsync-wrap .hsync-empty-compact {
+    padding: 10px; font-size: 12px; text-align: left; background: #f6f7f7;
+}
 
 /* Schema-driven config form */
 .hsync-wrap .hsync-config-form { margin-top: 12px; display: grid; gap: 10px; max-width: 720px; }
@@ -199,6 +214,80 @@
 .hsync-wrap .hsync-mapping-editor label {
     display: grid; gap: 4px; max-width: 720px; margin-bottom: 12px; font-size: 13px; font-weight: 600;
 }
+.hsync-wrap .hsync-mapping-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 720px;
+}
+.hsync-wrap .hsync-mapping-help {
+    background: #f0f6fc; border-left: 3px solid #2271b1;
+    padding: 8px 12px; margin: 8px 0 12px; font-size: 12px; line-height: 1.5;
+}
+.hsync-wrap .hsync-mapping-help code {
+    background: rgba(34, 113, 177, 0.08); padding: 1px 5px; border-radius: 3px; font-size: 11px;
+}
+.hsync-wrap .hsync-mapping-toolbar {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    margin-bottom: 12px; padding: 10px; background: #f6f7f7; border-radius: 4px;
+}
+.hsync-wrap .hsync-toggle {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 13px; margin-left: auto;
+}
+.hsync-wrap .hsync-mapping-row-builder {
+    display: grid;
+    grid-template-columns: 280px 24px 1fr auto auto auto;
+    gap: 8px; align-items: center;
+    padding: 8px; border: 1px solid #ccd0d4; background: #fff;
+    border-radius: 4px; margin-bottom: 6px;
+}
+.hsync-wrap .hsync-mapping-cell { font-size: 13px; }
+.hsync-wrap .hsync-mapping-arrow {
+    text-align: center; color: #2271b1; font-weight: 600; font-size: 16px;
+}
+.hsync-wrap .hsync-mapping-target select,
+.hsync-wrap .hsync-mapping-target input {
+    width: 100%; padding: 5px 8px; font-size: 13px;
+    border: 1px solid #8c8f94; border-radius: 4px;
+}
+.hsync-wrap .hsync-mapping-source input {
+    width: 100%; padding: 5px 8px; font-size: 13px; font-family: monospace;
+    border: 1px solid #8c8f94; border-radius: 4px;
+}
+.hsync-wrap .hsync-mapping-source small { display: block; margin-top: 2px; font-size: 11px; }
+.hsync-wrap .button-small { padding: 2px 8px; font-size: 11px; min-height: 24px; }
+.hsync-wrap .hsync-mapping-probe {
+    background: #f6f7f7; border: 1px solid #ccd0d4; border-radius: 4px;
+    padding: 12px; margin: 12px 0;
+}
+.hsync-wrap .hsync-pre {
+    background: #1d2327; color: #d6e9ff; padding: 10px; border-radius: 4px;
+    font-size: 11px; max-height: 300px; overflow: auto; margin-top: 6px;
+}
+.hsync-wrap .hsync-mapping-json textarea {
+    width: 100%; max-width: 100%;
+}
+
+/* Tools tab — Nuclear Cleanup */
+.hsync-wrap .hsync-tools-targets {
+    display: flex; flex-direction: column; gap: 8px;
+    background: #f6f7f7; padding: 14px; border: 1px solid #ccd0d4;
+    border-radius: 4px; margin-bottom: 16px;
+}
+.hsync-wrap .hsync-tools-targets label {
+    display: flex; align-items: flex-start; gap: 8px; font-size: 13px; font-weight: normal;
+}
+.hsync-wrap .hsync-tools-targets code {
+    background: rgba(0,0,0,0.05); padding: 1px 5px; border-radius: 3px; font-size: 11px;
+}
+.hsync-wrap .hsync-tools-bysource {
+    display: flex; gap: 10px; align-items: center; margin: 8px 0 16px;
+}
+.hsync-wrap .hsync-tools-bysource select {
+    padding: 5px 10px; border: 1px solid #8c8f94; border-radius: 4px; min-width: 240px;
+}
+.hsync-wrap .button.is-danger {
+    background: #d63638; border-color: #b62a2c; color: #fff;
+}
+.hsync-wrap .button.is-danger:hover { background: #b62a2c; color: #fff; }
+.hsync-wrap .button.is-danger:disabled { background: #f0c0c1; border-color: #f0c0c1; }
 
 .hsync-wrap .hsync-mapping-row {
     display: flex; align-items: center; gap: 12px;

@@ -61,6 +61,7 @@ return array(
     'HiveSync\\Operations\\Taxonomy\\ResolveTaxonomy' => $baseDir . '/src/Operations/Taxonomy/ResolveTaxonomy.php',
     'HiveSync\\Sources\\CsvSource' => $baseDir . '/src/Sources/CsvSource.php',
     'HiveSync\\Sources\\GoldenSneakersSource' => $baseDir . '/src/Sources/GoldenSneakersSource.php',
+    'HiveSync\\Tools\\NuclearCleanup' => $baseDir . '/src/Tools/NuclearCleanup.php',
     'HiveSync\\Workflow\\Export\\Exporter' => $baseDir . '/src/Workflow/Export/Exporter.php',
     'HiveSync\\Workflow\\Mapping\\PathResolver' => $baseDir . '/src/Workflow/Mapping/PathResolver.php',
     'HiveSync\\Workflow\\Mapping\\Template' => $baseDir . '/src/Workflow/Mapping/Template.php',

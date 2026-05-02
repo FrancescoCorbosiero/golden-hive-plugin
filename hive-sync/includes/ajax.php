@@ -686,3 +686,165 @@ add_action( 'wp_ajax_hsync_ajax_media_deletion_log', function () {
     $limit = isset( $_POST['limit'] ) ? max( 1, min( 500, (int) wp_unslash( $_POST['limit'] ) ) ) : 100;
     wp_send_json_success( [ 'log' => \HiveSync\Media\Cleaner::getLog( $limit ) ] );
 } );
+
+// ─── Mapping probe ───────────────────────────────────────────────
+//
+// Fetches a single representative row from a source (using either an
+// inline config or a saved source-config slug) and returns the flat
+// dot-path list + the raw sample. The visual mapping editor uses this
+// to populate path autocomplete and to render a side-by-side preview
+// of the mapping output.
+
+add_action( 'wp_ajax_hsync_ajax_mapping_probe', function () {
+    hsync_ajax_guard();
+    $sourceId   = hsync_post_text( 'source_id' );
+    $configSlug = hsync_post_text( 'config_slug' );
+    $config     = hsync_resolve_source_config( hsync_post_json( 'config' ), $configSlug );
+
+    if ( ! \HiveSync\Core\Bootstrap::$sources ) {
+        wp_send_json_error( [ 'message' => 'Bootstrap non inizializzato.' ] );
+    }
+    $src = \HiveSync\Core\Bootstrap::$sources->get( $sourceId );
+    if ( ! $src ) wp_send_json_error( [ 'message' => "Source '{$sourceId}' non registrata." ] );
+
+    $ctx = new \HiveSync\Core\Source\Context( runId: 'probe' );
+    try {
+        $fetch = $src->fetch(
+            new \HiveSync\Core\Source\FetchRequest( $config, [] ),
+            $ctx,
+        );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( [ 'message' => $e->getMessage() ] );
+    }
+
+    $sample = $fetch->items[0] ?? null;
+    if ( ! $sample ) {
+        wp_send_json_success( [
+            'paths'    => [],
+            'sample'   => null,
+            'count'    => 0,
+            'warnings' => $fetch->warnings,
+        ] );
+    }
+
+    // Flatten the sample's `data` payload into dot-paths so the editor
+    // can offer an autocomplete. We deliberately walk into nested
+    // assoc-arrays and stop at first scalar / first list-of-scalars —
+    // anything deeper is rare enough that the user can hand-type it.
+    $paths = hsync_flatten_paths( $sample->data );
+    sort( $paths );
+
+    wp_send_json_success( [
+        'paths'    => $paths,
+        'sample'   => $sample->data,
+        'sku'      => $sample->sku,
+        'count'    => count( $fetch->items ),
+        'warnings' => $fetch->warnings,
+    ] );
+} );
+
+/**
+ * Walks an assoc array and returns a flat list of dot-paths to scalar
+ * leaves. Lists-of-scalars become a single entry (e.g. 'tags'); lists
+ * of objects expose 'list.0.field' so the user sees the shape.
+ *
+ * @param array<string, mixed> $row
+ * @return string[]
+ */
+function hsync_flatten_paths( array $row, string $prefix = '' ): array {
+    $out = [];
+    foreach ( $row as $key => $value ) {
+        $path = $prefix === '' ? (string) $key : $prefix . '.' . $key;
+        if ( is_array( $value ) ) {
+            // Detect "list of scalars" — surface as a single path so
+            // the user can pipe-join via Mapping\Template.
+            $isList = array_keys( $value ) === range( 0, count( $value ) - 1 );
+            if ( $isList ) {
+                $first = $value[0] ?? null;
+                if ( is_scalar( $first ) || $first === null ) {
+                    $out[] = $path;
+                    continue;
+                }
+                // List of objects: expose first row paths under '.0.…'
+                if ( is_array( $first ) ) {
+                    $out = array_merge( $out, hsync_flatten_paths( $first, $path . '.0' ) );
+                    continue;
+                }
+            }
+            $out = array_merge( $out, hsync_flatten_paths( $value, $path ) );
+        } else {
+            $out[] = $path;
+        }
+    }
+    return array_values( array_unique( $out ) );
+}
+
+// ─── Tools / Nuclear Cleanup ─────────────────────────────────────
+//
+// Stricter capability gate than the rest of the plugin:
+// `manage_options` is a higher bar than `manage_woocommerce`, which
+// matches the destructive nature of these endpoints. Every destructive
+// call also requires an explicit `confirm` flag.
+
+function hsync_ajax_admin_guard(): void {
+    check_ajax_referer( 'hsync_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_send_json_error( [ 'message' => 'Richiede capability manage_options.' ], 403 );
+    }
+}
+
+add_action( 'wp_ajax_hsync_ajax_nuclear_preview', function () {
+    hsync_ajax_admin_guard();
+    $targets = hsync_post_json( 'targets' );
+    // Whitelist target keys against the canonical list — accepting a
+    // free-form payload here would let a misconfigured client trigger
+    // unsupported branches.
+    $clean = [];
+    foreach ( \HiveSync\Tools\NuclearCleanup::TARGETS as $t ) {
+        if ( ! empty( $targets[ $t ] ) ) $clean[ $t ] = true;
+    }
+    wp_send_json_success( [ 'preview' => \HiveSync\Tools\NuclearCleanup::preview( $clean ) ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_nuclear_execute', function () {
+    hsync_ajax_admin_guard();
+    if ( ! hsync_post_bool( 'confirm' ) ) {
+        wp_send_json_error( [ 'message' => 'Confirm flag mancante.' ] );
+    }
+    $targets = hsync_post_json( 'targets' );
+    $clean = [];
+    foreach ( \HiveSync\Tools\NuclearCleanup::TARGETS as $t ) {
+        if ( ! empty( $targets[ $t ] ) ) $clean[ $t ] = true;
+    }
+    if ( empty( $clean ) ) {
+        wp_send_json_error( [ 'message' => 'Nessun target selezionato.' ] );
+    }
+    @set_time_limit( 300 );
+    $started = microtime( true );
+    $results = \HiveSync\Tools\NuclearCleanup::execute( $clean );
+    wp_send_json_success( [
+        'results'    => $results,
+        'duration_s' => round( microtime( true ) - $started, 2 ),
+    ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_nuclear_count_by_source', function () {
+    hsync_ajax_admin_guard();
+    $source = hsync_post_text( 'source' );
+    if ( $source === '' ) wp_send_json_error( [ 'message' => 'source richiesto.' ] );
+    wp_send_json_success( [
+        'source' => $source,
+        'count'  => \HiveSync\Tools\NuclearCleanup::countBySource( $source ),
+    ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_nuclear_delete_by_source', function () {
+    hsync_ajax_admin_guard();
+    if ( ! hsync_post_bool( 'confirm' ) ) {
+        wp_send_json_error( [ 'message' => 'Confirm flag mancante.' ] );
+    }
+    $source = hsync_post_text( 'source' );
+    if ( $source === '' ) wp_send_json_error( [ 'message' => 'source richiesto.' ] );
+    @set_time_limit( 300 );
+    wp_send_json_success( \HiveSync\Tools\NuclearCleanup::deleteBySource( $source ) );
+} );

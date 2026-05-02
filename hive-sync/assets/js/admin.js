@@ -800,33 +800,128 @@
         }
     };
 
-    HSync.renderSources = function () {
+    HSync.renderSources = async function () {
         const region = $('[data-region="sources-list"]');
         if (!HSync.state.sources.length) {
             region.innerHTML = '<div class="hsync-empty">Nessuna sorgente registrata.</div>';
             return;
         }
+        // Pre-load saved configs once so each card can show its own list.
+        try {
+            const data = await HSync.ajax('source_configs_list', {});
+            HSync.state.sourceConfigs = data.configs || [];
+        } catch (e) { /* non-fatal — render with empty config lists */ }
+
         region.innerHTML = HSync.state.sources.map(s => {
             const caps = Object.entries(s.capabilities).map(([k, v]) =>
                 '<span class="hsync-cap-pill' + (v ? ' is-on' : '') + '">' + esc(k) + '</span>'
             ).join('');
             const schemaHtml = HSync.renderSchema(s.config_schema, 'src-' + s.id);
+            const configs = HSync.state.sourceConfigs.filter(c => c.source_kind === s.id);
+            const configRows = configs.length
+                ? configs.map(c => ''
+                    + '<div class="hsync-config-row">'
+                    +   '<div class="hsync-row-main">'
+                    +     '<div class="hsync-row-name">' + esc(c.name) + '</div>'
+                    +     '<div class="hsync-row-meta"><code>' + esc(c.slug) + '</code> · '
+                    +       Object.keys(c.config || {}).length + ' campi'
+                    +     '</div>'
+                    +   '</div>'
+                    +   '<button class="button" data-action="src-config-load" data-source="' + esc(s.id) + '" data-slug="' + esc(c.slug) + '">Modifica</button>'
+                    +   '<button class="button" data-action="src-config-delete" data-slug="' + esc(c.slug) + '">Elimina</button>'
+                    + '</div>'
+                ).join('')
+                : '<div class="hsync-empty hsync-empty-compact">Nessuna config salvata. Compila qui sotto e clicca <em>Salva</em>.</div>';
+
             return ''
-                + '<div class="hsync-source-card">'
+                + '<div class="hsync-source-card" data-source-card="' + esc(s.id) + '">'
                 +   '<h3>' + esc(s.label) + ' <span class="hsync-source-id">' + esc(s.id) + '</span></h3>'
                 +   '<div class="hsync-caps">' + caps + '</div>'
-                +   '<details>'
-                +     '<summary>Config + test fetch</summary>'
-                +     '<form class="hsync-config-form" data-source="' + esc(s.id) + '">'
+                +   '<div class="hsync-source-section">'
+                +     '<div class="hsync-summary-label">Config salvate</div>'
+                +     '<div data-region="src-configs-' + esc(s.id) + '">' + configRows + '</div>'
+                +   '</div>'
+                +   '<div class="hsync-source-section">'
+                +     '<div class="hsync-summary-label">Editor config</div>'
+                +     '<form class="hsync-config-form" data-source="' + esc(s.id) + '" data-context="src">'
+                +       '<input type="hidden" data-field="src-slug-' + esc(s.id) + '" value="">'
+                +       '<label>Nome <input type="text" data-field="src-name-' + esc(s.id) + '" placeholder="Es. GS produzione"></label>'
                 +       schemaHtml
                 +       '<div class="hsync-actions">'
+                +         '<button type="button" class="button button-primary" data-action="src-config-save" data-source="' + esc(s.id) + '">Salva</button>'
+                +         '<button type="button" class="button" data-action="src-config-reset" data-source="' + esc(s.id) + '">Nuova</button>'
                 +         '<button type="button" class="button" data-action="test-fetch" data-source="' + esc(s.id) + '">Test fetch</button>'
                 +       '</div>'
                 +       '<div data-region="test-fetch-output-' + esc(s.id) + '"></div>'
                 +     '</form>'
-                +   '</details>'
+                +   '</div>'
                 + '</div>';
         }).join('');
+    };
+
+    HSync.loadSourceConfigEditor = function (sourceId, slug) {
+        const cfg = HSync.state.sourceConfigs.find(c => c.slug === slug);
+        if (!cfg) return;
+        const card = document.querySelector('[data-source-card="' + sourceId + '"]');
+        if (!card) return;
+        card.querySelector('[data-field="src-slug-' + sourceId + '"]').value = cfg.slug;
+        card.querySelector('[data-field="src-name-' + sourceId + '"]').value = cfg.name;
+        const form = card.querySelector('[data-context="src"]');
+        $$('input, select, textarea', form).forEach(el => {
+            if (!el.name) return;
+            if (Object.prototype.hasOwnProperty.call(cfg.config || {}, el.name)) {
+                if (el.type === 'checkbox') el.checked = !!cfg.config[el.name];
+                else if (el.type === 'password' && /^•+/.test(String(cfg.config[el.name]))) {
+                    // Server returned a redacted secret: keep value empty and
+                    // hint via placeholder. Empty submit = "unchanged" (server
+                    // hydrates from stored value).
+                    el.placeholder = String(cfg.config[el.name]);
+                    el.value = '';
+                } else {
+                    el.value = String(cfg.config[el.name] ?? '');
+                }
+            }
+        });
+    };
+
+    HSync.resetSourceConfigEditor = function (sourceId) {
+        const card = document.querySelector('[data-source-card="' + sourceId + '"]');
+        if (!card) return;
+        card.querySelector('[data-field="src-slug-' + sourceId + '"]').value = '';
+        card.querySelector('[data-field="src-name-' + sourceId + '"]').value = '';
+        const form = card.querySelector('[data-context="src"]');
+        $$('input, select, textarea', form).forEach(el => {
+            if (!el.name) return;
+            if (el.type === 'checkbox') el.checked = false;
+            else el.value = '';
+        });
+    };
+
+    HSync.saveSourceConfig = async function (sourceId) {
+        const card = document.querySelector('[data-source-card="' + sourceId + '"]');
+        if (!card) return;
+        const form = card.querySelector('[data-context="src"]');
+        const slug = card.querySelector('[data-field="src-slug-' + sourceId + '"]').value;
+        const name = card.querySelector('[data-field="src-name-' + sourceId + '"]').value.trim();
+        if (!name) { alert('Inserisci un nome (es. "GS produzione").'); return; }
+        const config = HSync.collectConfig(form);
+        try {
+            const data = await HSync.ajax('source_configs_save', {
+                slug: slug, name: name, source_kind: sourceId, config: config,
+            });
+            alert('Config salvata: ' + data.slug);
+            HSync.loadSources();
+            // Repopulate the Run tab picker too if cached.
+            if (HSync.state.currentTab === 'run') HSync.loadSourceConfigs(sourceId);
+        } catch (e) { alert('Errore: ' + e.message); }
+    };
+
+    HSync.deleteSourceConfig = async function (slug) {
+        if (!confirm('Eliminare questa config? Le run/job che la usano dovranno essere riconfigurati.')) return;
+        try {
+            await HSync.ajax('source_configs_delete', { slug: slug });
+            HSync.loadSources();
+        } catch (e) { alert('Errore: ' + e.message); }
     };
 
     HSync.renderSchema = function (schema, idPrefix) {
@@ -945,12 +1040,41 @@
         ).join('');
     };
 
+    // Canonical Woo target fields shown in the mapping editor's row picker.
+    // These are the keys downstream operations (CsvSource materialize +
+    // ResolveTaxonomy + DownloadMedia + AdjustPrice) typically read from
+    // the mapped FeedItem.data shape. The list is intentionally small —
+    // a "+ Campo personalizzato" row lets the user add anything else.
+    HSync.WOO_FIELDS = [
+        { key: 'sku',               label: 'SKU',                  hint: 'Identificatore univoco' },
+        { key: 'name',              label: 'Nome prodotto' },
+        { key: 'description',       label: 'Descrizione lunga',    hint: 'Supporta HTML' },
+        { key: 'short_description', label: 'Descrizione breve' },
+        { key: 'regular_price',     label: 'Prezzo listino' },
+        { key: 'sale_price',        label: 'Prezzo scontato' },
+        { key: 'stock_quantity',    label: 'Quantità a stock' },
+        { key: 'stock_status',      label: 'Stato stock',          hint: 'instock | outofstock' },
+        { key: 'status',            label: 'Stato pubblicazione',  hint: 'publish | draft' },
+        { key: 'image_url',         label: 'URL immagine principale' },
+        { key: 'gallery_urls',      label: 'URL gallery',          hint: 'lista pipe-joined' },
+        { key: 'brand',             label: 'Brand' },
+        { key: 'categories',        label: 'Categorie' },
+        { key: 'tags',              label: 'Tag' },
+    ];
+
     HSync.openMappingEditor = function (mapping) {
         HSync.state.editingMapping = mapping || null;
+        HSync.state.mappingRows = HSync.mappingConfigToRows(mapping ? mapping.config : {});
+        HSync.state.mappingProbe = { paths: [], sample: null };
         $('[data-region="mapping-editor"]').classList.remove('is-hidden');
         $('[data-field="map-name"]').value   = mapping ? mapping.name : '';
         $('[data-field="map-source"]').value = mapping ? mapping.source_kind : '';
         $('[data-field="map-config"]').value = mapping ? JSON.stringify(mapping.config || {}, null, 2) : '';
+        $('[data-region="mapping-json-view"]').classList.add('is-hidden');
+        const toggle = $('[data-action="mapping-toggle-json"]');
+        if (toggle) toggle.checked = false;
+        $('[data-region="mapping-probe-output"]').classList.add('is-hidden');
+        HSync.renderMappingRows();
     };
 
     HSync.closeMappingEditor = function () {
@@ -958,13 +1082,203 @@
         $('[data-region="mapping-editor"]').classList.add('is-hidden');
     };
 
-    HSync.saveMapping = async function () {
+    /**
+     * Normalize stored mapping config into the editor's row model.
+     * Stored shape: { sku: 'SKU', name: '<p>{brand} {name}</p>', … }.
+     * Row model preserves order and lets users add custom keys.
+     */
+    HSync.mappingConfigToRows = function (cfg) {
+        cfg = cfg || {};
+        return Object.entries(cfg).map(([wooField, value]) => ({
+            wooField: String(wooField),
+            value:    String(value == null ? '' : value),
+        }));
+    };
+
+    HSync.mappingRowsToConfig = function (rows) {
+        const out = {};
+        (rows || []).forEach(r => {
+            const k = (r.wooField || '').trim();
+            const v = (r.value || '').trim();
+            if (k !== '') out[k] = v;
+        });
+        return out;
+    };
+
+    HSync.renderMappingRows = function () {
+        const region = $('[data-region="mapping-rows"]');
+        const rows = HSync.state.mappingRows || [];
+        const paths = HSync.state.mappingProbe?.paths || [];
+        const usedKeys = new Set(rows.map(r => r.wooField));
+
+        const fieldOptions = HSync.WOO_FIELDS.map(f => {
+            const taken = usedKeys.has(f.key);
+            return '<option value="' + esc(f.key) + '"' + (taken ? ' disabled' : '') + '>'
+                + esc(f.label) + ' — ' + esc(f.key) + (f.hint ? ' (' + esc(f.hint) + ')' : '') + '</option>';
+        }).join('');
+
+        const datalistId = 'hsync-paths-datalist';
+        const datalist = '<datalist id="' + datalistId + '">'
+            + paths.map(p => '<option value="' + esc(p) + '">').join('')
+            + '</datalist>';
+
+        if (!rows.length) {
+            region.innerHTML = datalist
+                + '<div class="hsync-empty">Nessun campo mappato. Clicca <em>Aggiungi campi Woo standard</em> per partire, oppure <em>+ Campo personalizzato</em>.</div>';
+            return;
+        }
+
+        region.innerHTML = datalist + rows.map((r, i) => {
+            const known = HSync.WOO_FIELDS.find(f => f.key === r.wooField);
+            const fieldCell = known
+                ? '<select data-mapping-field="wooField" data-idx="' + i + '">'
+                    + '<option value="' + esc(r.wooField) + '" selected>' + esc(known.label) + ' — ' + esc(r.wooField) + '</option>'
+                    + HSync.WOO_FIELDS.filter(f => f.key !== r.wooField).map(f => {
+                        const taken = usedKeys.has(f.key);
+                        return '<option value="' + esc(f.key) + '"' + (taken ? ' disabled' : '') + '>'
+                            + esc(f.label) + ' — ' + esc(f.key) + '</option>';
+                    }).join('')
+                    + '<option value="__custom__">— campo personalizzato —</option>'
+                  + '</select>'
+                : '<input type="text" data-mapping-field="wooField" data-idx="' + i + '" value="' + esc(r.wooField) + '" placeholder="es. meta_my_field">';
+            return ''
+                + '<div class="hsync-mapping-row-builder" data-idx="' + i + '">'
+                +   '<div class="hsync-mapping-cell hsync-mapping-target">' + fieldCell + '</div>'
+                +   '<div class="hsync-mapping-cell hsync-mapping-arrow">←</div>'
+                +   '<div class="hsync-mapping-cell hsync-mapping-source">'
+                +     '<input type="text" data-mapping-field="value" data-idx="' + i + '"'
+                +       ' value="' + esc(r.value) + '"'
+                +       ' list="' + datalistId + '"'
+                +       ' placeholder="path o template (es. SKU, sizes.size_eu, &lt;p&gt;{brand_name}&lt;/p&gt;)">'
+                +     (paths.length
+                          ? '<small class="hsync-muted">' + paths.length + ' path disponibili (autocomplete)</small>'
+                          : '<small class="hsync-muted">Esegui <em>Sonda sorgente</em> per autocomplete.</small>')
+                +   '</div>'
+                +   '<button type="button" class="button button-small" data-action="mapping-row-up"     data-idx="' + i + '" title="Sposta su">▲</button>'
+                +   '<button type="button" class="button button-small" data-action="mapping-row-down"   data-idx="' + i + '" title="Sposta giù">▼</button>'
+                +   '<button type="button" class="button button-small" data-action="mapping-row-delete" data-idx="' + i + '" title="Elimina">✕</button>'
+                + '</div>';
+        }).join('');
+    };
+
+    HSync.addMappingRow = function (preset) {
+        HSync.state.mappingRows = HSync.state.mappingRows || [];
+        HSync.state.mappingRows.push(preset || { wooField: '', value: '' });
+        HSync.renderMappingRows();
+    };
+
+    HSync.addMappingDefaults = function () {
+        HSync.state.mappingRows = HSync.state.mappingRows || [];
+        const used = new Set(HSync.state.mappingRows.map(r => r.wooField));
+        HSync.WOO_FIELDS.forEach(f => {
+            if (!used.has(f.key)) HSync.state.mappingRows.push({ wooField: f.key, value: '' });
+        });
+        HSync.renderMappingRows();
+    };
+
+    HSync.deleteMappingRow = function (idx) {
+        HSync.state.mappingRows.splice(idx, 1);
+        HSync.renderMappingRows();
+    };
+
+    HSync.moveMappingRow = function (idx, delta) {
+        const rows = HSync.state.mappingRows;
+        const target = idx + delta;
+        if (target < 0 || target >= rows.length) return;
+        const [moved] = rows.splice(idx, 1);
+        rows.splice(target, 0, moved);
+        HSync.renderMappingRows();
+    };
+
+    HSync.toggleMappingJson = function (checked) {
+        const view = $('[data-region="mapping-json-view"]');
+        view.classList.toggle('is-hidden', !checked);
+        if (checked) {
+            // Refresh JSON from current row state when opening.
+            $('[data-field="map-config"]').value = JSON.stringify(
+                HSync.mappingRowsToConfig(HSync.state.mappingRows), null, 2,
+            );
+        }
+    };
+
+    HSync.applyMappingJson = function () {
         let cfg;
         try {
             cfg = JSON.parse($('[data-field="map-config"]').value || '{}');
         } catch (e) {
-            alert('JSON config invalido: ' + e.message);
+            alert('JSON invalido: ' + e.message);
             return;
+        }
+        HSync.state.mappingRows = HSync.mappingConfigToRows(cfg);
+        HSync.renderMappingRows();
+        alert('JSON applicato al builder.');
+    };
+
+    /**
+     * Probe the selected source: fetch one row, extract its dot-paths
+     * and stash them so each row's value input gets autocomplete via
+     * <datalist>. Uses a saved source-config when one matches the
+     * mapping's source_kind, otherwise the user is prompted to pick.
+     */
+    HSync.probeMappingSource = async function () {
+        const sourceId = $('[data-field="map-source"]').value;
+        if (!sourceId) { alert('Scegli prima la sorgente.'); return; }
+        // Pick the most recently-saved config of this source. The user
+        // can still edit it in Sources if it's the wrong one.
+        if (!HSync.state.sourceConfigs.length) {
+            try {
+                const data = await HSync.ajax('source_configs_list', {});
+                HSync.state.sourceConfigs = data.configs || [];
+            } catch {}
+        }
+        const cfg = HSync.state.sourceConfigs.find(c => c.source_kind === sourceId);
+        if (!cfg) {
+            alert('Nessuna config salvata per "' + sourceId + '". Vai nel tab Sources e salvane una prima di sondare.');
+            return;
+        }
+        const out = $('[data-region="mapping-probe-output"]');
+        out.classList.remove('is-hidden');
+        out.innerHTML = '<p class="hsync-loading">Sondaggio sorgente…</p>';
+        try {
+            const data = await HSync.ajax('mapping_probe', {
+                source_id: sourceId, config_slug: cfg.slug,
+            });
+            HSync.state.mappingProbe = { paths: data.paths || [], sample: data.sample };
+            const warns = (data.warnings || []).map(w =>
+                '<div class="hsync-warning">' + esc(w) + '</div>').join('');
+            const sampleSummary = data.sample
+                ? '<details><summary>Sample (' + data.count + ' righe trovate, prima visualizzata)</summary>'
+                  + '<pre class="hsync-pre">' + esc(JSON.stringify(data.sample, null, 2)) + '</pre>'
+                  + '</details>'
+                : '<div class="hsync-empty">Nessuna riga restituita dalla sorgente.</div>';
+            out.innerHTML = ''
+                + '<div class="hsync-summary-label">Sonda → ' + esc(cfg.name) + '</div>'
+                + '<p class="hsync-muted"><strong>' + (data.paths || []).length + '</strong> path rilevati. Autocomplete attivato sui campi sotto.</p>'
+                + warns
+                + sampleSummary;
+            HSync.renderMappingRows();
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+        }
+    };
+
+    HSync.saveMapping = async function () {
+        // If the JSON view is open, treat it as authoritative — power
+        // users may have hand-edited a complex template.
+        const jsonOpen = !$('[data-region="mapping-json-view"]').classList.contains('is-hidden');
+        let cfg;
+        if (jsonOpen) {
+            try {
+                cfg = JSON.parse($('[data-field="map-config"]').value || '{}');
+            } catch (e) {
+                alert('JSON config invalido: ' + e.message);
+                return;
+            }
+        } else {
+            cfg = HSync.mappingRowsToConfig(HSync.state.mappingRows);
+        }
+        if (!Object.keys(cfg).length) {
+            if (!confirm('Mapping vuota — salvare comunque?')) return;
         }
         try {
             await HSync.ajax('mappings_save', {
@@ -1422,6 +1736,10 @@
         const t = e.target;
         if (t.matches('.hsync-tab'))                    return HSync.switchTab(t.dataset.tab);
         if (t.matches('[data-action="test-fetch"]'))    return HSync.testFetch(t.dataset.source, t.closest('form'));
+        if (t.matches('[data-action="src-config-save"]'))   return HSync.saveSourceConfig(t.dataset.source);
+        if (t.matches('[data-action="src-config-reset"]'))  return HSync.resetSourceConfigEditor(t.dataset.source);
+        if (t.matches('[data-action="src-config-load"]'))   return HSync.loadSourceConfigEditor(t.dataset.source, t.dataset.slug);
+        if (t.matches('[data-action="src-config-delete"]')) return HSync.deleteSourceConfig(t.dataset.slug);
         if (t.matches('[data-action="mapping-new"]'))   return HSync.openMappingEditor(null);
         if (t.matches('[data-action="mapping-edit"]')) {
             const m = HSync.state.mappings.find(x => x.slug === t.dataset.slug);
@@ -1430,6 +1748,13 @@
         if (t.matches('[data-action="mapping-delete"]')) return HSync.deleteMapping(t.dataset.slug);
         if (t.matches('[data-action="mapping-save"]'))   return HSync.saveMapping();
         if (t.matches('[data-action="mapping-cancel"]')) return HSync.closeMappingEditor();
+        if (t.matches('[data-action="mapping-probe"]'))        return HSync.probeMappingSource();
+        if (t.matches('[data-action="mapping-add-row"]'))      return HSync.addMappingRow();
+        if (t.matches('[data-action="mapping-add-defaults"]')) return HSync.addMappingDefaults();
+        if (t.matches('[data-action="mapping-row-up"]'))       return HSync.moveMappingRow(parseInt(t.dataset.idx, 10), -1);
+        if (t.matches('[data-action="mapping-row-down"]'))     return HSync.moveMappingRow(parseInt(t.dataset.idx, 10),  1);
+        if (t.matches('[data-action="mapping-row-delete"]'))   return HSync.deleteMappingRow(parseInt(t.dataset.idx, 10));
+        if (t.matches('[data-action="mapping-json-apply"]'))   return HSync.applyMappingJson();
         if (t.matches('[data-action="install-defaults"]')) return HSync.installDefaults();
         if (t.matches('[data-action="run-now"]'))        return HSync.runNow();
         if (t.matches('[data-action="run-test-fetch"]')) return HSync.testFetchFromRun();
@@ -1490,6 +1815,12 @@
         if (t.matches('[data-action="export-inventory"]')) return HSync.exportInventory(t.dataset.format || 'csv');
         if (t.matches('[data-action="export-catalog"]'))   return HSync.exportCatalog();
 
+        // Tools
+        if (t.matches('[data-action="tools-preview"]'))       return HSync.toolsPreview();
+        if (t.matches('[data-action="tools-execute"]'))       return HSync.toolsExecute();
+        if (t.matches('[data-action="tools-source-count"]'))  return HSync.toolsSourceCount();
+        if (t.matches('[data-action="tools-source-delete"]')) return HSync.toolsSourceDelete();
+
         // Media
         if (t.matches('[data-action="media-search"]'))             return HSync.loadMedia(1);
         if (t.matches('[data-action="media-rebuild-index"]'))      return HSync.rebuildMediaIndex();
@@ -1506,6 +1837,41 @@
         if (e.target.matches('[data-field="job-type"]'))          { HSync.state.editingJob.runnable_type = e.target.value; HSync.renderJobEditor(); }
         if (e.target.matches('[data-field="job-ref"]'))           { HSync.state.editingJob.runnable_ref  = e.target.value; if (HSync.state.editingJob.runnable_type === 'source.import') HSync.loadSourceConfigs(e.target.value).then(() => HSync.renderJobEditor()); }
         if (e.target.matches('[data-action="media-toggle"]'))     HSync.toggleMediaSelection(parseInt(e.target.dataset.id, 10));
+        if (e.target.matches('[data-action="mapping-toggle-json"]')) HSync.toggleMappingJson(e.target.checked);
+
+        // Mapping row inline edits — wooField select / value input.
+        if (e.target.matches('[data-mapping-field]')) {
+            const idx = parseInt(e.target.dataset.idx, 10);
+            const field = e.target.dataset.mappingField;
+            if (!HSync.state.mappingRows || !HSync.state.mappingRows[idx]) return;
+            if (field === 'wooField' && e.target.value === '__custom__') {
+                const custom = prompt('Nome chiave Woo personalizzata:', HSync.state.mappingRows[idx].wooField || '');
+                if (custom == null) {
+                    HSync.renderMappingRows();
+                    return;
+                }
+                HSync.state.mappingRows[idx].wooField = String(custom).trim();
+                HSync.renderMappingRows();
+                return;
+            }
+            HSync.state.mappingRows[idx][field] = e.target.value;
+        }
+    });
+
+    document.addEventListener('input', function (e) {
+        // Live-update the value as the user types so move/save reflects it.
+        if (e.target.matches('[data-mapping-field="value"]')) {
+            const idx = parseInt(e.target.dataset.idx, 10);
+            if (HSync.state.mappingRows && HSync.state.mappingRows[idx]) {
+                HSync.state.mappingRows[idx].value = e.target.value;
+            }
+        }
+        if (e.target.matches('[data-mapping-field="wooField"]') && e.target.tagName === 'INPUT') {
+            const idx = parseInt(e.target.dataset.idx, 10);
+            if (HSync.state.mappingRows && HSync.state.mappingRows[idx]) {
+                HSync.state.mappingRows[idx].wooField = e.target.value;
+            }
+        }
     });
 
     document.addEventListener('keydown', function (e) {
@@ -1694,6 +2060,114 @@
                 + '</div>'
                 + '<p>Liberati ' + esc(data.freed_human || '0 B') + ' dal disco.</p>';
             HSync.loadMedia(1);
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+        }
+    };
+
+    // ─── Tools / Nuclear Cleanup ─────────────────────────────────
+
+    HSync.collectToolsTargets = function () {
+        const targets = {};
+        $$('[data-tools-target]').forEach(el => {
+            if (el.checked) targets[el.dataset.toolsTarget] = true;
+        });
+        return targets;
+    };
+
+    HSync.toolsPreview = async function () {
+        const targets = HSync.collectToolsTargets();
+        const out = $('[data-region="tools-output"]');
+        const exec = $('[data-action="tools-execute"]');
+        if (!Object.keys(targets).length) {
+            out.innerHTML = '<div class="hsync-warning">Seleziona almeno un target.</div>';
+            exec.disabled = true;
+            return;
+        }
+        out.innerHTML = '<p class="hsync-loading">Conteggio in corso…</p>';
+        try {
+            const data = await HSync.ajax('nuclear_preview', { targets: targets });
+            const rows = Object.entries(data.preview || {}).map(([k, v]) => ''
+                + '<tr>'
+                +   '<td><strong>' + esc(k) + '</strong></td>'
+                +   '<td>' + (v.count || 0) + '</td>'
+                +   '<td>' + esc(v.label || '') + '</td>'
+                + '</tr>'
+            ).join('');
+            out.innerHTML = rows
+                ? '<table class="hsync-table"><thead><tr><th>Target</th><th>Count</th><th>Detail</th></tr></thead><tbody>' + rows + '</tbody></table>'
+                : '<div class="hsync-empty">Niente da eliminare per i target scelti.</div>';
+            exec.disabled = !rows;
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+            exec.disabled = true;
+        }
+    };
+
+    HSync.toolsExecute = async function () {
+        const targets = HSync.collectToolsTargets();
+        if (!Object.keys(targets).length) return;
+        const labels = Object.keys(targets).join(', ');
+        const phrase = 'ELIMINA';
+        const typed = prompt(
+            'Stai per ELIMINARE definitivamente: ' + labels + '.\n\n'
+            + 'L\'operazione NON è reversibile. Ho già fatto un backup del DB e dei file.\n\n'
+            + 'Per confermare, digita ' + phrase + ':',
+            '',
+        );
+        if (typed !== phrase) {
+            alert('Annullato.');
+            return;
+        }
+        const out = $('[data-region="tools-output"]');
+        out.innerHTML = '<p class="hsync-loading">Cleanup in corso… (può richiedere parecchi minuti su store grandi)</p>';
+        try {
+            const data = await HSync.ajax('nuclear_execute', { targets: targets, confirm: '1' });
+            const rows = Object.entries(data.results || {}).map(([k, v]) => ''
+                + '<tr><td><strong>' + esc(k) + '</strong></td><td><pre class="hsync-pre">'
+                + esc(typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v)) + '</pre></td></tr>'
+            ).join('');
+            out.innerHTML = ''
+                + '<div class="hsync-summary-foot">Cleanup completato in ' + (data.duration_s || 0) + 's.</div>'
+                + (rows
+                    ? '<table class="hsync-table"><thead><tr><th>Target</th><th>Result</th></tr></thead><tbody>' + rows + '</tbody></table>'
+                    : '');
+            $('[data-action="tools-execute"]').disabled = true;
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+        }
+    };
+
+    HSync.toolsSourceCount = async function () {
+        const source = ($('[data-field="tools-source"]') || {}).value;
+        const out = $('[data-region="tools-source-output"]');
+        if (!source) { out.innerHTML = '<div class="hsync-warning">Scegli una sorgente.</div>'; return; }
+        out.innerHTML = '<p class="hsync-loading">Conteggio…</p>';
+        try {
+            const data = await HSync.ajax('nuclear_count_by_source', { source: source });
+            out.innerHTML = '<p><strong>' + data.count + '</strong> prodotti taggati come <code>'
+                + esc(data.source) + '</code>.</p>';
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+        }
+    };
+
+    HSync.toolsSourceDelete = async function () {
+        const source = ($('[data-field="tools-source"]') || {}).value;
+        if (!source) { alert('Scegli una sorgente.'); return; }
+        const phrase = 'ELIMINA ' + source.toUpperCase();
+        const typed = prompt(
+            'Eliminerai TUTTI i prodotti importati da "' + source + '".\n\n'
+            + 'Per confermare, digita ' + phrase + ':',
+            '',
+        );
+        if (typed !== phrase) { alert('Annullato.'); return; }
+        const out = $('[data-region="tools-source-output"]');
+        out.innerHTML = '<p class="hsync-loading">Eliminazione in corso…</p>';
+        try {
+            const data = await HSync.ajax('nuclear_delete_by_source', { source: source, confirm: '1' });
+            out.innerHTML = '<p>Eliminati <strong>' + data.deleted + '</strong> parent + <strong>'
+                + data.variations + '</strong> varianti.</p>';
         } catch (e) {
             out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
         }

@@ -76,6 +76,7 @@ class ComposerStaticInit8ec97cf8e32aa119124e2c238cc20b92
         'HiveSync\\Operations\\Taxonomy\\ResolveTaxonomy' => __DIR__ . '/../..' . '/src/Operations/Taxonomy/ResolveTaxonomy.php',
         'HiveSync\\Sources\\CsvSource' => __DIR__ . '/../..' . '/src/Sources/CsvSource.php',
         'HiveSync\\Sources\\GoldenSneakersSource' => __DIR__ . '/../..' . '/src/Sources/GoldenSneakersSource.php',
+        'HiveSync\\Tools\\NuclearCleanup' => __DIR__ . '/../..' . '/src/Tools/NuclearCleanup.php',
         'HiveSync\\Workflow\\Export\\Exporter' => __DIR__ . '/../..' . '/src/Workflow/Export/Exporter.php',
         'HiveSync\\Workflow\\Mapping\\PathResolver' => __DIR__ . '/../..' . '/src/Workflow/Mapping/PathResolver.php',
         'HiveSync\\Workflow\\Mapping\\Template' => __DIR__ . '/../..' . '/src/Workflow/Mapping/Template.php',

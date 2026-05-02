@@ -42,14 +42,18 @@ function hsync_render_admin_page(): void {
             <button class="hsync-tab" data-tab="exports" role="tab" aria-selected="false" title="CSV/JSON dell'inventario locale">Exports</button>
             <button class="hsync-tab" data-tab="runs" role="tab" aria-selected="false" title="Storico esecuzioni">Runs</button>
             <button class="hsync-tab" data-tab="migrate" role="tab" aria-selected="false" title="Importa pipelines/mappings/jobs legacy">Migra da Golden Hive</button>
+            <button class="hsync-tab" data-tab="tools" role="tab" aria-selected="false" title="Operazioni distruttive (cleanup)">Tools</button>
         </nav>
 
         <section class="hsync-panel is-active" data-panel="sources">
             <div class="hsync-tab-intro">
-                <strong>Step 1 — Sources.</strong> Sorgenti registrate dal codice (GS feed, CSV, …).
-                Qui puoi solo <em>ispezionare</em> lo schema di config e fare un test fetch. La config
-                viene <em>salvata</em> dal tab <strong>Run</strong> (bottone <code>Salva config</code>)
-                — niente form di salvataggio inline qui.
+                <strong>Step 1 — Sources.</strong> Sorgenti registrate dal codice (GS feed, CSV, …)
+                con le loro <strong>config salvate</strong> (URL + token + cookie). Per ogni sorgente
+                puoi creare N config: <em>"GS produzione"</em>, <em>"GS staging"</em>, ecc. La config
+                salvata qui è quella che il tab <strong>Run</strong> e i <strong>Jobs</strong>
+                riusano — i secret restano in DB cleartext (autoload=false), redatti in UI.
+                Il bottone <em>Test fetch</em> verifica che le credenziali raggiungano l'endpoint
+                prima di salvare.
             </div>
             <div class="hsync-sources-list" data-region="sources-list">
                 <p class="hsync-loading">Caricamento…</p>
@@ -76,15 +80,44 @@ function hsync_render_admin_page(): void {
                 <p class="hsync-loading">Caricamento…</p>
             </div>
             <div class="hsync-mapping-editor is-hidden" data-region="mapping-editor">
-                <h2>Nuova mapping</h2>
-                <label>Nome <input type="text" data-field="map-name" placeholder="GS → Woo standard"></label>
-                <label>Sorgente
-                    <select data-field="map-source"></select>
-                </label>
-                <p class="hsync-muted">Mapping CSV: chiave = campo Woo (sku, name, regular_price, …), valore = nome colonna nel CSV.</p>
-                <textarea data-field="map-config" rows="10" placeholder='{"sku":"SKU","name":"Title","regular_price":"Price"}'></textarea>
+                <h2>Mapping</h2>
+                <div class="hsync-mapping-grid">
+                    <label>Nome <input type="text" data-field="map-name" placeholder="GS → Woo standard"></label>
+                    <label>Sorgente
+                        <select data-field="map-source"></select>
+                    </label>
+                </div>
+
+                <div class="hsync-mapping-help">
+                    <strong>Come funziona.</strong> Ogni riga associa un <em>campo Woo</em> a un
+                    <em>path della sorgente</em> o a un <em>template</em> con placeholder.
+                    Esempi: <code>SKU</code> (colonna CSV), <code>sizes.size_eu</code> (path nidificato),
+                    <code>&lt;p&gt;{brand_name} {name}&lt;/p&gt;</code> (template). I path disponibili
+                    appaiono dopo <em>Sonda sorgente</em>.
+                </div>
+
+                <div class="hsync-mapping-toolbar">
+                    <button class="button" data-action="mapping-probe">Sonda sorgente</button>
+                    <button class="button" data-action="mapping-add-row">+ Campo personalizzato</button>
+                    <button class="button" data-action="mapping-add-defaults">Aggiungi campi Woo standard</button>
+                    <label class="hsync-toggle">
+                        <input type="checkbox" data-action="mapping-toggle-json"> JSON view
+                    </label>
+                </div>
+
+                <div data-region="mapping-rows"></div>
+                <div data-region="mapping-probe-output" class="hsync-mapping-probe is-hidden"></div>
+
+                <div class="hsync-mapping-json is-hidden" data-region="mapping-json-view">
+                    <p class="hsync-muted">Modalità sviluppatore: incolla/esporta il payload JSON completo.</p>
+                    <textarea data-field="map-config" rows="10" placeholder='{"sku":"SKU","name":"Title","regular_price":"Price"}'></textarea>
+                    <div class="hsync-actions">
+                        <button class="button" data-action="mapping-json-apply">Applica JSON al builder</button>
+                    </div>
+                </div>
+
                 <div class="hsync-actions">
-                    <button class="button button-primary" data-action="mapping-save">Salva</button>
+                    <button class="button button-primary" data-action="mapping-save">Salva mapping</button>
                     <button class="button" data-action="mapping-cancel">Annulla</button>
                 </div>
             </div>
@@ -205,7 +238,10 @@ function hsync_render_admin_page(): void {
                     <select data-field="run-source"></select>
                 </label>
                 <label>Config salvata
-                    <select data-field="run-config-slug"><option value="">— inline (compila qui sotto) —</option></select>
+                    <select data-field="run-config-slug">
+                        <option value="">— nessuna (config inline qui sotto) —</option>
+                    </select>
+                    <small class="hsync-muted">Crea le config nel tab <strong>Sources</strong>; appariranno qui filtrate per sorgente.</small>
                 </label>
                 <label>Mapping (opzionale)
                     <select data-field="run-mapping"><option value="">— nessuna —</option></select>
@@ -216,7 +252,7 @@ function hsync_render_admin_page(): void {
                 <div data-region="run-config-fields"></div>
                 <div class="hsync-actions">
                     <button class="button" data-action="run-test-fetch">Test fetch</button>
-                    <button class="button" data-action="run-save-config">Salva config</button>
+                    <button class="button" data-action="run-save-config">Salva config…</button>
                     <button class="button" data-action="run-save-job">Salva come Job…</button>
                     <label class="hsync-dryrun">
                         <input type="checkbox" data-field="run-dry-run" checked> Dry run
@@ -259,6 +295,57 @@ function hsync_render_admin_page(): void {
                 <button class="button button-primary" data-action="legacy-import">Importa ora</button>
             </div>
             <div data-region="legacy-output"></div>
+        </section>
+
+        <section class="hsync-panel" data-panel="tools">
+            <div class="hsync-tab-intro">
+                <strong>⚠ Tools — Nuclear Cleanup.</strong> Operazioni <em>distruttive</em>:
+                cancellano dati a livello SQL diretto (TRUNCATE/DELETE) per andare veloci su
+                store grandi (2k+ prodotti, 17k+ media). Richiede capability
+                <code>manage_options</code> (più ristretta del resto del plugin).
+                Ogni esecuzione passa per un <em>preview</em> con i conteggi reali; senza
+                conferma esplicita non si parte. Le immagini in
+                <strong>Whitelist</strong> sono sempre protette.
+            </div>
+
+            <h2>Cleanup selettivo</h2>
+            <p class="hsync-muted">Spunta i target, premi Preview per vedere i conteggi, poi <em>Esegui</em>.</p>
+
+            <div class="hsync-tools-targets">
+                <label><input type="checkbox" data-tools-target="products"> <strong>Prodotti</strong> + varianti — DELETE su <code>posts</code> + <code>postmeta</code> + <code>term_relationships</code>, TRUNCATE <code>wc_product_meta_lookup</code></label>
+                <label><input type="checkbox" data-tools-target="media"> <strong>Media</strong> (immagini) — wp_delete_attachment loop con disk-removal. Whitelist protetta.</label>
+                <label><input type="checkbox" data-tools-target="taxonomy"> <strong>Tassonomie</strong> (cat / brand / tag) — DELETE diretto su <code>terms</code> + <code>term_taxonomy</code> + <code>termmeta</code></label>
+                <label><input type="checkbox" data-tools-target="transients"> <strong>Transients</strong> WP + WC — solo cache</label>
+                <label><input type="checkbox" data-tools-target="orphan_meta"> <strong>Orfani</strong> postmeta + sessioni WC scadute</label>
+            </div>
+
+            <div class="hsync-actions">
+                <button class="button" data-action="tools-preview">Preview</button>
+                <button class="button button-primary is-danger" data-action="tools-execute" disabled>Esegui cleanup</button>
+            </div>
+            <div data-region="tools-output"></div>
+
+            <hr>
+
+            <h2>Cleanup per sorgente</h2>
+            <p class="hsync-muted">
+                Cancella tutti i prodotti importati da una specifica sorgente
+                (legge <code>_gh_import_source</code> / <code>_feed_source</code> meta).
+                Utile per re-importare da zero senza toccare il resto del catalogo.
+            </p>
+            <div class="hsync-tools-bysource">
+                <select data-field="tools-source">
+                    <option value="">— scegli sorgente —</option>
+                    <option value="goldensneakers">Golden Sneakers</option>
+                    <option value="stockfirmati">StockFirmati</option>
+                    <option value="csv">CSV</option>
+                    <option value="kicksdb">KicksDB</option>
+                    <option value="manual">Manual</option>
+                </select>
+                <button class="button" data-action="tools-source-count">Conta prodotti</button>
+                <button class="button is-danger" data-action="tools-source-delete">Elimina tutti</button>
+            </div>
+            <div data-region="tools-source-output"></div>
         </section>
     </div>
     <?php

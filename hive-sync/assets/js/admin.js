@@ -716,7 +716,7 @@
     HSync.asRunQueue = async function () {
         try {
             const data = await HSync.ajax('as_run_queue', {});
-            alert('Action Scheduler queue runner triggered (' + data.duration_ms + 'ms).');
+            alert('Coda riavviata (' + data.duration_ms + ' ms).');
             HSync.asHealth();
         } catch (e) { alert('Errore: ' + e.message); }
     };
@@ -733,7 +733,7 @@
     HSync.tickNow = async function () {
         try {
             const data = await HSync.ajax('jobs_tick_now', {});
-            alert('Tick: ' + data.dispatched + ' dispatched, ' + data.skipped + ' skipped' + (data.locked ? ' (LOCKED)' : ''));
+            alert('Esecuzione lanciata: ' + data.dispatched + ' avviati, ' + data.skipped + ' saltati' + (data.locked ? ' (sistema occupato — riprova tra poco)' : ''));
             HSync.loadJobs();
         } catch (e) { alert('Errore: ' + e.message); }
     };
@@ -909,7 +909,7 @@
             const data = await HSync.ajax('source_configs_save', {
                 slug: slug, name: name, source_kind: sourceId, config: config,
             });
-            alert('Config salvata: ' + data.slug);
+            alert('Configurazione salvata.');
             HSync.loadSources();
             // Repopulate the Run tab picker too if cached.
             if (HSync.state.currentTab === 'run') HSync.loadSourceConfigs(sourceId);
@@ -1076,12 +1076,12 @@
     ];
 
     HSync.MAPPING_SNIPPETS = [
-        { label: 'Brand + nome',                   value: '{brand_name} {name}' },
-        { label: 'Descrizione lunga (HTML)',       value: '<p>{brand_name} <strong>{name}</strong> originali — {colorway}</p>' },
-        { label: 'Descrizione breve',              value: '{brand_name} {name}' },
-        { label: 'SEO title',                      value: '{name} | {brand_name} | Sneakers' },
-        { label: 'SEO meta description',           value: 'Acquista {name} di {brand_name}. Modello {colorway}, taglie disponibili. Spedizione veloce.' },
-        { label: 'SKU pattern (brand-sku)',        value: '{brand_name}-{sku}' },
+        { label: 'Brand + nome prodotto',                  value: '{brand_name} {name}' },
+        { label: 'Descrizione lunga (con HTML)',           value: '<p>{brand_name} <strong>{name}</strong> originali — {colorway}</p>' },
+        { label: 'Descrizione breve',                      value: '{brand_name} {name}' },
+        { label: 'Titolo SEO',                             value: '{name} | {brand_name} | Sneakers' },
+        { label: 'Meta description SEO',                   value: 'Acquista {name} di {brand_name}. Modello {colorway}, taglie disponibili. Spedizione veloce.' },
+        { label: 'SKU con prefisso brand',                 value: '{brand_name}-{sku}' },
     ];
 
     /**
@@ -1148,22 +1148,22 @@
 
         const chips = paths.length
             ? paths.map(p => '<button type="button" class="hsync-chip" data-action="mapping-insert-token" data-token="{' + esc(p) + '}">{' + esc(p) + '}</button>').join('')
-            : '<span class="hsync-muted">Esegui <em>Sonda sorgente</em> per popolare i path.</span>';
+            : '<span class="hsync-muted">Premi <em>Anteprima sorgente</em> qui sopra per scoprire quali campi puoi inserire.</span>';
         const snippetOpts = HSync.MAPPING_SNIPPETS.map((s, i) =>
             '<option value="' + i + '">' + esc(s.label) + '</option>',
         ).join('');
         const palette = ''
             + '<div class="hsync-mapping-palette is-hidden" data-region="mapping-palette">'
             +   '<div class="hsync-palette-row">'
-            +     '<strong>Inserisci placeholder:</strong> ' + chips
+            +     '<strong>Inserisci un campo della sorgente:</strong> ' + chips
             +   '</div>'
             +   '<div class="hsync-palette-row">'
-            +     '<strong>Template suggeriti:</strong> '
+            +     '<strong>Oppure parti da un esempio:</strong> '
             +     '<select data-action="mapping-insert-snippet">'
-            +       '<option value="">— scegli —</option>'
+            +       '<option value="">— scegli un esempio —</option>'
             +       snippetOpts
             +     '</select>'
-            +     '<span class="hsync-muted">Sintassi: <code>{path}</code> sostituisce il valore della sorgente. HTML libero supportato.</span>'
+            +     '<span class="hsync-muted">Le parentesi <code>{ }</code> contengono il campo della sorgente. Puoi mescolare testo libero e HTML.</span>'
             +   '</div>'
             + '</div>';
 
@@ -1189,9 +1189,9 @@
                 +     '<input type="text" data-mapping-key="' + esc(f.key) + '"'
                 +       ' value="' + esc(value) + '"'
                 +       ' list="' + datalistId + '"'
-                +       ' placeholder="path o template (es. SKU, sizes.size_eu, &lt;p&gt;{brand_name}&lt;/p&gt;)">'
+                +       ' placeholder="es. SKU, sizes.size_eu, oppure {brand_name} {name}">'
                 +     (!paths.length
-                          ? '<small class="hsync-muted">Esegui <em>Sonda sorgente</em> per autocomplete.</small>'
+                          ? '<small class="hsync-muted">Premi <em>Anteprima sorgente</em> per vedere i campi disponibili.</small>'
                           : '')
                 +   '</div>'
                 +   (isEmpty
@@ -1207,7 +1207,7 @@
                 +   '<div class="hsync-mapping-cell hsync-mapping-target">'
                 +     '<input type="text" data-custom-key="' + idx + '"'
                 +       ' value="' + esc(key) + '"'
-                +       ' placeholder="es. meta_my_field">'
+                +       ' placeholder="es. meta_seo_focus_keyword">'
                 +     '<small class="hsync-muted">campo personalizzato</small>'
                 +   '</div>'
                 +   '<div class="hsync-mapping-cell hsync-mapping-arrow">←</div>'
@@ -1215,7 +1215,7 @@
                 +     '<input type="text" data-custom-value="' + idx + '"'
                 +       ' value="' + esc(value) + '"'
                 +       ' list="' + datalistId + '"'
-                +       ' placeholder="path o template">'
+                +       ' placeholder="campo della sorgente o template">'
                 +   '</div>'
                 +   '<button type="button" class="button button-small" data-action="mapping-custom-delete" data-idx="' + idx + '" title="Elimina">✕</button>'
                 + '</div>';
@@ -1237,10 +1237,10 @@
         );
         const requiredBanner = missingRequired.length
             ? '<div class="hsync-warning">'
-              + '<strong>Mancano ' + missingRequired.length + ' campi obbligatori:</strong> '
-              + missingRequired.map(f => '<code>' + esc(f.key) + '</code>').join(', ')
-              + '. Compilali prima di salvare.</div>'
-            : '<div class="hsync-summary-foot">Tutti i campi obbligatori (<code>sku</code>, <code>name</code>, <code>regular_price</code>) sono compilati ✓</div>';
+              + '<strong>Manca ancora qualcosa.</strong> Per creare un prodotto servono: '
+              + missingRequired.map(f => '<code>' + esc(f.label || f.key) + '</code>').join(', ')
+              + '. Compilali per poter salvare.</div>'
+            : '<div class="hsync-summary-foot">Tutto pronto — i campi essenziali sono compilati ✓</div>';
 
         region.innerHTML = ''
             + datalist + palette
@@ -1248,29 +1248,29 @@
             + '<section class="hsync-mapping-section">'
             +   '<h3 class="hsync-mapping-section-h">'
             +     '<span class="hsync-section-badge">Essenziali</span>'
-            +     'Schema Woo minimo'
+            +     'Campi base del prodotto'
             +   '</h3>'
-            +   '<p class="hsync-muted">I campi della struttura standard di un prodotto WooCommerce. Quelli con <span class="hsync-required-marker">*</span> sono obbligatori per creare il prodotto.</p>'
+            +   '<p class="hsync-muted">Quelli con <span class="hsync-required-marker">*</span> sono indispensabili per creare un prodotto.</p>'
             +   minimalRows
             + '</section>'
             + '<section class="hsync-mapping-section">'
             +   '<button class="hsync-mapping-toggle" data-action="mapping-toggle-advanced">'
             +     (showAdv ? '▼' : '▶') + ' Campi avanzati'
-            +     ' <small class="hsync-muted">(SEO, gallery, tag, meta — ' + advCount + ' compilati)</small>'
+            +     ' <small class="hsync-muted">(SEO, gallery, sconti — ' + advCount + ' compilati)</small>'
             +   '</button>'
             +   (showAdv
-                ? '<p class="hsync-muted">Estensioni della schema standard. Compilali solo se ti servono.</p>' + advancedRows
+                ? '<p class="hsync-muted">Compilali solo se ti servono. Altrimenti lasciali vuoti.</p>' + advancedRows
                 : '')
             + '</section>'
             + '<section class="hsync-mapping-section">'
             +   '<h3 class="hsync-mapping-section-h">'
-            +     '<span class="hsync-section-badge is-custom">Custom</span>'
-            +     'Campi personalizzati'
+            +     '<span class="hsync-section-badge is-custom">Personalizzati</span>'
+            +     'I tuoi campi extra'
             +     ' <small class="hsync-muted">(' + customCount + ')</small>'
             +   '</h3>'
-            +   '<p class="hsync-muted">Per chiavi non standard (es. <code>meta_my_field</code>, attributi custom). Sia il nome del campo sia il valore sono editabili.</p>'
+            +   '<p class="hsync-muted">Per chiavi che non rientrano nello standard — utili per meta SEO, attributi specifici del tuo store.</p>'
             +   customRows
-            +   '<div class="hsync-actions"><button type="button" class="button" data-action="mapping-add-custom">+ Aggiungi campo personalizzato</button></div>'
+            +   '<div class="hsync-actions"><button type="button" class="button" data-action="mapping-add-custom">+ Aggiungi campo</button></div>'
             + '</section>';
     };
 
@@ -1358,7 +1358,7 @@
     HSync.insertMappingToken = function (token) {
         const input = focusedMappingInput();
         if (!input) {
-            alert('Clicca prima un campo "valore" per scegliere dove inserire il placeholder.');
+            alert('Clicca prima dentro un campo per scegliere dove inserire il valore.');
             return;
         }
         const start = input.selectionStart ?? input.value.length;
@@ -1382,10 +1382,10 @@
         if (!snippet) return;
         const input = focusedMappingInput();
         if (!input) {
-            alert('Clicca prima un campo "valore" per scegliere dove inserire il template.');
+            alert('Clicca prima dentro un campo per scegliere dove applicare l\'esempio.');
             return;
         }
-        if (input.value && !confirm('Sovrascrivere il valore corrente con il template?')) return;
+        if (input.value && !confirm('Questo campo ha già un valore. Vuoi sostituirlo con l\'esempio?')) return;
         input.value = snippet.value;
         if (input.dataset.mappingKey) {
             HSync.state.mappingValues[input.dataset.mappingKey] = snippet.value;
@@ -1422,7 +1422,7 @@
             if (!schemaKeys.has(k)) HSync.state.mappingCustomKeys.push(k);
         });
         HSync.renderMappingRows();
-        alert('JSON applicato al builder.');
+        alert('JSON applicato — controlla i campi qui sotto.');
     };
 
     HSync.probeMappingSource = async function () {
@@ -1436,12 +1436,12 @@
         }
         const cfg = HSync.state.sourceConfigs.find(c => c.source_kind === sourceId);
         if (!cfg) {
-            alert('Nessuna config salvata per "' + sourceId + '". Vai nel tab Sources e salvane una prima di sondare.');
+            alert('Per fare l\'anteprima ti serve una configurazione salvata per "' + sourceId + '". Vai su Connetti per aggiungerla.');
             return;
         }
         const out = $('[data-region="mapping-probe-output"]');
         out.classList.remove('is-hidden');
-        out.innerHTML = '<p class="hsync-loading">Sondaggio sorgente…</p>';
+        out.innerHTML = '<p class="hsync-loading">Sto leggendo un esempio dalla sorgente…</p>';
         try {
             const data = await HSync.ajax('mapping_probe', {
                 source_id: sourceId, config_slug: cfg.slug,
@@ -1450,13 +1450,13 @@
             const warns = (data.warnings || []).map(w =>
                 '<div class="hsync-warning">' + esc(w) + '</div>').join('');
             const sampleSummary = data.sample
-                ? '<details><summary>Sample (' + data.count + ' righe trovate, prima visualizzata)</summary>'
+                ? '<details><summary>Vedi un prodotto di esempio (' + data.count + ' totali nella sorgente)</summary>'
                   + '<pre class="hsync-pre">' + esc(JSON.stringify(data.sample, null, 2)) + '</pre>'
                   + '</details>'
-                : '<div class="hsync-empty">Nessuna riga restituita dalla sorgente.</div>';
+                : '<div class="hsync-empty">La sorgente non ha restituito alcun prodotto.</div>';
             out.innerHTML = ''
-                + '<div class="hsync-summary-label">Sonda → ' + esc(cfg.name) + '</div>'
-                + '<p class="hsync-muted"><strong>' + (data.paths || []).length + '</strong> path rilevati. Autocomplete attivato sui campi sotto.</p>'
+                + '<div class="hsync-summary-label">Anteprima da ' + esc(cfg.name) + '</div>'
+                + '<p class="hsync-muted">Trovati <strong>' + (data.paths || []).length + '</strong> campi disponibili. Adesso puoi mapparli.</p>'
                 + warns
                 + sampleSummary;
             HSync.renderMappingRows();
@@ -1472,7 +1472,7 @@
             try {
                 cfg = JSON.parse($('[data-field="map-config"]').value || '{}');
             } catch (e) {
-                alert('JSON config invalido: ' + e.message);
+                alert('Il JSON contiene un errore: ' + e.message);
                 return;
             }
         } else {
@@ -1484,11 +1484,11 @@
             f.required && (!cfg[f.key] || String(cfg[f.key]).trim() === ''),
         );
         if (missing.length) {
-            alert('Campi obbligatori non compilati: ' + missing.map(f => f.key).join(', '));
+            alert('Mancano alcuni campi obbligatori: ' + missing.map(f => f.label || f.key).join(', '));
             return;
         }
         if (!Object.keys(cfg).length) {
-            if (!confirm('Mapping vuota — salvare comunque?')) return;
+            if (!confirm('La mappatura è vuota — vuoi salvarla lo stesso?')) return;
         }
         try {
             await HSync.ajax('mappings_save', {
@@ -1703,7 +1703,7 @@
                 config:        jobConfig,
             });
             const next = data.next_run_at || '—';
-            if (confirm('Job creato (id: ' + data.id + ')\nProssima esecuzione: ' + next + '\n\nApri il tab Jobs?')) {
+            if (confirm('Automazione creata.\nProssima esecuzione: ' + next + '\n\nApri il tab Automatizza?')) {
                 HSync.switchTab('jobs');
             }
         } catch (e) {

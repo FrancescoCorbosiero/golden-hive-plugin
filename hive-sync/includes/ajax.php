@@ -587,3 +587,102 @@ add_action( 'wp_ajax_hsync_ajax_legacy_import', function () {
     hsync_ajax_guard();
     wp_send_json_success( hsync_legacy_importer()->run() );
 } );
+
+// ─── Media management ────────────────────────────────────────────
+//
+// Browser, whitelist CRUD, safe cleanup preview/apply, set featured /
+// gallery on a product, deletion log. The reverse usage index is built
+// lazily and invalidated on attachment + product save hooks (see
+// HiveSync\Media\UsageIndex).
+
+add_action( 'wp_ajax_hsync_ajax_media_query', function () {
+    hsync_ajax_guard();
+    $filters = [
+        'filename'  => hsync_post_text( 'filename' ),
+        'usage'     => hsync_post_text( 'usage', 'all' ),
+        'whitelist' => hsync_post_text( 'whitelist', 'all' ),
+    ];
+    $page = isset( $_POST['page'] ) ? max( 1, (int) wp_unslash( $_POST['page'] ) ) : 1;
+    $perPage = isset( $_POST['per_page'] ) ? max( 10, min( 500, (int) wp_unslash( $_POST['per_page'] ) ) ) : 60;
+    wp_send_json_success(
+        \HiveSync\Media\Browser::query( $filters, [ 'page' => $page, 'per_page' => $perPage ] ),
+    );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_media_index_rebuild', function () {
+    hsync_ajax_guard();
+    \HiveSync\Media\UsageIndex::invalidate();
+    $index = \HiveSync\Media\UsageIndex::build( true );
+    wp_send_json_success( [ 'attachments_indexed' => count( $index ) ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_media_cleanup_preview', function () {
+    hsync_ajax_guard();
+    wp_send_json_success( \HiveSync\Media\Browser::safeCleanupPreview() );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_media_cleanup_apply', function () {
+    hsync_ajax_guard();
+    $ids = hsync_post_json( 'ids' );
+    if ( empty( $ids ) ) wp_send_json_error( [ 'message' => 'Nessun ID fornito.' ] );
+    $result = \HiveSync\Media\Cleaner::bulkDelete( array_map( 'intval', $ids ) );
+    wp_send_json_success( $result );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_media_whitelist_list', function () {
+    hsync_ajax_guard();
+    wp_send_json_success( [ 'items' => \HiveSync\Media\Whitelist::all() ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_media_whitelist_add', function () {
+    hsync_ajax_guard();
+    $id     = isset( $_POST['attachment_id'] ) ? (int) wp_unslash( $_POST['attachment_id'] ) : 0;
+    $url    = hsync_post_text( 'url' );
+    $reason = hsync_post_text( 'reason' );
+    $ok = \HiveSync\Media\Whitelist::add( $id ?: null, $url ?: null, $reason );
+    if ( ! $ok ) wp_send_json_error( [ 'message' => 'Whitelist update failed (id/url mancanti?).' ] );
+    wp_send_json_success( [ 'items' => \HiveSync\Media\Whitelist::all() ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_media_whitelist_remove', function () {
+    hsync_ajax_guard();
+    $id = isset( $_POST['attachment_id'] ) ? (int) wp_unslash( $_POST['attachment_id'] ) : 0;
+    if ( $id <= 0 ) wp_send_json_error( [ 'message' => 'attachment_id richiesto.' ] );
+    \HiveSync\Media\Whitelist::remove( $id );
+    wp_send_json_success( [ 'items' => \HiveSync\Media\Whitelist::all() ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_media_set_featured', function () {
+    hsync_ajax_guard();
+    $pid = isset( $_POST['product_id'] )    ? (int) wp_unslash( $_POST['product_id'] )    : 0;
+    $aid = isset( $_POST['attachment_id'] ) ? (int) wp_unslash( $_POST['attachment_id'] ) : 0;
+    if ( $pid <= 0 || $aid <= 0 ) wp_send_json_error( [ 'message' => 'product_id + attachment_id richiesti.' ] );
+    $r = \HiveSync\Media\Library::setProductFeaturedImage( $pid, $aid );
+    if ( is_wp_error( $r ) ) wp_send_json_error( [ 'message' => $r->get_error_message() ] );
+    wp_send_json_success( [ 'product_id' => $pid, 'attachment_id' => $aid ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_media_set_gallery', function () {
+    hsync_ajax_guard();
+    $pid = isset( $_POST['product_id'] ) ? (int) wp_unslash( $_POST['product_id'] ) : 0;
+    $ids = hsync_post_json( 'attachment_ids' );
+    if ( $pid <= 0 ) wp_send_json_error( [ 'message' => 'product_id richiesto.' ] );
+    $r = \HiveSync\Media\Library::setProductGallery( $pid, array_map( 'intval', $ids ) );
+    if ( is_wp_error( $r ) ) wp_send_json_error( [ 'message' => $r->get_error_message() ] );
+    wp_send_json_success( [ 'product_id' => $pid, 'count' => count( $ids ) ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_media_remove_from_galleries', function () {
+    hsync_ajax_guard();
+    $ids = hsync_post_json( 'media_ids' );
+    if ( empty( $ids ) ) wp_send_json_error( [ 'message' => 'media_ids richiesto.' ] );
+    wp_send_json_success(
+        \HiveSync\Media\Library::removeFromGalleries( array_map( 'intval', $ids ) ),
+    );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_media_deletion_log', function () {
+    hsync_ajax_guard();
+    $limit = isset( $_POST['limit'] ) ? max( 1, min( 500, (int) wp_unslash( $_POST['limit'] ) ) ) : 100;
+    wp_send_json_success( [ 'log' => \HiveSync\Media\Cleaner::getLog( $limit ) ] );
+} );

@@ -34,4 +34,9 @@ add_action( 'hive_sync/core_booted', function () {
     // Import checks (pre-import — FeedItem-scoped)
     \HiveSync\Core\Bootstrap::$importChecks->register( new \HiveSync\Checks\Import\HasRequiredFields() );
     \HiveSync\Core\Bootstrap::$importChecks->register( new \HiveSync\Checks\Import\HasMediaUrl() );
+
+    // Media usage index — register cache invalidation hooks once on boot.
+    if ( class_exists( '\\HiveSync\\Media\\UsageIndex' ) ) {
+        \HiveSync\Media\UsageIndex::registerInvalidationHooks();
+    }
 } );

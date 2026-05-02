@@ -79,6 +79,7 @@
         if (name === 'pipelines') HSync.loadPipelines();
         if (name === 'rules')     HSync.loadRules();
         if (name === 'jobs')      HSync.loadJobs();
+        if (name === 'media')     HSync.loadMedia();
     };
 
     HSync.loadRegistry = async function () {
@@ -1288,23 +1289,46 @@
             statusBadge = '<span class="hsync-action-pill is-skipped">' + esc(status) + '</span>';
         }
 
+        // `unchanged` items were never processed (diff said they're identical
+        // to the existing product). The processing pool is `new + update`,
+        // and the result must reconcile to that count. We surface every
+        // bucket — including the four blocking/failure paths — so users can
+        // see exactly where each item went.
+        const processingPool = (s.new || 0) + (s.update || 0);
+        const accounted = (s.created || 0) + (s.updated || 0) + (s.skipped || 0)
+                        + (s.failed || 0) + (s.pre_blocked || 0) + (s.post_blocked || 0);
+        const inFlight = Math.max(0, processingPool - accounted);
+        const reconcileBad = (status === 'done' && inFlight > 0) ? 'is-bad' : '';
+
         const summary = ''
-            + '<div class="hsync-summary">'
-            +   stat('Fetched',   s.fetched)
-            +   stat('New',       s.new)
-            +   stat('Update',    s.update)
-            +   stat('Unchanged', s.unchanged)
-            +   stat('Created',   s.created, 'is-good')
-            +   stat('Updated',   s.updated, 'is-good')
-            +   stat('Skipped',   s.skipped)
-            +   stat('Failed',    s.failed,  'is-bad')
+            + '<div class="hsync-summary-section">'
+            +   '<div class="hsync-summary-label">Source diff</div>'
+            +   '<div class="hsync-summary">'
+            +     stat('Fetched',   s.fetched)
+            +     stat('New',       s.new)
+            +     stat('Update',    s.update)
+            +     stat('Unchanged (skipped by diff)', s.unchanged, 'is-dim')
+            +   '</div>'
             + '</div>'
-            + ((s.pre_blocked || s.post_blocked)
-                ? '<div class="hsync-summary" style="grid-template-columns:repeat(2,1fr);">'
-                +   stat('Pre-import blocked',  s.pre_blocked,  s.pre_blocked  > 0 ? 'is-bad' : '')
-                +   stat('Post-import blocking',s.post_blocked, s.post_blocked > 0 ? 'is-bad' : '')
+            + '<div class="hsync-summary-section">'
+            +   '<div class="hsync-summary-label">Processing pool: ' + processingPool + ' items (new + update)</div>'
+            +   '<div class="hsync-summary">'
+            +     stat('Created',          s.created,      (s.created || 0) > 0 ? 'is-good' : '')
+            +     stat('Updated',          s.updated,      (s.updated || 0) > 0 ? 'is-good' : '')
+            +     stat('Skipped (dry/no-op)', s.skipped,   (s.skipped || 0) > 0 ? 'is-dim'  : '')
+            +     stat('Failed',           s.failed,       (s.failed  || 0) > 0 ? 'is-bad'  : '')
+            +     stat('Pre-check blocked',  s.pre_blocked,  (s.pre_blocked  || 0) > 0 ? 'is-bad' : '')
+            +     stat('Post-check blocked', s.post_blocked, (s.post_blocked || 0) > 0 ? 'is-bad' : '')
+            +   '</div>'
+            +   (status === 'done' && processingPool > 0
+                ? '<div class="hsync-summary-foot ' + reconcileBad + '">'
+                +   'Reconciled ' + accounted + '/' + processingPool
+                +   (inFlight > 0
+                    ? ' — <strong>' + inFlight + ' unaccounted</strong> (likely a runtime error mid-loop; check the run log)'
+                    : ' ✓')
                 + '</div>'
-                : '');
+                : '')
+            + '</div>';
 
         const warns = (data.warnings || []).map(w =>
             '<div class="hsync-warning">' + esc(w) + '</div>'
@@ -1313,12 +1337,18 @@
         const rows = (data.rows || []).map((r, i) => {
             const klass  = r.action === 'failed' ? 'is-error' : '';
             const pillKl = 'is-' + (r.action || 'skipped');
-            const err    = r.error ? esc(r.error) : '';
+            // `error` wins over `reason` — both feed the same column.
+            // Skip reasons explain non-failure decisions (dry_run,
+            // conflict_block, no_change, etc.) so the user knows whether
+            // a "skipped" line is benign or worth investigating.
+            const detail = r.error
+                ? esc(r.error)
+                : (r.reason ? '<span class="hsync-row-reason">' + esc(r.reason) + '</span>' : '');
             return '<tr class="' + klass + '"><td>' + (i + 1) + '</td>'
                 + '<td>' + (r.pid || '—') + '</td>'
                 + '<td><code>' + esc(r.sku) + '</code></td>'
                 + '<td><span class="hsync-action-pill ' + pillKl + '">' + esc(r.action) + '</span></td>'
-                + '<td>' + err + '</td></tr>';
+                + '<td>' + detail + '</td></tr>';
         }).join('');
 
         out.innerHTML = ''
@@ -1459,6 +1489,15 @@
         // Exports
         if (t.matches('[data-action="export-inventory"]')) return HSync.exportInventory(t.dataset.format || 'csv');
         if (t.matches('[data-action="export-catalog"]'))   return HSync.exportCatalog();
+
+        // Media
+        if (t.matches('[data-action="media-search"]'))             return HSync.loadMedia(1);
+        if (t.matches('[data-action="media-rebuild-index"]'))      return HSync.rebuildMediaIndex();
+        if (t.matches('[data-action="media-cleanup-preview"]'))    return HSync.previewMediaCleanup();
+        if (t.matches('[data-action="media-cleanup-confirm"]'))    return HSync.confirmMediaCleanup(t.dataset.ids || '[]');
+        if (t.matches('[data-action="media-page"]'))               return HSync.loadMedia(parseInt(t.dataset.page, 10));
+        if (t.matches('[data-action="media-whitelist-toggle"]'))   return HSync.toggleMediaWhitelist(parseInt(t.dataset.id, 10));
+        if (t.matches('[data-action="media-delete-one"]'))         return HSync.deleteMediaOne(parseInt(t.dataset.id, 10));
     });
 
     document.addEventListener('change', function (e) {
@@ -1466,7 +1505,199 @@
         if (e.target.matches('[data-field="run-source"]'))        HSync.populateRunMappings();
         if (e.target.matches('[data-field="job-type"]'))          { HSync.state.editingJob.runnable_type = e.target.value; HSync.renderJobEditor(); }
         if (e.target.matches('[data-field="job-ref"]'))           { HSync.state.editingJob.runnable_ref  = e.target.value; if (HSync.state.editingJob.runnable_type === 'source.import') HSync.loadSourceConfigs(e.target.value).then(() => HSync.renderJobEditor()); }
+        if (e.target.matches('[data-action="media-toggle"]'))     HSync.toggleMediaSelection(parseInt(e.target.dataset.id, 10));
     });
+
+    document.addEventListener('keydown', function (e) {
+        // Enter inside the media filename input triggers a search.
+        if (e.target.matches('[data-field="media-filename"]') && e.key === 'Enter') {
+            e.preventDefault();
+            HSync.loadMedia(1);
+        }
+    });
+
+    // ─── Media ────────────────────────────────────────────────────
+
+    HSync.state.media = { items: [], page: 1, perPage: 60, total: 0, totalPages: 1, selected: new Set() };
+
+    HSync.loadMedia = function (page) {
+        const region = $('[data-region="media-list"]');
+        const filename  = ($('[data-field="media-filename"]')  || {}).value || '';
+        const usage     = ($('[data-field="media-usage"]')     || {}).value || 'all';
+        const whitelist = ($('[data-field="media-whitelist"]') || {}).value || 'all';
+        const target = page || HSync.state.media.page || 1;
+        region.innerHTML = '<p class="hsync-loading">Caricamento media…</p>';
+        return HSync.ajax('media_query', {
+            filename: filename, usage: usage, whitelist: whitelist,
+            page: target, per_page: HSync.state.media.perPage,
+        }).then(data => {
+            HSync.state.media.items       = data.items || [];
+            HSync.state.media.page        = data.page || 1;
+            HSync.state.media.perPage     = data.per_page || 60;
+            HSync.state.media.total       = data.total || 0;
+            HSync.state.media.totalPages  = data.total_pages || 1;
+            HSync.renderMedia();
+            HSync.renderMediaPager();
+        }).catch(e => {
+            region.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+        });
+    };
+
+    HSync.renderMedia = function () {
+        const region = $('[data-region="media-list"]');
+        if (!HSync.state.media.items.length) {
+            region.innerHTML = '<div class="hsync-empty">Nessun media trovato con i filtri correnti.</div>';
+            return;
+        }
+        const sel = HSync.state.media.selected;
+        const cards = HSync.state.media.items.map(it => {
+            const usage = it.usage || [];
+            const isMapped  = usage.length > 0;
+            const isWl      = !!it.is_whitelisted;
+            const usageStr  = usage.length
+                ? usage.slice(0, 2).map(u => esc(u.role) + ' #' + u.pid + (u.sku ? ' (' + esc(u.sku) + ')' : '')).join(' · ')
+                  + (usage.length > 2 ? ' +' + (usage.length - 2) : '')
+                : 'orfano';
+            const badges = ''
+                + (isMapped ? '<span class="hsync-media-badge is-mapped">used</span>' : '<span class="hsync-media-badge is-orphan">orphan</span>')
+                + (isWl     ? '<span class="hsync-media-badge is-whitelist">WL</span>' : '');
+            const checked = sel.has(it.id) ? ' checked' : '';
+            return ''
+                + '<div class="hsync-media-card' + (sel.has(it.id) ? ' is-selected' : '') + '" data-id="' + it.id + '">'
+                +   '<label class="hsync-media-checkbox"><input type="checkbox" data-action="media-toggle" data-id="' + it.id + '"' + checked + '></label>'
+                +   '<div class="hsync-media-badges">' + badges + '</div>'
+                +   '<div class="hsync-media-thumb" style="background-image:url(\'' + esc(it.thumbnail_url || it.url) + '\')"></div>'
+                +   '<div class="hsync-media-meta">'
+                +     '<div class="hsync-media-name" title="' + esc(it.filename) + '">' + esc(it.filename || ('#' + it.id)) + '</div>'
+                +     '<div class="hsync-media-size">' + esc(it.filesize_human || '—') + '</div>'
+                +     '<div class="hsync-media-size">' + esc(usageStr) + '</div>'
+                +     '<div class="hsync-actions" style="margin-top:6px;">'
+                +       '<button class="button button-small" data-action="media-whitelist-toggle" data-id="' + it.id + '">'
+                +         (isWl ? 'Rimuovi WL' : 'Aggiungi WL')
+                +       '</button>'
+                +       (isMapped
+                          ? ''
+                          : '<button class="button button-small" data-action="media-delete-one" data-id="' + it.id + '">Elimina</button>')
+                +     '</div>'
+                +   '</div>'
+                + '</div>';
+        }).join('');
+        region.innerHTML = '<div class="hsync-media-grid">' + cards + '</div>';
+    };
+
+    HSync.renderMediaPager = function () {
+        const pager = $('[data-region="media-pager"]');
+        const m = HSync.state.media;
+        if (m.totalPages <= 1) {
+            pager.innerHTML = '<span class="hsync-muted">' + m.total + ' risultati</span>';
+            return;
+        }
+        const prev = m.page > 1
+            ? '<button class="button" data-action="media-page" data-page="' + (m.page - 1) + '">←</button>'
+            : '';
+        const next = m.page < m.totalPages
+            ? '<button class="button" data-action="media-page" data-page="' + (m.page + 1) + '">→</button>'
+            : '';
+        pager.innerHTML = prev
+            + ' <span class="hsync-muted">Pagina ' + m.page + ' di ' + m.totalPages + ' · ' + m.total + ' risultati</span> '
+            + next;
+    };
+
+    HSync.toggleMediaSelection = function (id) {
+        const sel = HSync.state.media.selected;
+        if (sel.has(id)) sel.delete(id);
+        else sel.add(id);
+        const card = document.querySelector('.hsync-media-card[data-id="' + id + '"]');
+        if (card) card.classList.toggle('is-selected', sel.has(id));
+    };
+
+    HSync.toggleMediaWhitelist = async function (id) {
+        const item = HSync.state.media.items.find(x => x.id === id);
+        if (!item) return;
+        try {
+            if (item.is_whitelisted) {
+                await HSync.ajax('media_whitelist_remove', { attachment_id: id });
+            } else {
+                const reason = prompt('Motivo della whitelist (opzionale):', '') || '';
+                await HSync.ajax('media_whitelist_add', { attachment_id: id, reason: reason });
+            }
+            await HSync.loadMedia(HSync.state.media.page);
+        } catch (e) { alert('Errore: ' + e.message); }
+    };
+
+    HSync.deleteMediaOne = async function (id) {
+        if (!confirm('Eliminare definitivamente l\'attachment #' + id + ' dalla media library?\n\nFile + thumbnail saranno rimossi dal disco.')) return;
+        try {
+            const data = await HSync.ajax('media_cleanup_apply', { ids: [id] });
+            if ((data.errors || {})[id]) {
+                alert('Eliminazione bloccata: ' + data.errors[id]);
+            } else if (data.skipped_whitelist?.includes(id)) {
+                alert('Skipped: attachment è in whitelist.');
+            } else {
+                alert('Eliminato. Liberati ' + data.freed_human + '.');
+            }
+            HSync.loadMedia(HSync.state.media.page);
+        } catch (e) { alert('Errore: ' + e.message); }
+    };
+
+    HSync.rebuildMediaIndex = async function () {
+        try {
+            const data = await HSync.ajax('media_index_rebuild', {});
+            alert('Indice ricostruito. ' + data.attachments_indexed + ' attachment con utilizzo registrato.');
+            HSync.loadMedia(HSync.state.media.page);
+        } catch (e) { alert('Errore: ' + e.message); }
+    };
+
+    HSync.previewMediaCleanup = async function () {
+        const out = $('[data-region="media-cleanup-output"]');
+        out.innerHTML = '<p class="hsync-loading">Calcolo orfani…</p>';
+        try {
+            const data = await HSync.ajax('media_cleanup_preview', {});
+            const idsJson = JSON.stringify(data.to_delete_ids || []);
+            const wlRows = (data.whitelist_details || []).slice(0, 50).map(w =>
+                '<tr><td>#' + w.id + '</td><td>' + esc(w.reason || '—') + '</td><td><a href="' + esc(w.url) + '" target="_blank">link</a></td></tr>'
+            ).join('');
+            out.innerHTML = ''
+                + '<div class="hsync-summary" style="grid-template-columns:repeat(3,1fr);">'
+                +   '<div class="hsync-stat"><div class="hsync-stat-num">' + data.total_matched + '</div><div class="hsync-stat-label">Orfani totali</div></div>'
+                +   '<div class="hsync-stat is-bad"><div class="hsync-stat-num">' + data.to_delete_count + '</div><div class="hsync-stat-label">Da eliminare</div></div>'
+                +   '<div class="hsync-stat"><div class="hsync-stat-num">' + data.whitelisted_count + '</div><div class="hsync-stat-label">Protetti (WL)</div></div>'
+                + '</div>'
+                + (wlRows ? '<details><summary>Whitelist esclusi (' + data.whitelisted_count + ')</summary>'
+                    + '<table class="hsync-table"><thead><tr><th>ID</th><th>Reason</th><th>URL</th></tr></thead><tbody>'
+                    + wlRows + '</tbody></table></details>' : '')
+                + '<div class="hsync-actions">'
+                +   '<button class="button button-primary" data-action="media-cleanup-confirm" data-ids=\'' + idsJson + '\'>'
+                +     'Elimina ' + data.to_delete_count + ' orfani'
+                +   '</button>'
+                + '</div>';
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+        }
+    };
+
+    HSync.confirmMediaCleanup = async function (idsJson) {
+        let ids;
+        try { ids = JSON.parse(idsJson); } catch (e) { alert('Payload corrotto.'); return; }
+        if (!Array.isArray(ids) || !ids.length) { alert('Nessun ID da eliminare.'); return; }
+        if (!confirm('Eliminare definitivamente ' + ids.length + ' attachment? L\'operazione non è reversibile.')) return;
+        const out = $('[data-region="media-cleanup-output"]');
+        out.innerHTML = '<p class="hsync-loading">Eliminazione in corso…</p>';
+        try {
+            const data = await HSync.ajax('media_cleanup_apply', { ids: ids });
+            const errCount = Object.keys(data.errors || {}).length;
+            out.innerHTML = ''
+                + '<div class="hsync-summary" style="grid-template-columns:repeat(3,1fr);">'
+                +   '<div class="hsync-stat is-good"><div class="hsync-stat-num">' + (data.deleted || []).length + '</div><div class="hsync-stat-label">Eliminati</div></div>'
+                +   '<div class="hsync-stat"><div class="hsync-stat-num">' + (data.skipped_whitelist || []).length + '</div><div class="hsync-stat-label">Saltati WL</div></div>'
+                +   '<div class="hsync-stat ' + (errCount > 0 ? 'is-bad' : '') + '"><div class="hsync-stat-num">' + errCount + '</div><div class="hsync-stat-label">Errori</div></div>'
+                + '</div>'
+                + '<p>Liberati ' + esc(data.freed_human || '0 B') + ' dal disco.</p>';
+            HSync.loadMedia(1);
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+        }
+    };
 
     // ─── Boot ─────────────────────────────────────────────────────
 

@@ -84,15 +84,22 @@ final class ImportRunner
         $items = $fetch->items;
         $diff  = $source->diff( $items, $ctx );
 
+        // `unchanged` is reported as a top-level metric — items the diff
+        // declared identical to the existing product, so they were never
+        // queued for processing. `skipped` is reserved for items that
+        // entered the loop but materialize() returned action='skipped'
+        // (e.g. dry-run, conflict-engine veto, no-op upsert). Conflating
+        // the two hides genuine processing decisions behind the skip
+        // counter — keep them strictly separate.
         $summary = [
-            'fetched'   => count( $items ),
-            'new'       => count( $diff->new ),
-            'update'    => count( $diff->update ),
-            'unchanged' => count( $diff->unchanged ),
-            'created'   => 0,
-            'updated'   => 0,
-            'skipped'   => count( $diff->unchanged ),
-            'failed'    => 0,
+            'fetched'      => count( $items ),
+            'new'          => count( $diff->new ),
+            'update'       => count( $diff->update ),
+            'unchanged'    => count( $diff->unchanged ),
+            'created'      => 0,
+            'updated'      => 0,
+            'skipped'      => 0,
+            'failed'       => 0,
             'pre_blocked'  => 0,
             'post_blocked' => 0,
         ];
@@ -178,6 +185,12 @@ final class ImportRunner
             $rowTrace['pid']    = $r->productId;
             $rowTrace['action'] = $r->action;
             $rowTrace['error']  = $r->error;
+            // Surface the materialize-skip reason on the row so the UI
+            // can explain why an item was skipped instead of leaving the
+            // user to guess (dry-run vs. conflict veto vs. no-op upsert).
+            if ( $r->action === 'skipped' && isset( $r->details['reason'] ) ) {
+                $rowTrace['reason'] = (string) $r->details['reason'];
+            }
             switch ( $r->action ) {
                 case 'created': $summary['created']++; break;
                 case 'updated': $summary['updated']++; break;

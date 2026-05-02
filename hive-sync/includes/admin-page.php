@@ -89,17 +89,17 @@ function hsync_render_admin_page(): void {
                 </div>
 
                 <div class="hsync-mapping-help">
-                    <strong>Come funziona.</strong> Ogni riga associa un <em>campo Woo</em> a un
-                    <em>path della sorgente</em> o a un <em>template</em> con placeholder.
-                    Esempi: <code>SKU</code> (colonna CSV), <code>sizes.size_eu</code> (path nidificato),
-                    <code>&lt;p&gt;{brand_name} {name}&lt;/p&gt;</code> (template). I path disponibili
-                    appaiono dopo <em>Sonda sorgente</em>.
+                    <strong>Come funziona.</strong> A sinistra c'è la <em>schema Woo standard</em>
+                    (campi fissi), a destra scegli quale campo della sorgente esterna ci finisce —
+                    via <em>path</em> (es. <code>SKU</code>, <code>sizes.size_eu</code>) o
+                    <em>template</em> (es. <code>&lt;p&gt;{brand_name} {name}&lt;/p&gt;</code>).
+                    I campi obbligatori sono marcati con <span class="hsync-required-marker">*</span>.
+                    Sezione <em>Avanzati</em> per SEO / meta / gallery; <em>Custom</em> per chiavi
+                    fuori schema.
                 </div>
 
                 <div class="hsync-mapping-toolbar">
                     <button class="button" data-action="mapping-probe">Sonda sorgente</button>
-                    <button class="button" data-action="mapping-add-row">+ Campo personalizzato</button>
-                    <button class="button" data-action="mapping-add-defaults">Aggiungi campi Woo standard</button>
                     <label class="hsync-toggle">
                         <input type="checkbox" data-action="mapping-toggle-json"> JSON view
                     </label>

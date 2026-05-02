@@ -1045,27 +1045,72 @@
     // ResolveTaxonomy + DownloadMedia + AdjustPrice) typically read from
     // the mapped FeedItem.data shape. The list is intentionally small —
     // a "+ Campo personalizzato" row lets the user add anything else.
-    HSync.WOO_FIELDS = [
-        { key: 'sku',               label: 'SKU',                  hint: 'Identificatore univoco' },
-        { key: 'name',              label: 'Nome prodotto' },
-        { key: 'description',       label: 'Descrizione lunga',    hint: 'Supporta HTML' },
-        { key: 'short_description', label: 'Descrizione breve' },
-        { key: 'regular_price',     label: 'Prezzo listino' },
-        { key: 'sale_price',        label: 'Prezzo scontato' },
-        { key: 'stock_quantity',    label: 'Quantità a stock' },
-        { key: 'stock_status',      label: 'Stato stock',          hint: 'instock | outofstock' },
-        { key: 'status',            label: 'Stato pubblicazione',  hint: 'publish | draft' },
-        { key: 'image_url',         label: 'URL immagine principale' },
-        { key: 'gallery_urls',      label: 'URL gallery',          hint: 'lista pipe-joined' },
-        { key: 'brand',             label: 'Brand' },
-        { key: 'categories',        label: 'Categorie' },
-        { key: 'tags',              label: 'Tag' },
+    // The Woo target schema is the FIXED spine of every mapping. The
+    // user can only choose what to map INTO each slot — not what the
+    // slots themselves are. Two groups: `minimal` (the fields that
+    // give a usable Woo product on import) and `advanced` (SEO + meta
+    // + extras you may not always need). Custom keys outside this
+    // schema land in their own dedicated section below.
+    HSync.WOO_SCHEMA = [
+        // ── Minimal — visible by default ───────────────────────
+        { key: 'sku',               label: 'SKU',                  group: 'minimal', required: true,  hint: 'Identificatore univoco del prodotto' },
+        { key: 'name',              label: 'Nome prodotto',        group: 'minimal', required: true },
+        { key: 'regular_price',     label: 'Prezzo listino',       group: 'minimal', required: true },
+        { key: 'description',       label: 'Descrizione',          group: 'minimal', hint: 'Supporta HTML — usa template per arricchirla' },
+        { key: 'image_url',         label: 'Immagine principale',  group: 'minimal' },
+        { key: 'categories',        label: 'Categoria',            group: 'minimal' },
+        { key: 'brand',             label: 'Brand',                group: 'minimal' },
+        { key: 'stock_quantity',    label: 'Quantità a stock',     group: 'minimal' },
+
+        // ── Advanced — collapsed by default ────────────────────
+        { key: 'short_description', label: 'Descrizione breve',    group: 'advanced' },
+        { key: 'sale_price',        label: 'Prezzo scontato',      group: 'advanced' },
+        { key: 'stock_status',      label: 'Stato stock',          group: 'advanced', hint: 'instock | outofstock' },
+        { key: 'manage_stock',      label: 'Gestione stock',       group: 'advanced', hint: 'true | false' },
+        { key: 'status',            label: 'Stato pubblicazione',  group: 'advanced', hint: 'publish | draft' },
+        { key: 'gallery_urls',      label: 'Gallery URLs',         group: 'advanced', hint: 'lista pipe-joined' },
+        { key: 'tags',              label: 'Tag',                  group: 'advanced' },
+        { key: 'meta_title',        label: 'SEO title',            group: 'advanced' },
+        { key: 'meta_description',  label: 'SEO meta description', group: 'advanced' },
+        { key: 'meta_keywords',     label: 'SEO keywords',         group: 'advanced' },
     ];
 
+    HSync.MAPPING_SNIPPETS = [
+        { label: 'Brand + nome',                   value: '{brand_name} {name}' },
+        { label: 'Descrizione lunga (HTML)',       value: '<p>{brand_name} <strong>{name}</strong> originali — {colorway}</p>' },
+        { label: 'Descrizione breve',              value: '{brand_name} {name}' },
+        { label: 'SEO title',                      value: '{name} | {brand_name} | Sneakers' },
+        { label: 'SEO meta description',           value: 'Acquista {name} di {brand_name}. Modello {colorway}, taglie disponibili. Spedizione veloce.' },
+        { label: 'SKU pattern (brand-sku)',        value: '{brand_name}-{sku}' },
+    ];
+
+    /**
+     * Editor state model is keyed by Woo field name so the row order
+     * is implicit (it follows the schema). Custom keys outside the
+     * schema live in a parallel ordered list rendered separately.
+     */
     HSync.openMappingEditor = function (mapping) {
         HSync.state.editingMapping = mapping || null;
-        HSync.state.mappingRows = HSync.mappingConfigToRows(mapping ? mapping.config : {});
+        HSync.state.mappingValues = {};
+        HSync.state.mappingCustomKeys = [];
         HSync.state.mappingProbe = { paths: [], sample: null };
+        HSync.state.mappingFocusedKey = null;
+
+        const cfg = (mapping && mapping.config) || {};
+        const schemaKeys = new Set(HSync.WOO_SCHEMA.map(f => f.key));
+        Object.entries(cfg).forEach(([k, v]) => {
+            HSync.state.mappingValues[k] = String(v == null ? '' : v);
+            if (!schemaKeys.has(k)) HSync.state.mappingCustomKeys.push(k);
+        });
+
+        // Auto-expand advanced if any advanced slot is already filled —
+        // saves a click for users editing existing mappings that touch
+        // SEO/meta.
+        HSync.state.mappingShowAdvanced = HSync.WOO_SCHEMA.some(f =>
+            f.group === 'advanced'
+            && (HSync.state.mappingValues[f.key] || '').toString().trim() !== '',
+        );
+
         $('[data-region="mapping-editor"]').classList.remove('is-hidden');
         $('[data-field="map-name"]').value   = mapping ? mapping.name : '';
         $('[data-field="map-source"]').value = mapping ? mapping.source_kind : '';
@@ -1082,69 +1127,29 @@
         $('[data-region="mapping-editor"]').classList.add('is-hidden');
     };
 
-    /**
-     * Normalize stored mapping config into the editor's row model.
-     * Stored shape: { sku: 'SKU', name: '<p>{brand} {name}</p>', … }.
-     * Row model preserves order and lets users add custom keys.
-     */
-    HSync.mappingConfigToRows = function (cfg) {
-        cfg = cfg || {};
-        return Object.entries(cfg).map(([wooField, value]) => ({
-            wooField: String(wooField),
-            value:    String(value == null ? '' : value),
-        }));
-    };
-
-    HSync.mappingRowsToConfig = function (rows) {
+    /** Drop empty values + empty keys, then return the saved-shape object. */
+    HSync.mappingValuesToConfig = function () {
         const out = {};
-        (rows || []).forEach(r => {
-            const k = (r.wooField || '').trim();
-            const v = (r.value || '').trim();
-            // Skip rows with no key OR no value — empty values are
-            // typically left over from "Aggiungi campi Woo standard"
-            // and shouldn't pollute the saved mapping.
-            if (k !== '' && v !== '') out[k] = v;
+        Object.entries(HSync.state.mappingValues || {}).forEach(([k, v]) => {
+            const key = String(k || '').trim();
+            const val = String(v || '').trim();
+            if (key !== '' && val !== '') out[key] = val;
         });
         return out;
     };
 
-    // Pre-canned templates the user can pick instead of typing from
-    // scratch. Each snippet is rendered as a button under a focused
-    // value input; clicking inserts at the caret.
-    HSync.MAPPING_SNIPPETS = [
-        { label: 'Brand + nome',                   value: '{brand_name} {name}' },
-        { label: 'Descrizione lunga (HTML)',       value: '<p>{brand_name} <strong>{name}</strong> originali — {colorway}</p>' },
-        { label: 'Descrizione breve',              value: '{brand_name} {name}' },
-        { label: 'SEO title',                      value: '{name} | {brand_name} | Sneakers' },
-        { label: 'SEO meta description',           value: 'Acquista {name} di {brand_name}. Modello {colorway}, taglie disponibili. Spedizione veloce.' },
-        { label: 'SKU pattern (brand-sku)',        value: '{brand_name}-{sku}' },
-    ];
-
     HSync.renderMappingRows = function () {
         const region = $('[data-region="mapping-rows"]');
-        const rows = HSync.state.mappingRows || [];
         const paths = HSync.state.mappingProbe?.paths || [];
-        const usedKeys = new Set(rows.map(r => r.wooField));
-
-        const fieldOptions = HSync.WOO_FIELDS.map(f => {
-            const taken = usedKeys.has(f.key);
-            return '<option value="' + esc(f.key) + '"' + (taken ? ' disabled' : '') + '>'
-                + esc(f.label) + ' — ' + esc(f.key) + (f.hint ? ' (' + esc(f.hint) + ')' : '') + '</option>';
-        }).join('');
-
         const datalistId = 'hsync-paths-datalist';
         const datalist = '<datalist id="' + datalistId + '">'
             + paths.map(p => '<option value="' + esc(p) + '">').join('')
             + '</datalist>';
 
-        // Reusable palette: chips for each path + snippets dropdown +
-        // syntax help. Hidden by default; shown under the focused row
-        // via toggleMappingPalette() so it follows whichever input is
-        // active.
         const chips = paths.length
             ? paths.map(p => '<button type="button" class="hsync-chip" data-action="mapping-insert-token" data-token="{' + esc(p) + '}">{' + esc(p) + '}</button>').join('')
             : '<span class="hsync-muted">Esegui <em>Sonda sorgente</em> per popolare i path.</span>';
-        const snippets = HSync.MAPPING_SNIPPETS.map((s, i) =>
+        const snippetOpts = HSync.MAPPING_SNIPPETS.map((s, i) =>
             '<option value="' + i + '">' + esc(s.label) + '</option>',
         ).join('');
         const palette = ''
@@ -1156,83 +1161,217 @@
             +     '<strong>Template suggeriti:</strong> '
             +     '<select data-action="mapping-insert-snippet">'
             +       '<option value="">— scegli —</option>'
-            +       snippets
+            +       snippetOpts
             +     '</select>'
             +     '<span class="hsync-muted">Sintassi: <code>{path}</code> sostituisce il valore della sorgente. HTML libero supportato.</span>'
             +   '</div>'
             + '</div>';
 
-        if (!rows.length) {
-            region.innerHTML = datalist + palette
-                + '<div class="hsync-empty">Nessun campo mappato. Clicca <em>Aggiungi campi Woo standard</em> per partire, oppure <em>+ Campo personalizzato</em>.</div>';
-            return;
-        }
-
-        region.innerHTML = datalist + palette + rows.map((r, i) => {
-            const known = HSync.WOO_FIELDS.find(f => f.key === r.wooField);
-            const fieldCell = known
-                ? '<select data-mapping-field="wooField" data-idx="' + i + '">'
-                    + '<option value="' + esc(r.wooField) + '" selected>' + esc(known.label) + ' — ' + esc(r.wooField) + '</option>'
-                    + HSync.WOO_FIELDS.filter(f => f.key !== r.wooField).map(f => {
-                        const taken = usedKeys.has(f.key);
-                        return '<option value="' + esc(f.key) + '"' + (taken ? ' disabled' : '') + '>'
-                            + esc(f.label) + ' — ' + esc(f.key) + '</option>';
-                    }).join('')
-                    + '<option value="__custom__">— campo personalizzato —</option>'
-                  + '</select>'
-                : '<input type="text" data-mapping-field="wooField" data-idx="' + i + '" value="' + esc(r.wooField) + '" placeholder="es. meta_my_field">';
+        // Spine row: target label is FIXED, only the source side is editable.
+        // Required + empty = visual warning so the user can spot gaps.
+        const renderSpineRow = (f) => {
+            const value = HSync.state.mappingValues[f.key] || '';
+            const isEmpty = String(value).trim() === '';
+            const warnClass = f.required && isEmpty ? ' is-required-missing' : '';
+            const filledClass = !isEmpty ? ' is-filled' : '';
             return ''
-                + '<div class="hsync-mapping-row-builder" data-idx="' + i + '">'
-                +   '<div class="hsync-mapping-cell hsync-mapping-target">' + fieldCell + '</div>'
-                +   '<div class="hsync-mapping-cell hsync-mapping-arrow">←</div>'
+                + '<div class="hsync-mapping-row-builder' + warnClass + filledClass + '" data-key="' + esc(f.key) + '">'
+                +   '<div class="hsync-mapping-cell hsync-mapping-target">'
+                +     '<div class="hsync-mapping-label">'
+                +       (f.required ? '<span class="hsync-required-marker" title="Obbligatorio">*</span>' : '')
+                +       esc(f.label)
+                +     '</div>'
+                +     '<code class="hsync-mapping-key">' + esc(f.key) + '</code>'
+                +     (f.hint ? '<small class="hsync-muted">' + esc(f.hint) + '</small>' : '')
+                +   '</div>'
+                +   '<div class="hsync-mapping-cell hsync-mapping-arrow" title="campo Woo ← campo sorgente">←</div>'
                 +   '<div class="hsync-mapping-cell hsync-mapping-source">'
-                +     '<input type="text" data-mapping-field="value" data-idx="' + i + '"'
-                +       ' value="' + esc(r.value) + '"'
+                +     '<input type="text" data-mapping-key="' + esc(f.key) + '"'
+                +       ' value="' + esc(value) + '"'
                 +       ' list="' + datalistId + '"'
                 +       ' placeholder="path o template (es. SKU, sizes.size_eu, &lt;p&gt;{brand_name}&lt;/p&gt;)">'
-                +     (paths.length
-                          ? '<small class="hsync-muted">' + paths.length + ' path disponibili (autocomplete)</small>'
-                          : '<small class="hsync-muted">Esegui <em>Sonda sorgente</em> per autocomplete.</small>')
+                +     (!paths.length
+                          ? '<small class="hsync-muted">Esegui <em>Sonda sorgente</em> per autocomplete.</small>'
+                          : '')
                 +   '</div>'
-                +   '<button type="button" class="button button-small" data-action="mapping-row-up"     data-idx="' + i + '" title="Sposta su">▲</button>'
-                +   '<button type="button" class="button button-small" data-action="mapping-row-down"   data-idx="' + i + '" title="Sposta giù">▼</button>'
-                +   '<button type="button" class="button button-small" data-action="mapping-row-delete" data-idx="' + i + '" title="Elimina">✕</button>'
+                +   (isEmpty
+                          ? ''
+                          : '<button type="button" class="button button-small" data-action="mapping-clear" data-key="' + esc(f.key) + '" title="Pulisci">✕</button>')
                 + '</div>';
-        }).join('');
+        };
+
+        const renderCustomRow = (key, idx) => {
+            const value = HSync.state.mappingValues[key] || '';
+            return ''
+                + '<div class="hsync-mapping-row-builder hsync-mapping-row-custom" data-custom-idx="' + idx + '">'
+                +   '<div class="hsync-mapping-cell hsync-mapping-target">'
+                +     '<input type="text" data-custom-key="' + idx + '"'
+                +       ' value="' + esc(key) + '"'
+                +       ' placeholder="es. meta_my_field">'
+                +     '<small class="hsync-muted">campo personalizzato</small>'
+                +   '</div>'
+                +   '<div class="hsync-mapping-cell hsync-mapping-arrow">←</div>'
+                +   '<div class="hsync-mapping-cell hsync-mapping-source">'
+                +     '<input type="text" data-custom-value="' + idx + '"'
+                +       ' value="' + esc(value) + '"'
+                +       ' list="' + datalistId + '"'
+                +       ' placeholder="path o template">'
+                +   '</div>'
+                +   '<button type="button" class="button button-small" data-action="mapping-custom-delete" data-idx="' + idx + '" title="Elimina">✕</button>'
+                + '</div>';
+        };
+
+        const minimalRows  = HSync.WOO_SCHEMA.filter(f => f.group === 'minimal').map(renderSpineRow).join('');
+        const advancedRows = HSync.WOO_SCHEMA.filter(f => f.group === 'advanced').map(renderSpineRow).join('');
+        const customRows   = HSync.state.mappingCustomKeys.map(renderCustomRow).join('');
+        const showAdv      = !!HSync.state.mappingShowAdvanced;
+        const advCount     = HSync.WOO_SCHEMA.filter(f =>
+            f.group === 'advanced' && String(HSync.state.mappingValues[f.key] || '').trim() !== '',
+        ).length;
+        const customCount  = HSync.state.mappingCustomKeys.length;
+
+        // Required-fields summary banner — counts what's still missing
+        // out of the Woo-mandatory triplet (sku/name/regular_price).
+        const missingRequired = HSync.WOO_SCHEMA.filter(f =>
+            f.required && String(HSync.state.mappingValues[f.key] || '').trim() === '',
+        );
+        const requiredBanner = missingRequired.length
+            ? '<div class="hsync-warning">'
+              + '<strong>Mancano ' + missingRequired.length + ' campi obbligatori:</strong> '
+              + missingRequired.map(f => '<code>' + esc(f.key) + '</code>').join(', ')
+              + '. Compilali prima di salvare.</div>'
+            : '<div class="hsync-summary-foot">Tutti i campi obbligatori (<code>sku</code>, <code>name</code>, <code>regular_price</code>) sono compilati ✓</div>';
+
+        region.innerHTML = ''
+            + datalist + palette
+            + requiredBanner
+            + '<section class="hsync-mapping-section">'
+            +   '<h3 class="hsync-mapping-section-h">'
+            +     '<span class="hsync-section-badge">Essenziali</span>'
+            +     'Schema Woo minimo'
+            +   '</h3>'
+            +   '<p class="hsync-muted">I campi della struttura standard di un prodotto WooCommerce. Quelli con <span class="hsync-required-marker">*</span> sono obbligatori per creare il prodotto.</p>'
+            +   minimalRows
+            + '</section>'
+            + '<section class="hsync-mapping-section">'
+            +   '<button class="hsync-mapping-toggle" data-action="mapping-toggle-advanced">'
+            +     (showAdv ? '▼' : '▶') + ' Campi avanzati'
+            +     ' <small class="hsync-muted">(SEO, gallery, tag, meta — ' + advCount + ' compilati)</small>'
+            +   '</button>'
+            +   (showAdv
+                ? '<p class="hsync-muted">Estensioni della schema standard. Compilali solo se ti servono.</p>' + advancedRows
+                : '')
+            + '</section>'
+            + '<section class="hsync-mapping-section">'
+            +   '<h3 class="hsync-mapping-section-h">'
+            +     '<span class="hsync-section-badge is-custom">Custom</span>'
+            +     'Campi personalizzati'
+            +     ' <small class="hsync-muted">(' + customCount + ')</small>'
+            +   '</h3>'
+            +   '<p class="hsync-muted">Per chiavi non standard (es. <code>meta_my_field</code>, attributi custom). Sia il nome del campo sia il valore sono editabili.</p>'
+            +   customRows
+            +   '<div class="hsync-actions"><button type="button" class="button" data-action="mapping-add-custom">+ Aggiungi campo personalizzato</button></div>'
+            + '</section>';
+    };
+
+    HSync.toggleAdvancedMapping = function () {
+        HSync.state.mappingShowAdvanced = !HSync.state.mappingShowAdvanced;
+        HSync.renderMappingRows();
+    };
+
+    HSync.clearMappingValue = function (key) {
+        if (HSync.state.mappingValues[key] != null) {
+            HSync.state.mappingValues[key] = '';
+            HSync.renderMappingRows();
+        }
+    };
+
+    HSync.addCustomMappingRow = function () {
+        // Reserve a placeholder key. The user fills it in via the
+        // editable left input. Using a unique placeholder key keeps
+        // mappingValues coherent until the user types something.
+        let n = 1;
+        while (HSync.state.mappingValues['custom_' + n] !== undefined) n++;
+        const key = 'custom_' + n;
+        HSync.state.mappingValues[key] = '';
+        HSync.state.mappingCustomKeys.push(key);
+        HSync.renderMappingRows();
+        // Focus the new key field so the user can rename immediately.
+        setTimeout(() => {
+            const idx = HSync.state.mappingCustomKeys.length - 1;
+            const input = document.querySelector('[data-custom-key="' + idx + '"]');
+            if (input) input.focus();
+        }, 0);
+    };
+
+    HSync.deleteCustomMappingRow = function (idx) {
+        const key = HSync.state.mappingCustomKeys[idx];
+        if (!key) return;
+        delete HSync.state.mappingValues[key];
+        HSync.state.mappingCustomKeys.splice(idx, 1);
+        HSync.renderMappingRows();
+    };
+
+    HSync.renameCustomMappingKey = function (idx, newKey) {
+        const oldKey = HSync.state.mappingCustomKeys[idx];
+        const trimmed = (newKey || '').trim();
+        if (!oldKey || trimmed === '' || trimmed === oldKey) return;
+        // Avoid clobbering a schema key or another custom key.
+        const schemaKeys = new Set(HSync.WOO_SCHEMA.map(f => f.key));
+        if (schemaKeys.has(trimmed) || (HSync.state.mappingValues[trimmed] !== undefined && trimmed !== oldKey)) {
+            alert('La chiave "' + trimmed + '" è già usata. Scegline un\'altra.');
+            HSync.renderMappingRows();
+            return;
+        }
+        HSync.state.mappingValues[trimmed] = HSync.state.mappingValues[oldKey] || '';
+        delete HSync.state.mappingValues[oldKey];
+        HSync.state.mappingCustomKeys[idx] = trimmed;
     };
 
     /**
-     * Track which value input is focused so the palette knows where
-     * to insert tokens. We use a state slot rather than document.
-     * activeElement because clicking a chip moves focus to the button
-     * — by then activeElement is wrong.
+     * Track which value input currently has focus. Stored as the Woo
+     * key for spine rows or as the "custom:N" string for custom rows
+     * — the palette uses this to know where to insert.
      */
-    HSync.state.mappingFocusedRow = null;
-
     HSync.onMappingValueFocus = function (input) {
-        const idx = parseInt(input.dataset.idx, 10);
-        if (Number.isNaN(idx)) return;
-        HSync.state.mappingFocusedRow = idx;
+        if (input.dataset.mappingKey) {
+            HSync.state.mappingFocusedKey = input.dataset.mappingKey;
+        } else if (input.dataset.customValue) {
+            HSync.state.mappingFocusedKey = 'custom:' + input.dataset.customValue;
+        } else {
+            return;
+        }
         const palette = $('[data-region="mapping-palette"]');
         if (palette) palette.classList.remove('is-hidden');
     };
 
+    function focusedMappingInput() {
+        const fk = HSync.state.mappingFocusedKey;
+        if (!fk) return null;
+        if (fk.startsWith('custom:')) {
+            const idx = fk.slice(7);
+            return document.querySelector('[data-custom-value="' + idx + '"]');
+        }
+        return document.querySelector('[data-mapping-key="' + fk + '"]');
+    }
+
     HSync.insertMappingToken = function (token) {
-        const idx = HSync.state.mappingFocusedRow;
-        if (idx === null || !HSync.state.mappingRows[idx]) {
+        const input = focusedMappingInput();
+        if (!input) {
             alert('Clicca prima un campo "valore" per scegliere dove inserire il placeholder.');
             return;
         }
-        const input = document.querySelector(
-            '[data-mapping-field="value"][data-idx="' + idx + '"]',
-        );
-        if (!input) return;
         const start = input.selectionStart ?? input.value.length;
         const end   = input.selectionEnd   ?? input.value.length;
         const next  = input.value.slice(0, start) + token + input.value.slice(end);
         input.value = next;
-        HSync.state.mappingRows[idx].value = next;
-        // Restore focus + caret right after the inserted token.
+        // Sync into state.
+        if (input.dataset.mappingKey) {
+            HSync.state.mappingValues[input.dataset.mappingKey] = next;
+        } else if (input.dataset.customValue) {
+            const key = HSync.state.mappingCustomKeys[parseInt(input.dataset.customValue, 10)];
+            if (key) HSync.state.mappingValues[key] = next;
+        }
         input.focus();
         const caret = start + token.length;
         try { input.setSelectionRange(caret, caret); } catch {}
@@ -1241,47 +1380,19 @@
     HSync.insertMappingSnippet = function (snippetIdx) {
         const snippet = HSync.MAPPING_SNIPPETS[snippetIdx];
         if (!snippet) return;
-        const idx = HSync.state.mappingFocusedRow;
-        if (idx === null || !HSync.state.mappingRows[idx]) {
+        const input = focusedMappingInput();
+        if (!input) {
             alert('Clicca prima un campo "valore" per scegliere dove inserire il template.');
             return;
         }
-        if (HSync.state.mappingRows[idx].value && !confirm('Sovrascrivere il valore corrente con il template?')) return;
-        HSync.state.mappingRows[idx].value = snippet.value;
-        HSync.renderMappingRows();
-        // Re-focus the same row so the palette stays anchored.
-        const input = document.querySelector(
-            '[data-mapping-field="value"][data-idx="' + idx + '"]',
-        );
-        if (input) input.focus();
-    };
-
-    HSync.addMappingRow = function (preset) {
-        HSync.state.mappingRows = HSync.state.mappingRows || [];
-        HSync.state.mappingRows.push(preset || { wooField: '', value: '' });
-        HSync.renderMappingRows();
-    };
-
-    HSync.addMappingDefaults = function () {
-        HSync.state.mappingRows = HSync.state.mappingRows || [];
-        const used = new Set(HSync.state.mappingRows.map(r => r.wooField));
-        HSync.WOO_FIELDS.forEach(f => {
-            if (!used.has(f.key)) HSync.state.mappingRows.push({ wooField: f.key, value: '' });
-        });
-        HSync.renderMappingRows();
-    };
-
-    HSync.deleteMappingRow = function (idx) {
-        HSync.state.mappingRows.splice(idx, 1);
-        HSync.renderMappingRows();
-    };
-
-    HSync.moveMappingRow = function (idx, delta) {
-        const rows = HSync.state.mappingRows;
-        const target = idx + delta;
-        if (target < 0 || target >= rows.length) return;
-        const [moved] = rows.splice(idx, 1);
-        rows.splice(target, 0, moved);
+        if (input.value && !confirm('Sovrascrivere il valore corrente con il template?')) return;
+        input.value = snippet.value;
+        if (input.dataset.mappingKey) {
+            HSync.state.mappingValues[input.dataset.mappingKey] = snippet.value;
+        } else if (input.dataset.customValue) {
+            const key = HSync.state.mappingCustomKeys[parseInt(input.dataset.customValue, 10)];
+            if (key) HSync.state.mappingValues[key] = snippet.value;
+        }
         HSync.renderMappingRows();
     };
 
@@ -1289,9 +1400,8 @@
         const view = $('[data-region="mapping-json-view"]');
         view.classList.toggle('is-hidden', !checked);
         if (checked) {
-            // Refresh JSON from current row state when opening.
             $('[data-field="map-config"]').value = JSON.stringify(
-                HSync.mappingRowsToConfig(HSync.state.mappingRows), null, 2,
+                HSync.mappingValuesToConfig(), null, 2,
             );
         }
     };
@@ -1304,22 +1414,20 @@
             alert('JSON invalido: ' + e.message);
             return;
         }
-        HSync.state.mappingRows = HSync.mappingConfigToRows(cfg);
+        HSync.state.mappingValues = {};
+        HSync.state.mappingCustomKeys = [];
+        const schemaKeys = new Set(HSync.WOO_SCHEMA.map(f => f.key));
+        Object.entries(cfg).forEach(([k, v]) => {
+            HSync.state.mappingValues[k] = String(v == null ? '' : v);
+            if (!schemaKeys.has(k)) HSync.state.mappingCustomKeys.push(k);
+        });
         HSync.renderMappingRows();
         alert('JSON applicato al builder.');
     };
 
-    /**
-     * Probe the selected source: fetch one row, extract its dot-paths
-     * and stash them so each row's value input gets autocomplete via
-     * <datalist>. Uses a saved source-config when one matches the
-     * mapping's source_kind, otherwise the user is prompted to pick.
-     */
     HSync.probeMappingSource = async function () {
         const sourceId = $('[data-field="map-source"]').value;
         if (!sourceId) { alert('Scegli prima la sorgente.'); return; }
-        // Pick the most recently-saved config of this source. The user
-        // can still edit it in Sources if it's the wrong one.
         if (!HSync.state.sourceConfigs.length) {
             try {
                 const data = await HSync.ajax('source_configs_list', {});
@@ -1358,8 +1466,6 @@
     };
 
     HSync.saveMapping = async function () {
-        // If the JSON view is open, treat it as authoritative — power
-        // users may have hand-edited a complex template.
         const jsonOpen = !$('[data-region="mapping-json-view"]').classList.contains('is-hidden');
         let cfg;
         if (jsonOpen) {
@@ -1370,7 +1476,16 @@
                 return;
             }
         } else {
-            cfg = HSync.mappingRowsToConfig(HSync.state.mappingRows);
+            cfg = HSync.mappingValuesToConfig();
+        }
+        // Block save when required fields are unmapped — those are
+        // genuine fail-fast cases (no SKU = no upsert key).
+        const missing = HSync.WOO_SCHEMA.filter(f =>
+            f.required && (!cfg[f.key] || String(cfg[f.key]).trim() === ''),
+        );
+        if (missing.length) {
+            alert('Campi obbligatori non compilati: ' + missing.map(f => f.key).join(', '));
+            return;
         }
         if (!Object.keys(cfg).length) {
             if (!confirm('Mapping vuota — salvare comunque?')) return;
@@ -1843,14 +1958,13 @@
         if (t.matches('[data-action="mapping-delete"]')) return HSync.deleteMapping(t.dataset.slug);
         if (t.matches('[data-action="mapping-save"]'))   return HSync.saveMapping();
         if (t.matches('[data-action="mapping-cancel"]')) return HSync.closeMappingEditor();
-        if (t.matches('[data-action="mapping-probe"]'))        return HSync.probeMappingSource();
-        if (t.matches('[data-action="mapping-add-row"]'))      return HSync.addMappingRow();
-        if (t.matches('[data-action="mapping-add-defaults"]')) return HSync.addMappingDefaults();
-        if (t.matches('[data-action="mapping-row-up"]'))       return HSync.moveMappingRow(parseInt(t.dataset.idx, 10), -1);
-        if (t.matches('[data-action="mapping-row-down"]'))     return HSync.moveMappingRow(parseInt(t.dataset.idx, 10),  1);
-        if (t.matches('[data-action="mapping-row-delete"]'))   return HSync.deleteMappingRow(parseInt(t.dataset.idx, 10));
-        if (t.matches('[data-action="mapping-json-apply"]'))   return HSync.applyMappingJson();
-        if (t.matches('[data-action="mapping-insert-token"]')) return HSync.insertMappingToken(t.dataset.token);
+        if (t.matches('[data-action="mapping-probe"]'))          return HSync.probeMappingSource();
+        if (t.matches('[data-action="mapping-toggle-advanced"]')) return HSync.toggleAdvancedMapping();
+        if (t.matches('[data-action="mapping-clear"]'))          return HSync.clearMappingValue(t.dataset.key);
+        if (t.matches('[data-action="mapping-add-custom"]'))     return HSync.addCustomMappingRow();
+        if (t.matches('[data-action="mapping-custom-delete"]'))  return HSync.deleteCustomMappingRow(parseInt(t.dataset.idx, 10));
+        if (t.matches('[data-action="mapping-json-apply"]'))     return HSync.applyMappingJson();
+        if (t.matches('[data-action="mapping-insert-token"]'))   return HSync.insertMappingToken(t.dataset.token);
         if (t.matches('[data-action="install-defaults"]')) return HSync.installDefaults();
         if (t.matches('[data-action="run-now"]'))        return HSync.runNow();
         if (t.matches('[data-action="run-test-fetch"]')) return HSync.testFetchFromRun();
@@ -1937,47 +2051,34 @@
         if (e.target.matches('[data-action="mapping-insert-snippet"]')) {
             const sel = e.target;
             const idx = parseInt(sel.value, 10);
-            sel.value = '';  // reset so picking the same snippet twice still fires
+            sel.value = '';
             if (!Number.isNaN(idx)) HSync.insertMappingSnippet(idx);
         }
 
-        // Mapping row inline edits — wooField select / value input.
-        if (e.target.matches('[data-mapping-field]')) {
-            const idx = parseInt(e.target.dataset.idx, 10);
-            const field = e.target.dataset.mappingField;
-            if (!HSync.state.mappingRows || !HSync.state.mappingRows[idx]) return;
-            if (field === 'wooField' && e.target.value === '__custom__') {
-                const custom = prompt('Nome chiave Woo personalizzata:', HSync.state.mappingRows[idx].wooField || '');
-                if (custom == null) {
-                    HSync.renderMappingRows();
-                    return;
-                }
-                HSync.state.mappingRows[idx].wooField = String(custom).trim();
-                HSync.renderMappingRows();
-                return;
-            }
-            HSync.state.mappingRows[idx][field] = e.target.value;
+        // Custom row key rename fires on commit (blur), not on every keystroke
+        if (e.target.matches('[data-custom-key]')) {
+            const idx = parseInt(e.target.dataset.customKey, 10);
+            HSync.renameCustomMappingKey(idx, e.target.value);
         }
     });
 
     document.addEventListener('input', function (e) {
-        // Live-update the value as the user types so move/save reflects it.
-        if (e.target.matches('[data-mapping-field="value"]')) {
-            const idx = parseInt(e.target.dataset.idx, 10);
-            if (HSync.state.mappingRows && HSync.state.mappingRows[idx]) {
-                HSync.state.mappingRows[idx].value = e.target.value;
-            }
+        // Live-sync spine value inputs into state.
+        if (e.target.matches('[data-mapping-key]')) {
+            HSync.state.mappingValues[e.target.dataset.mappingKey] = e.target.value;
         }
-        if (e.target.matches('[data-mapping-field="wooField"]') && e.target.tagName === 'INPUT') {
-            const idx = parseInt(e.target.dataset.idx, 10);
-            if (HSync.state.mappingRows && HSync.state.mappingRows[idx]) {
-                HSync.state.mappingRows[idx].wooField = e.target.value;
-            }
+        // Live-sync custom row VALUE inputs (key inputs sync on change).
+        if (e.target.matches('[data-custom-value]')) {
+            const idx = parseInt(e.target.dataset.customValue, 10);
+            const key = HSync.state.mappingCustomKeys[idx];
+            if (key) HSync.state.mappingValues[key] = e.target.value;
         }
     });
 
     document.addEventListener('focusin', function (e) {
-        if (e.target.matches('[data-mapping-field="value"]')) HSync.onMappingValueFocus(e.target);
+        if (e.target.matches('[data-mapping-key]') || e.target.matches('[data-custom-value]')) {
+            HSync.onMappingValueFocus(e.target);
+        }
     });
 
     document.addEventListener('keydown', function (e) {

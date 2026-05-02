@@ -32,28 +32,27 @@ function hsync_render_admin_page(): void {
         </h1>
 
         <nav class="hsync-tabs" role="tablist">
-            <button class="hsync-tab is-active" data-tab="sources" role="tab" aria-selected="true" title="Sorgenti registrate (GS, CSV, …)">1. Sources</button>
-            <button class="hsync-tab" data-tab="mappings" role="tab" aria-selected="false" title="Trasformazioni colonna→campo Woo">2. Mappings</button>
-            <button class="hsync-tab" data-tab="pipelines" role="tab" aria-selected="false" title="Pre-check + import-rule + post-check">3. Pipelines</button>
-            <button class="hsync-tab" data-tab="rules" role="tab" aria-selected="false" title="Operazioni su prodotti già esistenti">4. Rules</button>
-            <button class="hsync-tab" data-tab="run" role="tab" aria-selected="false" title="Esegui un import ad-hoc combinando tutto">5. Run</button>
-            <button class="hsync-tab" data-tab="jobs" role="tab" aria-selected="false" title="Schedulazione cron di sources/rules">6. Jobs</button>
-            <button class="hsync-tab" data-tab="media" role="tab" aria-selected="false" title="Browser media + safe cleanup orfani">Media</button>
-            <button class="hsync-tab" data-tab="exports" role="tab" aria-selected="false" title="CSV/JSON dell'inventario locale">Exports</button>
-            <button class="hsync-tab" data-tab="runs" role="tab" aria-selected="false" title="Storico esecuzioni">Runs</button>
-            <button class="hsync-tab" data-tab="migrate" role="tab" aria-selected="false" title="Importa pipelines/mappings/jobs legacy">Migra da Golden Hive</button>
-            <button class="hsync-tab" data-tab="tools" role="tab" aria-selected="false" title="Operazioni distruttive (cleanup)">Tools</button>
+            <button class="hsync-tab is-active" data-tab="sources" role="tab" aria-selected="true" title="I tuoi feed e API">1. Connetti</button>
+            <button class="hsync-tab" data-tab="mappings" role="tab" aria-selected="false" title="Allinea i campi del feed con WooCommerce">2. Mappa</button>
+            <button class="hsync-tab" data-tab="pipelines" role="tab" aria-selected="false" title="Cosa fare durante l'import">3. Componi</button>
+            <button class="hsync-tab" data-tab="rules" role="tab" aria-selected="false" title="Azioni sui prodotti esistenti">4. Regole</button>
+            <button class="hsync-tab" data-tab="run" role="tab" aria-selected="false" title="Lancia un import quando vuoi">5. Importa</button>
+            <button class="hsync-tab" data-tab="jobs" role="tab" aria-selected="false" title="Imposta automazioni">6. Automatizza</button>
+            <button class="hsync-tab" data-tab="media" role="tab" aria-selected="false" title="Pulizia foto e libreria">Media</button>
+            <button class="hsync-tab" data-tab="exports" role="tab" aria-selected="false" title="Scarica il catalogo">Esporta</button>
+            <button class="hsync-tab" data-tab="runs" role="tab" aria-selected="false" title="Storico import">Storico</button>
+            <button class="hsync-tab" data-tab="migrate" role="tab" aria-selected="false" title="Vieni da Golden Hive?">Migrazione</button>
+            <button class="hsync-tab" data-tab="tools" role="tab" aria-selected="false" title="Pulizia avanzata">Strumenti</button>
         </nav>
 
         <section class="hsync-panel is-active" data-panel="sources">
             <div class="hsync-tab-intro">
-                <strong>Step 1 — Sources.</strong> Sorgenti registrate dal codice (GS feed, CSV, …)
-                con le loro <strong>config salvate</strong> (URL + token + cookie). Per ogni sorgente
-                puoi creare N config: <em>"GS produzione"</em>, <em>"GS staging"</em>, ecc. La config
-                salvata qui è quella che il tab <strong>Run</strong> e i <strong>Jobs</strong>
-                riusano — i secret restano in DB cleartext (autoload=false), redatti in UI.
-                Il bottone <em>Test fetch</em> verifica che le credenziali raggiungano l'endpoint
-                prima di salvare.
+                <strong>Connetti i tuoi feed.</strong>
+                Aggiungi qui le credenziali dei tuoi fornitori (URL, token, API key) e dai
+                un nome a ogni configurazione — es. <em>"GS produzione"</em> o
+                <em>"GS staging"</em>. Le ritrovi pronte all'uso negli altri tab.
+                Premi <strong>Test fetch</strong> per verificare che funzionino
+                <em>prima</em> di salvarle.
             </div>
             <div class="hsync-sources-list" data-region="sources-list">
                 <p class="hsync-loading">Caricamento…</p>
@@ -62,25 +61,26 @@ function hsync_render_admin_page(): void {
 
         <section class="hsync-panel" data-panel="mappings">
             <div class="hsync-tab-intro">
-                <strong>Step 2 — Mappings.</strong> Trasformano la riga grezza della sorgente in
-                campi Woo (<code>sku</code>, <code>name</code>, <code>regular_price</code>, …).
-                Servono <em>solo</em> per CSV / API non normalizzate. La sorgente Golden Sneakers
-                arriva già normalizzata, quindi una mapping è opzionale.
+                <strong>Allinea i campi.</strong>
+                Per ogni campo di WooCommerce (a sinistra), scegli quale dato della tua
+                sorgente metterci dentro (a destra). Funziona per CSV, API, qualsiasi
+                feed strutturato.
                 <br>
-                Premi <strong>Installa default</strong> per la mapping <code>gs-default</code>.
+                Non sai da dove iniziare? Premi <strong>Installa default</strong> —
+                ti prepariamo una mappatura standard pronta da rifinire.
             </div>
             <div class="hsync-toolbar">
                 <select data-control="mappings-filter">
                     <option value="">Tutte le sorgenti</option>
                 </select>
-                <button class="button button-primary" data-action="mapping-new">+ Nuova mapping</button>
+                <button class="button button-primary" data-action="mapping-new">+ Nuova mappatura</button>
                 <button class="button" data-action="install-defaults">Installa default</button>
             </div>
             <div class="hsync-mappings-list" data-region="mappings-list">
                 <p class="hsync-loading">Caricamento…</p>
             </div>
             <div class="hsync-mapping-editor is-hidden" data-region="mapping-editor">
-                <h2>Mapping</h2>
+                <h2>Mappatura</h2>
                 <div class="hsync-mapping-grid">
                     <label>Nome <input type="text" data-field="map-name" placeholder="GS → Woo standard"></label>
                     <label>Sorgente
@@ -89,19 +89,19 @@ function hsync_render_admin_page(): void {
                 </div>
 
                 <div class="hsync-mapping-help">
-                    <strong>Come funziona.</strong> Ogni riga associa un <em>campo Woo</em> a un
-                    <em>path della sorgente</em> o a un <em>template</em> con placeholder.
-                    Esempi: <code>SKU</code> (colonna CSV), <code>sizes.size_eu</code> (path nidificato),
-                    <code>&lt;p&gt;{brand_name} {name}&lt;/p&gt;</code> (template). I path disponibili
-                    appaiono dopo <em>Sonda sorgente</em>.
+                    <strong>Come funziona.</strong>
+                    A sinistra ci sono i campi standard di WooCommerce — sono fissi.
+                    A destra scegli cosa farci entrare: il <em>nome di un campo</em> della
+                    tua sorgente (es. <code>SKU</code>, <code>sizes.size_eu</code>),
+                    oppure un <em>template</em> per costruire contenuti dinamici
+                    (es. <code>{brand_name} originali — {name}</code>).
+                    I campi con <span class="hsync-required-marker">*</span> sono obbligatori.
                 </div>
 
                 <div class="hsync-mapping-toolbar">
-                    <button class="button" data-action="mapping-probe">Sonda sorgente</button>
-                    <button class="button" data-action="mapping-add-row">+ Campo personalizzato</button>
-                    <button class="button" data-action="mapping-add-defaults">Aggiungi campi Woo standard</button>
+                    <button class="button" data-action="mapping-probe">Anteprima sorgente</button>
                     <label class="hsync-toggle">
-                        <input type="checkbox" data-action="mapping-toggle-json"> JSON view
+                        <input type="checkbox" data-action="mapping-toggle-json"> Modalità JSON
                     </label>
                 </div>
 
@@ -109,7 +109,7 @@ function hsync_render_admin_page(): void {
                 <div data-region="mapping-probe-output" class="hsync-mapping-probe is-hidden"></div>
 
                 <div class="hsync-mapping-json is-hidden" data-region="mapping-json-view">
-                    <p class="hsync-muted">Modalità sviluppatore: incolla/esporta il payload JSON completo.</p>
+                    <p class="hsync-muted">Per chi sa cosa sta facendo: incolla o esporta la mappatura come JSON.</p>
                     <textarea data-field="map-config" rows="10" placeholder='{"sku":"SKU","name":"Title","regular_price":"Price"}'></textarea>
                     <div class="hsync-actions">
                         <button class="button" data-action="mapping-json-apply">Applica JSON al builder</button>
@@ -117,7 +117,7 @@ function hsync_render_admin_page(): void {
                 </div>
 
                 <div class="hsync-actions">
-                    <button class="button button-primary" data-action="mapping-save">Salva mapping</button>
+                    <button class="button button-primary" data-action="mapping-save">Salva mappatura</button>
                     <button class="button" data-action="mapping-cancel">Annulla</button>
                 </div>
             </div>
@@ -125,15 +125,17 @@ function hsync_render_admin_page(): void {
 
         <section class="hsync-panel" data-panel="pipelines">
             <div class="hsync-tab-intro">
-                <strong>Step 3 — Pipelines.</strong> Compongono il <em>lifecycle</em> di import:
-                <code>pre-check → import-rule → materialize → post-check</code>.
-                Ogni step è scelto da un registry (<em>Rules</em> tab le elenca per riferimento).
-                Senza pipeline il Run fa solo <code>fetch → diff → materialize</code> — niente
-                checks né regole. Premi <em>Installa default</em> nel tab Mappings per ottenere
-                <code>import-default</code>.
+                <strong>Componi il tuo flusso d'import.</strong>
+                Decidi <em>cosa controllare prima</em> di importare un prodotto,
+                <em>cosa modificare durante</em>, e <em>cosa verificare dopo</em>.
+                Es: scarica le foto, salta i prodotti senza prezzo, controlla che
+                la categoria esista.
+                <br>
+                Senza pipeline l'import è semplice: scarica e salva. Con una pipeline
+                aggiungi qualità ai dati.
             </div>
             <div class="hsync-toolbar">
-                <button class="button button-primary" data-action="pipeline-new">+ Nuova pipeline</button>
+                <button class="button button-primary" data-action="pipeline-new">+ Nuovo flusso</button>
             </div>
             <div data-region="pipelines-list"><p class="hsync-loading">Caricamento…</p></div>
             <div class="hsync-pipeline-editor is-hidden" data-region="pipeline-editor"></div>
@@ -141,14 +143,15 @@ function hsync_render_admin_page(): void {
 
         <section class="hsync-panel" data-panel="rules">
             <div class="hsync-tab-intro">
-                <strong>Step 4 — Rules.</strong> Pacchetti scoped (selezione + stack di operazioni)
-                eseguibili indipendentemente dall'import — ad esempio <em>"applica margine X% a tutti
-                i prodotti del brand Y"</em>. Diverse dalle import-rule che fanno parte del lifecycle:
-                queste girano <em>post-import</em> su prodotti già esistenti, possono essere
-                scheduled come Job.
+                <strong>Azioni a colpo singolo sui prodotti esistenti.</strong>
+                Es: <em>"applica un margine del 20% su tutto il brand X"</em>,
+                <em>"metti in bozza i prodotti senza foto"</em>,
+                <em>"aggiorna lo stock dei sneaker"</em>.
+                Le regole girano sui prodotti già nel catalogo, quando vuoi tu
+                — manualmente o programmate.
             </div>
             <div class="hsync-toolbar">
-                <button class="button button-primary" data-action="rule-new">+ Nuova rule</button>
+                <button class="button button-primary" data-action="rule-new">+ Nuova regola</button>
             </div>
             <div data-region="rules-list"><p class="hsync-loading">Caricamento…</p></div>
             <div class="hsync-rule-editor is-hidden" data-region="rule-editor"></div>
@@ -156,15 +159,17 @@ function hsync_render_admin_page(): void {
 
         <section class="hsync-panel" data-panel="jobs">
             <div class="hsync-tab-intro">
-                <strong>Step 6 — Jobs.</strong> Schedula sources / rules con cron expression
-                (5 campi standard). Tick ogni 5 minuti via WP-Cron + Action Scheduler.
-                <em>Tick now</em> esegue manualmente il dispatcher; <em>Action Scheduler health</em>
-                mostra pending/past-due/failed per diagnosticare blocchi.
+                <strong>Metti tutto in automatico.</strong>
+                Programma quando un import o una regola devono partire — ogni notte,
+                ogni ora, due volte al giorno. Tu non devi più pensarci.
+                <br>
+                Usa <em>Esegui ora</em> se vuoi forzare un giro adesso, e
+                <em>Stato del motore</em> se sospetti che qualcosa sia bloccato.
             </div>
             <div class="hsync-toolbar">
-                <button class="button button-primary" data-action="job-new">+ Nuovo job</button>
-                <button class="button" data-action="jobs-tick-now">Tick now</button>
-                <button class="button" data-action="as-health">Action Scheduler health</button>
+                <button class="button button-primary" data-action="job-new">+ Nuova automazione</button>
+                <button class="button" data-action="jobs-tick-now">Esegui ora</button>
+                <button class="button" data-action="as-health">Stato del motore</button>
             </div>
             <div data-region="as-health-output"></div>
             <div data-region="jobs-list"><p class="hsync-loading">Caricamento…</p></div>
@@ -173,27 +178,28 @@ function hsync_render_admin_page(): void {
 
         <section class="hsync-panel" data-panel="media">
             <div class="hsync-tab-intro">
-                <strong>Media management.</strong> Browser unificato della <em>Media Library</em>
-                con filtri usage (mapped / orphan), whitelist (protezione dall'eliminazione) e
-                <em>Safe Cleanup</em> degli orfani. Ogni cancellazione è loggata.
-                L'indice <em>attachment → utilizzi</em> è cached 10 minuti e si invalida
-                automaticamente sugli hook media/prodotto.
+                <strong>Tieni in ordine la libreria immagini.</strong>
+                Cerca per nome, filtra le foto orfane (quelle che non sono in nessun
+                prodotto) e cancellale in sicurezza con <em>Pulizia sicura</em>.
+                <br>
+                Vuoi proteggere un'immagine? Aggiungila alla
+                <strong>whitelist</strong> e non verrà mai toccata.
             </div>
             <div class="hsync-media-toolbar">
-                <input type="search" data-field="media-filename" placeholder="Cerca filename…">
+                <input type="search" data-field="media-filename" placeholder="Cerca per nome file…">
                 <select data-field="media-usage">
-                    <option value="all">Tutti gli utilizzi</option>
-                    <option value="mapped">Solo mappati (in uso)</option>
-                    <option value="unmapped">Solo orfani (non in uso)</option>
+                    <option value="all">Tutte le immagini</option>
+                    <option value="mapped">Solo in uso</option>
+                    <option value="unmapped">Solo orfane</option>
                 </select>
                 <select data-field="media-whitelist">
-                    <option value="all">Whitelist: tutti</option>
-                    <option value="yes">Solo whitelist</option>
-                    <option value="no">Esclusi whitelist</option>
+                    <option value="all">Whitelist: indifferente</option>
+                    <option value="yes">Solo protette</option>
+                    <option value="no">Solo non protette</option>
                 </select>
                 <button class="button" data-action="media-search">Cerca</button>
-                <button class="button" data-action="media-rebuild-index">Ricostruisci indice</button>
-                <button class="button button-primary" data-action="media-cleanup-preview">Safe Cleanup…</button>
+                <button class="button" data-action="media-rebuild-index">Aggiorna indice</button>
+                <button class="button button-primary" data-action="media-cleanup-preview">Pulizia sicura…</button>
             </div>
             <div data-region="media-cleanup-output"></div>
             <div data-region="media-list"><p class="hsync-loading">Caricamento…</p></div>
@@ -201,20 +207,24 @@ function hsync_render_admin_page(): void {
         </section>
 
         <section class="hsync-panel" data-panel="exports">
-            <p class="hsync-muted">Export del catalogo Woo locale. CSV/JSON per inventario completo, oppure JSON gerarchico per snapshot per tassonomia.</p>
+            <div class="hsync-tab-intro">
+                <strong>Scarica il tuo catalogo.</strong>
+                Una copia istantanea dei tuoi prodotti — CSV per Excel,
+                JSON per analisi e backup.
+            </div>
             <div data-region="exports-output"></div>
             <div class="hsync-export-cards">
                 <div class="hsync-source-card">
                     <h3>Inventario completo</h3>
-                    <p class="hsync-muted">Tutti i prodotti pubblicati: id, sku, name, status, prezzi, stock, brand, categorie.</p>
+                    <p class="hsync-muted">Tutti i prodotti pubblicati con prezzi, stock, brand e categorie.</p>
                     <div class="hsync-actions">
                         <button class="button" data-action="export-inventory" data-format="csv">CSV</button>
                         <button class="button" data-action="export-inventory" data-format="json">JSON</button>
                     </div>
                 </div>
                 <div class="hsync-source-card">
-                    <h3>Catalogo per tassonomia</h3>
-                    <p class="hsync-muted">JSON raggruppato per <code>product_cat</code> + <code>product_brand</code>, solo dati essenziali.</p>
+                    <h3>Catalogo per categoria</h3>
+                    <p class="hsync-muted">Vista gerarchica: categoria → brand → prodotti. Solo i dati essenziali.</p>
                     <div class="hsync-actions">
                         <button class="button" data-action="export-catalog">JSON</button>
                     </div>
@@ -224,40 +234,38 @@ function hsync_render_admin_page(): void {
 
         <section class="hsync-panel" data-panel="run">
             <div class="hsync-tab-intro">
-                <strong>Step 5 — Run.</strong> L'unico tab che <em>esegue</em> un import combinando
-                Source + (opzionale) Mapping + (opzionale) Pipeline.
-                <strong>Dry run</strong> (default) non scrive nulla — usalo per verificare il diff.
-                Da qui salvi anche la config con secrets reali (<em>Salva config</em>) e la
-                pianifichi come Job (<em>Salva come Job…</em>).
+                <strong>Lancia un import quando vuoi.</strong>
+                Scegli la sorgente, una mappatura, un flusso (se ne hai), e parti.
                 <br>
-                Se la run è troppo lunga, il server fa <em>tick</em> ogni ~25s e il client
-                continua automaticamente (cursor-based resume).
+                <strong>Prova in sicurezza:</strong> tieni acceso <em>Solo prova</em>
+                per vedere cosa succederebbe senza toccare il catalogo. Soddisfatto?
+                Toglilo e lancia per davvero.
             </div>
             <div class="hsync-run-form">
                 <label>Sorgente
                     <select data-field="run-source"></select>
                 </label>
-                <label>Config salvata
+                <label>Configurazione salvata
                     <select data-field="run-config-slug">
-                        <option value="">— nessuna (config inline qui sotto) —</option>
+                        <option value="">— compila al volo qui sotto —</option>
                     </select>
-                    <small class="hsync-muted">Crea le config nel tab <strong>Sources</strong>; appariranno qui filtrate per sorgente.</small>
+                    <small class="hsync-muted">Le configurazioni si gestiscono nel tab <strong>Connetti</strong>.</small>
                 </label>
-                <label>Mapping (opzionale)
+                <label>Mappatura (opzionale)
                     <select data-field="run-mapping"><option value="">— nessuna —</option></select>
                 </label>
-                <label>Pipeline (pre-checks + import-rules + post-checks)
-                    <select data-field="run-pipeline"><option value="">— nessuna (fetch → diff → materialize) —</option></select>
+                <label>Flusso d'import (opzionale)
+                    <select data-field="run-pipeline"><option value="">— solo scarica e salva —</option></select>
                 </label>
                 <div data-region="run-config-fields"></div>
                 <div class="hsync-actions">
-                    <button class="button" data-action="run-test-fetch">Test fetch</button>
-                    <button class="button" data-action="run-save-config">Salva config…</button>
-                    <button class="button" data-action="run-save-job">Salva come Job…</button>
+                    <button class="button" data-action="run-test-fetch">Test connessione</button>
+                    <button class="button" data-action="run-save-config">Salva configurazione…</button>
+                    <button class="button" data-action="run-save-job">Programma…</button>
                     <label class="hsync-dryrun">
-                        <input type="checkbox" data-field="run-dry-run" checked> Dry run
+                        <input type="checkbox" data-field="run-dry-run" checked> Solo prova
                     </label>
-                    <button class="button button-primary" data-action="run-now">Run now</button>
+                    <button class="button button-primary" data-action="run-now">Importa adesso</button>
                 </div>
             </div>
             <div class="hsync-run-output" data-region="run-output"></div>
@@ -265,10 +273,9 @@ function hsync_render_admin_page(): void {
 
         <section class="hsync-panel" data-panel="runs">
             <div class="hsync-tab-intro">
-                <strong>Storico.</strong> Lista delle ultime esecuzioni (ad-hoc da <em>Run</em> o
-                triggered da <em>Jobs</em>) con summary, durata e cursor di resume.
-                Le run <code>continue</code> sono in pausa fra un tick e l'altro — vengono
-                riprese automaticamente al prossimo cron tick.
+                <strong>Lo storico dei tuoi import.</strong>
+                Verifica cos'è andato bene e cosa no. Gli import lunghi vengono
+                divisi in più passate — qui li vedi proseguire automaticamente.
             </div>
             <div class="hsync-toolbar">
                 <button class="button" data-action="runs-refresh">Aggiorna</button>
@@ -279,68 +286,63 @@ function hsync_render_admin_page(): void {
         </section>
 
         <section class="hsync-panel" data-panel="migrate">
-            <p class="hsync-muted">
-                Importa pipelines / mapping / jobs salvati in Golden Hive (<code>wp_options</code>)
-                nelle tabelle dedicate di Hive Sync. Operazione idempotente:
-                rilanciarla salta record già importati.
-            </p>
-            <p class="hsync-muted">
-                I jobs vengono importati <strong>disabilitati</strong> di default —
-                riabilitali manualmente dopo verifica. Le mapping rule legacy hanno
-                shape diversa: il payload originale è preservato come JSON dentro
-                <code>config.legacy_payload</code> per ricostruzione manuale.
-            </p>
+            <div class="hsync-tab-intro">
+                <strong>Vieni da Golden Hive?</strong>
+                Importa qui le tue mappature, flussi e automazioni esistenti con
+                un click. Puoi rilanciarlo quante volte vuoi: i record già importati
+                vengono saltati.
+                <br>
+                <em>Nota:</em> le automazioni vengono importate <strong>spente</strong>
+                — verifica che siano corrette prima di riaccenderle.
+            </div>
             <div class="hsync-actions">
-                <button class="button" data-action="legacy-audit">Audit (anteprima)</button>
-                <button class="button button-primary" data-action="legacy-import">Importa ora</button>
+                <button class="button" data-action="legacy-audit">Anteprima</button>
+                <button class="button button-primary" data-action="legacy-import">Importa adesso</button>
             </div>
             <div data-region="legacy-output"></div>
         </section>
 
         <section class="hsync-panel" data-panel="tools">
             <div class="hsync-tab-intro">
-                <strong>⚠ Tools — Nuclear Cleanup.</strong> Operazioni <em>distruttive</em>:
-                cancellano dati a livello SQL diretto (TRUNCATE/DELETE) per andare veloci su
-                store grandi (2k+ prodotti, 17k+ media). Richiede capability
-                <code>manage_options</code> (più ristretta del resto del plugin).
-                Ogni esecuzione passa per un <em>preview</em> con i conteggi reali; senza
-                conferma esplicita non si parte. Le immagini in
-                <strong>Whitelist</strong> sono sempre protette.
+                <strong>⚠ Strumenti di pulizia.</strong>
+                Operazioni distruttive — quello che cancellano <em>non torna indietro</em>.
+                Riservato all'admin del sito. Ogni azione mostra prima un conteggio,
+                poi chiede conferma esplicita. Le immagini in
+                <strong>whitelist</strong> sono sempre intoccabili.
             </div>
 
-            <h2>Cleanup selettivo</h2>
-            <p class="hsync-muted">Spunta i target, premi Preview per vedere i conteggi, poi <em>Esegui</em>.</p>
+            <h2>Pulizia selettiva</h2>
+            <p class="hsync-muted">Spunta cosa eliminare, premi <em>Anteprima</em> per vedere quanti elementi sono coinvolti, poi <em>Esegui</em>.</p>
 
             <div class="hsync-tools-targets">
-                <label><input type="checkbox" data-tools-target="products"> <strong>Prodotti</strong> + varianti — DELETE su <code>posts</code> + <code>postmeta</code> + <code>term_relationships</code>, TRUNCATE <code>wc_product_meta_lookup</code></label>
-                <label><input type="checkbox" data-tools-target="media"> <strong>Media</strong> (immagini) — wp_delete_attachment loop con disk-removal. Whitelist protetta.</label>
-                <label><input type="checkbox" data-tools-target="taxonomy"> <strong>Tassonomie</strong> (cat / brand / tag) — DELETE diretto su <code>terms</code> + <code>term_taxonomy</code> + <code>termmeta</code></label>
-                <label><input type="checkbox" data-tools-target="transients"> <strong>Transients</strong> WP + WC — solo cache</label>
-                <label><input type="checkbox" data-tools-target="orphan_meta"> <strong>Orfani</strong> postmeta + sessioni WC scadute</label>
+                <label><input type="checkbox" data-tools-target="products"> <strong>Prodotti</strong> e varianti — cancella tutto il catalogo</label>
+                <label><input type="checkbox" data-tools-target="media"> <strong>Immagini</strong> dalla libreria — esclude la whitelist</label>
+                <label><input type="checkbox" data-tools-target="taxonomy"> <strong>Tassonomie</strong> — categorie, brand, tag</label>
+                <label><input type="checkbox" data-tools-target="transients"> <strong>Cache</strong> — solo dati temporanei, sempre sicuro</label>
+                <label><input type="checkbox" data-tools-target="orphan_meta"> <strong>Residui</strong> — meta orfani e sessioni scadute</label>
             </div>
 
             <div class="hsync-actions">
-                <button class="button" data-action="tools-preview">Preview</button>
-                <button class="button button-primary is-danger" data-action="tools-execute" disabled>Esegui cleanup</button>
+                <button class="button" data-action="tools-preview">Anteprima</button>
+                <button class="button button-primary is-danger" data-action="tools-execute" disabled>Esegui pulizia</button>
             </div>
             <div data-region="tools-output"></div>
 
             <hr>
 
-            <h2>Cleanup per sorgente</h2>
+            <h2>Pulizia per fornitore</h2>
             <p class="hsync-muted">
-                Cancella tutti i prodotti importati da una specifica sorgente
-                (legge <code>_gh_import_source</code> / <code>_feed_source</code> meta).
-                Utile per re-importare da zero senza toccare il resto del catalogo.
+                Cancella solo i prodotti che hai importato da una specifica sorgente.
+                Utile quando vuoi rifare l'import da zero senza toccare il resto del catalogo.
             </p>
             <div class="hsync-tools-bysource">
                 <select data-field="tools-source">
-                    <option value="">— scegli sorgente —</option>
+                    <option value="">— scegli un fornitore —</option>
                     <option value="goldensneakers">Golden Sneakers</option>
                     <option value="stockfirmati">StockFirmati</option>
                     <option value="csv">CSV</option>
                     <option value="kicksdb">KicksDB</option>
-                    <option value="manual">Manual</option>
+                    <option value="manual">Inseriti a mano</option>
                 </select>
                 <button class="button" data-action="tools-source-count">Conta prodotti</button>
                 <button class="button is-danger" data-action="tools-source-delete">Elimina tutti</button>

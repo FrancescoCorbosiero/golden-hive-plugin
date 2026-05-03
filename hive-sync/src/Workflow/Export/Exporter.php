@@ -43,22 +43,91 @@ final class Exporter
         $rows = [];
         foreach ( (array) $products as $p ) {
             if ( ! $p instanceof \WC_Product ) continue;
+
+            // Variable products keep `regular_price` / `sale_price` /
+            // `stock_quantity` empty on the parent — the real values
+            // live on the variations. The exporter coalesces:
+            //
+            //   - regular_price → MIN of variation regular_prices, else
+            //                     parent regular_price (simple)
+            //   - sale_price    → MIN of variation sale_prices when any
+            //                     variation has a sale, else parent
+            //   - stock_quantity → SUM of variation stock_quantity, else
+            //                      parent
+            //
+            // For large variable catalogs this means N+M product loads
+            // per call; that's still cheap because WC's variation
+            // children loader is index-backed.
+            $isVariable = $p->is_type( 'variable' );
+            $priceRange = $isVariable ? self::aggregateVariablePricing( $p ) : null;
+
             $rows[] = [
                 'id'             => $p->get_id(),
                 'sku'            => $p->get_sku(),
                 'name'           => $p->get_name(),
                 'type'           => $p->get_type(),
                 'status'         => $p->get_status(),
-                'regular_price'  => (string) $p->get_regular_price(),
-                'sale_price'     => (string) $p->get_sale_price(),
+                'regular_price'  => $priceRange
+                    ? (string) ( $priceRange['regular_min'] ?? '' )
+                    : (string) $p->get_regular_price(),
+                'regular_price_max' => $priceRange
+                    ? (string) ( $priceRange['regular_max'] ?? '' )
+                    : '',
+                'sale_price'     => $priceRange
+                    ? (string) ( $priceRange['sale_min'] ?? '' )
+                    : (string) $p->get_sale_price(),
                 'stock_status'   => $p->get_stock_status(),
-                'stock_quantity' => $p->get_stock_quantity(),
+                'stock_quantity' => $priceRange
+                    ? (int) ( $priceRange['stock_total'] ?? 0 )
+                    : $p->get_stock_quantity(),
+                'variant_count'  => $priceRange
+                    ? (int) ( $priceRange['variant_count'] ?? 0 )
+                    : 0,
                 'categories'     => self::termList( $p->get_id(), 'product_cat' ),
                 'brands'         => self::termList( $p->get_id(), 'product_brand' ),
                 'permalink'      => $p->get_permalink(),
             ];
         }
         return $rows;
+    }
+
+    /**
+     * Coalesce price + stock from variations of a variable product.
+     * Returns regular_min / regular_max / sale_min / stock_total /
+     * variant_count, all derived from the live variation children.
+     *
+     * Empty sale prices are excluded from sale_min so we don't end up
+     * with sale_min = 0 when half the variations don't have a sale.
+     *
+     * @return array{regular_min:?float, regular_max:?float, sale_min:?float, stock_total:int, variant_count:int}
+     */
+    private static function aggregateVariablePricing( \WC_Product $parent ): array
+    {
+        $childIds = $parent->get_children(); // array of variation post IDs
+        $regular  = [];
+        $sale     = [];
+        $stock    = 0;
+        $count    = 0;
+        foreach ( $childIds as $vid ) {
+            $v = \wc_get_product( (int) $vid );
+            if ( ! $v ) continue;
+            $count++;
+            $rp = $v->get_regular_price();
+            $sp = $v->get_sale_price();
+            if ( $rp !== '' && $rp !== null ) $regular[] = (float) $rp;
+            if ( $sp !== '' && $sp !== null ) $sale[]    = (float) $sp;
+            if ( $v->get_manage_stock() ) {
+                $q = $v->get_stock_quantity();
+                if ( $q !== null ) $stock += (int) $q;
+            }
+        }
+        return [
+            'regular_min'    => $regular ? min( $regular ) : null,
+            'regular_max'    => $regular ? max( $regular ) : null,
+            'sale_min'       => $sale    ? min( $sale )    : null,
+            'stock_total'    => $stock,
+            'variant_count'  => $count,
+        ];
     }
 
     /**
@@ -85,14 +154,25 @@ final class Exporter
         foreach ( $rows as $r ) {
             $cats   = ( $r['categories'] ?? '' ) !== '' ? explode( '|', (string) $r['categories'] ) : [ '(no-category)' ];
             $brands = ( $r['brands']     ?? '' ) !== '' ? explode( '|', (string) $r['brands']     ) : [ '(no-brand)' ];
+
+            $regular = (string) ( $r['regular_price'] ?? '' );
+            $maxReg  = (string) ( $r['regular_price_max'] ?? '' );
+            $priceLabel = $regular === ''
+                ? ''
+                : ( ( $maxReg !== '' && $maxReg !== $regular ) ? $regular . ' – ' . $maxReg : $regular );
+
             foreach ( $cats as $c ) {
                 foreach ( $brands as $b ) {
                     $tree[ $c ][ $b ]['category'] = $c;
                     $tree[ $c ][ $b ]['brand']    = $b;
                     $tree[ $c ][ $b ]['items'][]  = [
-                        'sku'           => (string) ( $r['sku']           ?? '' ),
-                        'name'          => (string) ( $r['name']          ?? '' ),
-                        'regular_price' => (string) ( $r['regular_price'] ?? '' ),
+                        'sku'            => (string) ( $r['sku']           ?? '' ),
+                        'name'           => (string) ( $r['name']          ?? '' ),
+                        'regular_price'  => $priceLabel,
+                        'sale_price'     => (string) ( $r['sale_price']    ?? '' ),
+                        'stock_quantity' => (int)    ( $r['stock_quantity'] ?? 0 ),
+                        'stock_status'   => (string) ( $r['stock_status']  ?? '' ),
+                        'variant_count'  => (int)    ( $r['variant_count'] ?? 0 ),
                     ];
                 }
             }

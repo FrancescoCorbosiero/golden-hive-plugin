@@ -74,18 +74,27 @@ final class CsvSource extends AbstractSource
                 'type'    => 'enum',
                 'label'   => 'Delimitatore',
                 'options' => [',', ';', "\t", '|'],
+                'option_labels' => [
+                    ','  => 'Virgola  ,',
+                    ';'  => 'Punto e virgola  ;',
+                    "\t" => 'Tab',
+                    '|'  => 'Pipe  |',
+                ],
                 'default' => ',',
+                'description' => 'Quale carattere separa le colonne nel file CSV. La maggior parte dei feed italiani usa "; (punto e virgola)". Se l\'anteprima ritorna 0 righe, di solito è qui che bisogna intervenire.',
             ],
             'enclosure' => [
                 'type'    => 'text',
-                'label'   => 'Enclosure',
+                'label'   => 'Enclosure (carattere virgolette)',
                 'default' => '"',
                 'max'     => 1,
+                'description' => 'Carattere usato per racchiudere i valori che contengono il delimitatore (es. virgolette doppie ").',
             ],
             'has_header' => [
                 'type'    => 'bool',
-                'label'   => 'Prima riga = header',
+                'label'   => 'Prima riga = intestazione (nomi colonne)',
                 'default' => true,
+                'description' => 'Lascialo attivo se la prima riga del CSV contiene i nomi delle colonne (es. "SKU,RECORD_TYPE,BRAND,...").',
             ],
             'flavor' => [
                 'type'    => 'enum',
@@ -149,10 +158,25 @@ final class CsvSource extends AbstractSource
         $flavor    = (string) ($cfg['flavor']     ?? self::FLAVOR_GENERIC);
         $mapping   = (array) ($request->options['mapping'] ?? []);
 
+        $bodyLen = strlen($contents);
         $rows = self::parseCsv($contents, $delimiter, $enclosure);
         if (! $rows) {
-            return new FetchResult(items: [], warnings: ['CSV vuoto o non leggibile.']);
+            return new FetchResult(
+                items: [],
+                stats: ['body_bytes' => $bodyLen],
+                warnings: [
+                    'CSV non parsabile (' . $bodyLen . ' bytes scaricati). '
+                    . 'Controlla delimitatore (virgola / punto e virgola / tab / pipe) ed enclosure.',
+                ],
+            );
         }
+
+        // Detect probable wrong-delimiter symptom: every row has 1 cell.
+        // When a delimiter mismatch happens (e.g. file uses ; but config
+        // says ,), str_getcsv collapses each row into a single string.
+        // Surface this loudly because it's the #1 reason fetches return
+        // 0 items.
+        $diagnostic = self::diagnoseCsvShape($rows, $delimiter, $bodyLen);
 
         $header = $hasHeader ? array_shift($rows) : null;
 
@@ -178,10 +202,25 @@ final class CsvSource extends AbstractSource
                 }
                 $items = $remapped;
             }
+
+            // SF-specific diagnostics: count PRODUCT vs MODEL records
+            // so the operator knows where parsing actually broke down
+            // (no rows / no PRODUCT records / records but no SKU / etc.).
+            $sfDiag = self::diagnoseSfRows($assocRows, $header);
+            $warnings = array_filter([ $diagnostic, $sfDiag ]);
+            if (count($items) === 0 && ! $warnings) {
+                $warnings[] = 'Nessun prodotto SF dopo aggregazione. Verifica colonne RECORD_TYPE / SKU / MODEL_SIZE.';
+            }
             return new FetchResult(
                 items: $items,
-                stats: ['flat_rows' => count($assocRows), 'products' => count($items), 'flavor' => 'stockfirmati'],
-                warnings: [],
+                stats: [
+                    'body_bytes' => $bodyLen,
+                    'flat_rows'  => count($assocRows),
+                    'products'   => count($items),
+                    'flavor'     => 'stockfirmati',
+                    'header_columns' => $header !== null ? count($header) : 0,
+                ],
+                warnings: array_values($warnings),
             );
         }
 
@@ -214,11 +253,19 @@ final class CsvSource extends AbstractSource
             $items[] = new FeedItem(sku: $sku, data: $mapped, raw: $assoc);
         }
 
-        $stats = ['rows_parsed' => count($items), 'rows_skipped' => count($warnings)];
+        $stats = [
+            'body_bytes'      => $bodyLen,
+            'rows_parsed'     => count($items),
+            'rows_skipped'    => count($warnings),
+            'header_columns'  => $header !== null ? count($header) : 0,
+        ];
         if ($skippedByFilter > 0) {
             $stats['rows_filtered'] = $skippedByFilter;
             $warnings[] = "Filtrati {$skippedByFilter} prodotti fuori dalle categorie selezionate.";
         }
+        // Surface the shape diagnostic FIRST in the warnings list so
+        // it shows up at the top of the test-fetch output.
+        if ($diagnostic !== '') array_unshift($warnings, $diagnostic);
 
         return new FetchResult(
             items: $items,
@@ -694,6 +741,70 @@ final class CsvSource extends AbstractSource
             return max(0.01, 1.0 + ($value / 100.0));
         }
         return max(0.01, $value);
+    }
+
+    /**
+     * Build a human-readable warning when the parsed CSV looks
+     * suspicious. Most common failure: every row has exactly 1
+     * column → delimiter mismatch. Returns '' when shape looks fine.
+     */
+    private static function diagnoseCsvShape(array $rows, string $delimiter, int $bodyBytes): string
+    {
+        if (empty($rows)) return '';
+        $firstRow = $rows[0];
+        $cols     = is_array($firstRow) ? count($firstRow) : 0;
+
+        // Heuristic: if the first row is exactly 1 cell AND the body
+        // contains a different common separator, the delimiter is
+        // probably wrong.
+        if ($cols === 1 && $bodyBytes > 0) {
+            $cell = is_array($firstRow) ? (string) ($firstRow[0] ?? '') : '';
+            $candidates = [];
+            foreach ([ ';' => 'punto e virgola (;)', ',' => 'virgola (,)', "\t" => 'tab', '|' => 'pipe (|)' ] as $char => $label) {
+                if ($char === $delimiter) continue;
+                if (substr_count($cell, $char) >= 3) $candidates[] = $label;
+            }
+            $hint = $candidates
+                ? ' La prima riga sembra contenere ' . implode(' / ', $candidates) . ' — prova quel delimitatore.'
+                : '';
+            return 'Le righe sembrano composte da una sola colonna: il delimitatore "' . self::renderDelimiter($delimiter) . '" probabilmente non combacia con il file.' . $hint;
+        }
+        return '';
+    }
+
+    /**
+     * SF-specific shape check: how many PRODUCT vs MODEL records are
+     * in the body. Mismatch warnings give the operator a clear path
+     * back to the source.
+     */
+    private static function diagnoseSfRows(array $assocRows, ?array $header): string
+    {
+        if (empty($assocRows)) return '';
+        if ($header !== null && ! in_array('RECORD_TYPE', array_map('strval', $header), true)) {
+            return 'Header CSV non contiene la colonna RECORD_TYPE — il flavor StockFirmati richiede questa colonna.';
+        }
+        $product = 0; $model = 0; $other = 0;
+        foreach ($assocRows as $r) {
+            $t = strtoupper(trim((string) ($r['RECORD_TYPE'] ?? '')));
+            if ($t === 'PRODUCT') $product++;
+            elseif ($t === 'MODEL') $model++;
+            else                   $other++;
+        }
+        if ($product === 0) {
+            return 'Nessuna riga PRODUCT trovata (ne servono per definire i prodotti master). Trovate ' . $model . ' MODEL e ' . $other . ' altre.';
+        }
+        return '';
+    }
+
+    private static function renderDelimiter(string $d): string
+    {
+        return match ($d) {
+            ','  => ',',
+            ';'  => ';',
+            "\t" => '\\t',
+            '|'  => '|',
+            default => $d,
+        };
     }
 
     private static function sfClean(string $v): string

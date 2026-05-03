@@ -106,36 +106,150 @@ final class GoldenSneakersSource extends AbstractSource
             return new FetchResult(items: [], warnings: ['Host GS non disponibile.']);
         }
 
-        $items = [];
+        // The GS API ships ONE ROW PER (SKU + size) — multiple rows
+        // share an SKU when a sneaker has several sizes. We aggregate
+        // those rows by SKU into a single FeedItem per product so the
+        // downstream pipeline (variants, mapping, materialize) sees one
+        // logical product at a time.
+        //
+        // If the host bridge already aggregated upstream (older bridge
+        // versions sometimes did), the loop is a no-op: each SKU
+        // appears once and `sizes` arrives pre-built. The aggregator
+        // is idempotent — it only merges when it sees duplicate SKUs.
+        $rawRows = [];
         foreach ((array) ($resp['items'] ?? []) as $row) {
             if (! is_array($row)) continue;
-            $data = (array) ($row['data'] ?? []);
-            $raw  = (array) ($row['raw']  ?? []);
-            // Bridge contract preferred: bridge sends `raw` separate
-            // from the (post-normalization) `data`. When the bridge
-            // doesn't populate `raw` (older bridge versions), the
-            // upstream JSON often comes through inline at the top
-            // level — preserve everything-not-data as a heuristic raw
-            // payload so the mapping editor still has something to
-            // probe against. Worst case we expose `data` again, which
-            // is what we'd have shown anyway.
-            if (! $raw) {
-                $extra = $row;
-                unset($extra['data'], $extra['raw'], $extra['sku']);
-                $raw = $extra ?: $data;
+            // Three accepted shapes from the bridge:
+            //  - { sku, data: {...}, raw: {...} }   pre-wrapped
+            //  - { sku, data: {...} }               wrapped, raw missing
+            //  - { ...flat fields... }              flat, no wrapper
+            // Normalize all three into a single "flat row" that's safe
+            // to aggregate.
+            if (isset($row['data']) && is_array($row['data'])) {
+                $flat = $row['data'] + (is_array($row['raw'] ?? null) ? $row['raw'] : []);
+                if (isset($row['sku']) && ! isset($flat['sku'])) $flat['sku'] = (string) $row['sku'];
+            } else {
+                $flat = $row;
             }
-            $items[] = new FeedItem(
-                sku: (string) ($row['sku'] ?? ''),
-                data: $data,
-                raw:  $raw,
-            );
+            $rawRows[] = $flat;
+        }
+
+        $items = self::aggregateFlatRows($rawRows);
+
+        // Apply the user's mapping (if any) AFTER aggregation. The
+        // mapping config targets the canonical aggregated field names
+        // (product_name, summary_qty, sizes.size_eu, ...).
+        //
+        // OVERLAY semantics: the mapped output is merged ON TOP of the
+        // original aggregated data, NOT replacing it. This matters
+        // because the legacy GS materialize bridge expects its own
+        // native keys (product_name, sizes, image_full_url, ...) and
+        // would break if we replaced them. With overlay:
+        //
+        //   - The bridge keeps seeing what it always saw.
+        //   - The user's mapping ADDS Woo-shaped keys (regular_price,
+        //     stock_quantity, ...) that downstream import-rules + a
+        //     future generic upsert path can honor.
+        //   - Templates / SEO meta fields the bridge doesn't know
+        //     about (description, meta_title, ...) flow through.
+        $mapping = (array) ($request->options['mapping'] ?? []);
+        if ($mapping) {
+            $remapped = [];
+            foreach ($items as $item) {
+                $mappedFields = CsvSource::applyMapping($item->data, $mapping);
+                $newData = $mappedFields + $item->data;  // mapped fields win
+                // Always preserve the SKU — the diff/dedup pipeline
+                // requires it.
+                $newData['sku'] = $item->sku;
+                $remapped[] = new FeedItem(
+                    sku:  $item->sku,
+                    data: $newData,
+                    raw:  $item->raw,
+                );
+            }
+            $items = $remapped;
         }
 
         return new FetchResult(
             items: $items,
-            stats: (array) ($resp['stats'] ?? []),
+            stats: ((array) ($resp['stats'] ?? [])) + [ 'flat_rows' => count($rawRows), 'products' => count($items) ],
             warnings: array_map('strval', (array) ($resp['warnings'] ?? [])),
         );
+    }
+
+    /**
+     * Group the upstream's flat rows by SKU. Each output FeedItem
+     * carries the canonical aggregated shape:
+     *
+     *   data = {
+     *     sku, product_name, brand_name, size_mapper_name,
+     *     image_full_url, image_name,
+     *     presented_price, offer_price,         // product-level prices
+     *     sizes: [{ size_eu, size_us, available_quantity, barcode }],
+     *     summary_qty,                          // sum across sizes
+     *     manage_stock: true, stock_status: 'instock'|'outofstock',
+     *   }
+     *
+     *   raw = the array of original flat rows for this SKU
+     *
+     * Field names mirror the actual GS payload (product_name not name,
+     * available_quantity per row not summary_qty). The mapping editor's
+     * "Anteprima sorgente" probe surfaces both lists; gs-default points
+     * at the aggregated keys downstream code understands.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return FeedItem[]
+     */
+    private static function aggregateFlatRows(array $rows): array
+    {
+        $bySku = [];
+        foreach ($rows as $r) {
+            if (! is_array($r)) continue;
+            $sku = (string) ($r['sku'] ?? '');
+            if ($sku === '') continue;
+
+            if (! isset($bySku[$sku])) {
+                $bySku[$sku] = [
+                    'data' => [
+                        'sku'              => $sku,
+                        'product_name'     => (string) ($r['product_name'] ?? ''),
+                        'brand_name'       => (string) ($r['brand_name'] ?? ''),
+                        'size_mapper_name' => (string) ($r['size_mapper_name'] ?? ''),
+                        'image_full_url'   => (string) ($r['image_full_url'] ?? ''),
+                        'image_name'       => (string) ($r['image_name'] ?? ''),
+                        'presented_price'  => $r['presented_price'] ?? null,
+                        'offer_price'      => $r['offer_price'] ?? null,
+                        'sizes'            => [],
+                        'summary_qty'      => 0,
+                    ],
+                    'raw' => [],
+                ];
+            }
+            $bySku[$sku]['raw'][] = $r;
+
+            $sizeEu = trim((string) ($r['size_eu'] ?? ''));
+            if ($sizeEu === '') continue; // no size = nothing to aggregate
+            $qty = (int) ($r['available_quantity'] ?? 0);
+            $bySku[$sku]['data']['sizes'][] = [
+                'size_eu'             => $sizeEu,
+                'size_us'             => (string) ($r['size_us'] ?? ''),
+                'available_quantity'  => $qty,
+                'barcode'             => (string) ($r['barcode'] ?? ''),
+            ];
+            $bySku[$sku]['data']['summary_qty'] += $qty;
+        }
+
+        $items = [];
+        foreach ($bySku as $sku => $bundle) {
+            $bundle['data']['manage_stock'] = true;
+            $bundle['data']['stock_status'] = $bundle['data']['summary_qty'] > 0 ? 'instock' : 'outofstock';
+            $items[] = new FeedItem(
+                sku: (string) $sku,
+                data: $bundle['data'],
+                raw:  $bundle['raw'],
+            );
+        }
+        return $items;
     }
 
     public function diff(array $items, Context $ctx): Diff

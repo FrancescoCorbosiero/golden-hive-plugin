@@ -156,7 +156,7 @@ final class AutoCategorize implements ImportRule
     {
         $out = [];
 
-        // Mapped attribute fields the user may have wired to a size path.
+        // 1. Mapped attribute fields (post-mapping draft).
         foreach ( [ 'pa_taglia', 'pa_size', 'pa_eu_size', 'sizes_eu' ] as $field ) {
             $v = $draft[ $field ] ?? null;
             if ( is_array( $v ) ) {
@@ -169,14 +169,31 @@ final class AutoCategorize implements ImportRule
             }
         }
 
-        // Raw GS shape: sizes is a list of {size_eu: '42', size_us: …}.
+        // 2. Aggregated GS shape on the draft itself: sizes is a list
+        //    of {size_eu, size_us, available_quantity, barcode}.
+        foreach ( (array) ( $draft['sizes'] ?? [] ) as $row ) {
+            if ( is_array( $row ) && isset( $row['size_eu'] ) && is_scalar( $row['size_eu'] ) ) {
+                $out[] = (string) $row['size_eu'];
+            }
+        }
+
+        // 3. Raw flat rows from the upstream feed (GS hands us one row
+        //    per size, GoldenSneakersSource passes them through as
+        //    FeedItem.raw — no `.sizes` wrapper, just an array of rows).
+        foreach ( $raw as $row ) {
+            if ( is_array( $row ) && isset( $row['size_eu'] ) && is_scalar( $row['size_eu'] ) ) {
+                $out[] = (string) $row['size_eu'];
+            }
+        }
+        // Older bridge versions may still ship raw with a `sizes` key —
+        // accept that shape too.
         foreach ( (array) ( $raw['sizes'] ?? [] ) as $row ) {
             if ( is_array( $row ) && isset( $row['size_eu'] ) && is_scalar( $row['size_eu'] ) ) {
                 $out[] = (string) $row['size_eu'];
             }
         }
 
-        // attribute_terms[] shape if a previous step already resolved them.
+        // 4. attribute_terms[] shape if a previous step already resolved them.
         $terms = $draft['attribute_terms'] ?? [];
         if ( is_array( $terms ) ) {
             foreach ( [ 'pa_taglia', 'pa_size' ] as $taxKey ) {
@@ -189,7 +206,7 @@ final class AutoCategorize implements ImportRule
             }
         }
 
-        return $out;
+        return array_values( array_unique( $out ) );
     }
 
     /**

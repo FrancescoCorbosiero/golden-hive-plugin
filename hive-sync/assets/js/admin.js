@@ -64,6 +64,43 @@
 
     // ─── Tabs ─────────────────────────────────────────────────────
 
+    HSync.state.usage = { source_configs: {}, mappings: {}, pipelines: {}, rules: {} };
+
+    /**
+     * Pulls the usage map (which slug is referenced by which jobs)
+     * once and caches it on state. Cheap query — just iterates the
+     * jobs table — so we refresh on every tab switch into a list-bearing
+     * tab so newly-created jobs reflect immediately.
+     */
+    HSync.refreshUsage = async function () {
+        try {
+            const data = await HSync.ajax('usage_summary', {});
+            HSync.state.usage = data.usage || HSync.state.usage;
+        } catch (e) { /* non-fatal — pills just disappear */ }
+    };
+
+    /**
+     * Render the usage badge for a given (kind, slug).
+     *   - kind: 'source_configs' | 'mappings' | 'pipelines' | 'rules'
+     *   - slug: the entity's identifier
+     * Returns inline HTML — empty string when slug is empty.
+     */
+    HSync.usagePill = function (kind, slug) {
+        if (!slug) return '';
+        const u = (HSync.state.usage[kind] || {})[slug];
+        if (!u || !u.jobs || !u.jobs.length) {
+            return ' <span class="hsync-usage-pill is-orphan" title="Non referenziato da alcun job">non usato</span>';
+        }
+        const total   = u.jobs.length;
+        const enabled = u.enabled_jobs || 0;
+        const klass   = enabled > 0 ? 'is-active' : 'is-pending';
+        const label   = enabled > 0
+            ? '✓ in uso da ' + enabled + ' job ' + (enabled === 1 ? 'attivo' : 'attivi')
+            : '○ collegato a ' + total + ' job ' + (total === 1 ? 'spento' : 'spenti');
+        const title = 'Job collegati: #' + u.jobs.join(', #');
+        return ' <span class="hsync-usage-pill ' + klass + '" title="' + esc(title) + '">' + label + '</span>';
+    };
+
     HSync.switchTab = function (name) {
         HSync.state.currentTab = name;
         $$('.hsync-tab').forEach(b => {
@@ -103,6 +140,7 @@
             await HSync.loadRegistry();
             const data = await HSync.ajax('pipelines_list', {});
             HSync.state.pipelines = data.pipelines || [];
+            await HSync.refreshUsage();
             HSync.renderPipelinesList();
         } catch (e) {
             region.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
@@ -118,7 +156,7 @@
         region.innerHTML = HSync.state.pipelines.map(p => ''
             + '<div class="hsync-mapping-row">'
             +   '<div class="hsync-row-main">'
-            +     '<div class="hsync-row-name">' + esc(p.name) + '</div>'
+            +     '<div class="hsync-row-name">' + esc(p.name) + HSync.usagePill('pipelines', p.slug) + '</div>'
             +     '<div class="hsync-row-meta"><code>' + esc(p.slug) + '</code> · ' + (p.steps || []).length + ' step</div>'
             +   '</div>'
             +   '<button class="button" data-action="pipeline-edit" data-slug="' + esc(p.slug) + '">Modifica</button>'
@@ -308,6 +346,7 @@
             await HSync.loadRegistry();
             const data = await HSync.ajax('rules_list', {});
             HSync.state.rules = data.rules || [];
+            await HSync.refreshUsage();
             HSync.renderRulesList();
         } catch (e) {
             region.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
@@ -326,6 +365,7 @@
             +     '<div class="hsync-row-name">'
             +       esc(r.name)
             +       (r.enabled ? ' <span class="hsync-action-pill is-created">on</span>' : ' <span class="hsync-action-pill is-skipped">off</span>')
+            +       HSync.usagePill('rules', r.slug)
             +     '</div>'
             +     '<div class="hsync-row-meta"><code>' + esc(r.slug) + '</code> · '
             +       (r.operations || []).length + ' op · '
@@ -738,54 +778,6 @@
         } catch (e) { alert('Errore: ' + e.message); }
     };
 
-    // ─── Legacy migration ─────────────────────────────────────────
-
-    HSync.legacyAudit = async function () {
-        const out = $('[data-region="legacy-output"]');
-        out.innerHTML = '<p class="hsync-loading">Audit…</p>';
-        try {
-            const data = await HSync.ajax('legacy_audit', {});
-            const warns = (data.warnings || []).map(w => '<div class="hsync-warning">' + esc(w) + '</div>').join('');
-            out.innerHTML = ''
-                + '<div class="hsync-summary" style="grid-template-columns:repeat(3,1fr);">'
-                +   '<div class="hsync-stat"><div class="hsync-stat-num">' + (data.pipelines || 0) + '</div><div class="hsync-stat-label">Pipelines</div></div>'
-                +   '<div class="hsync-stat"><div class="hsync-stat-num">' + (data.mappings  || 0) + '</div><div class="hsync-stat-label">Mappings</div></div>'
-                +   '<div class="hsync-stat"><div class="hsync-stat-num">' + (data.jobs      || 0) + '</div><div class="hsync-stat-label">Jobs</div></div>'
-                + '</div>'
-                + (warns ? '<div class="hsync-warnings">' + warns + '</div>' : '');
-        } catch (e) {
-            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
-        }
-    };
-
-    HSync.legacyImport = async function () {
-        if (!confirm('Procedere con l\'import dei dati legacy? L\'operazione è idempotente.')) return;
-        const out = $('[data-region="legacy-output"]');
-        out.innerHTML = '<p class="hsync-loading">Import in corso…</p>';
-        try {
-            const data = await HSync.ajax('legacy_import', {});
-            const renderBucket = (label, b) => {
-                const errs = (b.errors || []).map(e => '<div class="hsync-warning">' + esc(e) + '</div>').join('');
-                return ''
-                    + '<h4>' + esc(label) + '</h4>'
-                    + '<p>'
-                    +   '<strong>' + (b.copied || 0) + '</strong> copiati · '
-                    +   (b.skipped || 0) + ' saltati (già esistenti)'
-                    + '</p>'
-                    + errs;
-            };
-            out.innerHTML = ''
-                + '<h3>Import completato</h3>'
-                + renderBucket('Pipelines', data.pipelines || {})
-                + renderBucket('Mappings',  data.mappings  || {})
-                + renderBucket('Jobs',      data.jobs      || {});
-            // Refresh whatever tab the user goes to next.
-            HSync.state.mappings = [];
-        } catch (e) {
-            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
-        }
-    };
-
     // ─── Sources ──────────────────────────────────────────────────
 
     HSync.loadSources = async function () {
@@ -806,11 +798,13 @@
             region.innerHTML = '<div class="hsync-empty">Nessuna sorgente registrata.</div>';
             return;
         }
-        // Pre-load saved configs once so each card can show its own list.
+        // Pre-load saved configs + usage map once so each card can
+        // show its own list with usage pills.
         try {
             const data = await HSync.ajax('source_configs_list', {});
             HSync.state.sourceConfigs = data.configs || [];
         } catch (e) { /* non-fatal — render with empty config lists */ }
+        await HSync.refreshUsage();
 
         region.innerHTML = HSync.state.sources.map(s => {
             const caps = Object.entries(s.capabilities).map(([k, v]) =>
@@ -822,7 +816,7 @@
                 ? configs.map(c => ''
                     + '<div class="hsync-config-row">'
                     +   '<div class="hsync-row-main">'
-                    +     '<div class="hsync-row-name">' + esc(c.name) + '</div>'
+                    +     '<div class="hsync-row-name">' + esc(c.name) + HSync.usagePill('source_configs', c.slug) + '</div>'
                     +     '<div class="hsync-row-meta"><code>' + esc(c.slug) + '</code> · '
                     +       Object.keys(c.config || {}).length + ' campi'
                     +     '</div>'
@@ -1012,6 +1006,7 @@
         try {
             const data = await HSync.ajax('mappings_list', { source_kind: filter });
             HSync.state.mappings = data.mappings || [];
+            await HSync.refreshUsage();
             HSync.renderMappings();
             HSync.populateRunMappings();
         } catch (e) {
@@ -1028,7 +1023,7 @@
         region.innerHTML = HSync.state.mappings.map(m => ''
             + '<div class="hsync-mapping-row">'
             +   '<div class="hsync-row-main">'
-            +     '<div class="hsync-row-name">' + esc(m.name) + '</div>'
+            +     '<div class="hsync-row-name">' + esc(m.name) + HSync.usagePill('mappings', m.slug) + '</div>'
             +     '<div class="hsync-row-meta">'
             +       esc(m.source_kind) + ' · <code>' + esc(m.slug) + '</code> · '
             +       Object.keys(m.config || {}).length + ' campi mappati'
@@ -2035,8 +2030,6 @@
         if (t.matches('[data-action="run-save-config"]'))return HSync.saveCurrentConfig();
         if (t.matches('[data-action="run-save-job"]'))   return HSync.saveCurrentAsJob();
         if (t.matches('[data-action="runs-refresh"]'))   return HSync.loadRuns();
-        if (t.matches('[data-action="legacy-audit"]'))   return HSync.legacyAudit();
-        if (t.matches('[data-action="legacy-import"]'))  return HSync.legacyImport();
 
         // Pipelines
         if (t.matches('[data-action="pipeline-new"]'))    return HSync.openPipelineEditor(null);

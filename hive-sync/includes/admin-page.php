@@ -41,7 +41,6 @@ function hsync_render_admin_page(): void {
             <button class="hsync-tab" data-tab="media" role="tab" aria-selected="false" title="Pulizia foto e libreria">Media</button>
             <button class="hsync-tab" data-tab="exports" role="tab" aria-selected="false" title="Scarica il catalogo">Esporta</button>
             <button class="hsync-tab" data-tab="runs" role="tab" aria-selected="false" title="Storico import">Storico</button>
-            <button class="hsync-tab" data-tab="migrate" role="tab" aria-selected="false" title="Vieni da Golden Hive?">Migrazione</button>
             <button class="hsync-tab" data-tab="tools" role="tab" aria-selected="false" title="Pulizia avanzata">Strumenti</button>
         </nav>
 
@@ -291,22 +290,6 @@ function hsync_render_admin_page(): void {
             </div>
         </section>
 
-        <section class="hsync-panel" data-panel="migrate">
-            <div class="hsync-tab-intro">
-                <strong>Vieni da Golden Hive?</strong>
-                Importa qui le tue mappature, flussi e automazioni esistenti con
-                un click. Puoi rilanciarlo quante volte vuoi: i record già importati
-                vengono saltati.
-                <br>
-                <em>Nota:</em> le automazioni vengono importate <strong>spente</strong>
-                — verifica che siano corrette prima di riaccenderle.
-            </div>
-            <div class="hsync-actions">
-                <button class="button" data-action="legacy-audit">Anteprima</button>
-                <button class="button button-primary" data-action="legacy-import">Importa adesso</button>
-            </div>
-            <div data-region="legacy-output"></div>
-        </section>
 
         <section class="hsync-panel" data-panel="tools">
             <div class="hsync-tab-intro">

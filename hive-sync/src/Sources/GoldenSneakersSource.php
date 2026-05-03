@@ -207,78 +207,172 @@ final class GoldenSneakersSource extends AbstractSource
             if ($sku === '') continue;
 
             if (! isset($bySku[$sku])) {
-                $productName = (string) ($r['product_name'] ?? '');
-                $brand       = (string) ($r['brand_name']   ?? '');
-                $imageUrl    = (string) ($r['image_full_url'] ?? '');
-                $presented   = $r['presented_price'] ?? null;
-                $offer       = $r['offer_price']     ?? null;
-
-                $bySku[$sku]['data'] = [
-                    // ── GS API native names (what the editor probe shows) ──
+                $bySku[$sku] = [
                     'sku'              => $sku,
-                    'product_name'     => $productName,
-                    'brand_name'       => $brand,
+                    'product_name'     => (string) ($r['product_name'] ?? ''),
+                    'brand_name'       => (string) ($r['brand_name']   ?? ''),
                     'size_mapper_name' => (string) ($r['size_mapper_name'] ?? ''),
-                    'image_full_url'   => $imageUrl,
+                    'image_full_url'   => (string) ($r['image_full_url'] ?? ''),
                     'image_name'       => (string) ($r['image_name'] ?? ''),
-                    'presented_price'  => $presented,
-                    'offer_price'      => $offer,
                     'sizes'            => [],
-                    'summary_qty'      => 0,
-
-                    // ── Bridge-compatible aliases (legacy materialize) ──
-                    // The legacy rp_rc_gs_apply expects these field names
-                    // verbatim. Duplicating them here means the bridge
-                    // keeps working without any changes on its side.
-                    'name'             => $productName,
-                    'brand'            => $brand,
-                    'model'            => '',
-                    'image_url'        => $imageUrl,
-                    'type'             => 'variable',
-                    'status'           => 'publish',
-                    '_gs_brand'        => $brand,
-                    '_gs_model'        => '',
-                    '_gs_image_url'    => $imageUrl,
-                    '_gs_tag'          => 'super-sale',
-
-                    // ── Woo-shaped (consumed by import-rules + UI) ──
-                    'regular_price'    => $presented !== null ? (string) $presented : '',
-                    'sale_price'       => $offer     !== null ? (string) $offer     : '',
-                    'manage_stock'     => true,
+                    '_raw_rows'        => [],
                 ];
-                $bySku[$sku]['raw'] = [];
             }
-            $bySku[$sku]['raw'][] = $r;
+            $bySku[$sku]['_raw_rows'][] = $r;
 
             $sizeEu = trim((string) ($r['size_eu'] ?? ''));
-            if ($sizeEu === '') continue; // no size = nothing to aggregate
-            $qty = (int) ($r['available_quantity'] ?? 0);
-            $bySku[$sku]['data']['sizes'][] = [
+            if ($sizeEu === '') continue;
+            $bySku[$sku]['sizes'][] = [
                 'size_eu'            => $sizeEu,
                 'size_us'            => (string) ($r['size_us'] ?? ''),
-                'available_quantity' => $qty,
+                'available_quantity' => (int) ($r['available_quantity'] ?? 0),
                 'barcode'            => (string) ($r['barcode'] ?? ''),
-                // Bridge-compatible per-size pricing (legacy expects
-                // offer_price + presented_price ON each size record).
-                'offer_price'        => $r['offer_price']     ?? null,
-                'presented_price'    => $r['presented_price'] ?? null,
+                'offer_price'        => (float) ($r['offer_price']     ?? 0),
+                'presented_price'    => (float) ($r['presented_price'] ?? 0),
             ];
-            $bySku[$sku]['data']['summary_qty'] += $qty;
         }
 
         $items = [];
         foreach ($bySku as $sku => $bundle) {
-            $bundle['data']['stock_status']   = $bundle['data']['summary_qty'] > 0 ? 'instock' : 'outofstock';
-            $bundle['data']['stock_quantity'] = $bundle['data']['summary_qty'];
-            // Bridge-compatible aggregate stock field name.
-            $bundle['data']['total_available'] = $bundle['data']['summary_qty'];
+            $rawRows = $bundle['_raw_rows'];
+            unset($bundle['_raw_rows']);
+
+            // Re-key the bundle into the shape rp_rc_gs_normalize would
+            // have produced, then run the legacy transform inline so the
+            // bridge's create_product / update_product receive the
+            // exact shape they were written against (type, attributes,
+            // variations[], stock_quantity per variant, etc.).
+            $bridgeProduct = [
+                'sku'        => $sku,
+                'name'       => $bundle['product_name'],
+                'brand'      => $bundle['brand_name'],
+                'model'      => '',
+                'image_url'  => $bundle['image_full_url'],
+                'image_name' => $bundle['image_name'],
+                'sizes'      => $bundle['sizes'],
+            ];
+            $woo = self::transformToWoo( $bridgeProduct );
+
+            // Add the original API-native fields back on top so the
+            // mapping editor's autocomplete still surfaces the upstream
+            // names (product_name, presented_price, ...).
+            $woo['product_name']     = $bundle['product_name'];
+            $woo['brand_name']       = $bundle['brand_name'];
+            $woo['size_mapper_name'] = $bundle['size_mapper_name'];
+            $woo['image_full_url']   = $bundle['image_full_url'];
+            $woo['image_name']       = $bundle['image_name'];
+            $woo['summary_qty']      = (int) array_sum( array_column( $bundle['sizes'], 'available_quantity' ) );
+
             $items[] = new FeedItem(
-                sku: (string) $sku,
-                data: $bundle['data'],
-                raw:  $bundle['raw'],
+                sku:  (string) $sku,
+                data: $woo,
+                raw:  $rawRows,
             );
         }
         return $items;
+    }
+
+    /**
+     * Port of golden-hive's rp_rc_gs_transform_to_woo (feed-goldensneakers.php
+     * line 180). Produces the EXACT shape the bridge's
+     * rp_rc_gs_create_product / rp_rc_gs_update_product reads from:
+     *
+     *   - type:           'simple' when 0/1 sizes, 'variable' otherwise
+     *   - status:         'publish'
+     *   - _gs_brand / _gs_model / _gs_image_url / _gs_tag / _gs_category
+     *   - For 'simple':   regular_price / sale_price / stock_quantity /
+     *                     stock_status / manage_stock / attributes:[pa_brand]
+     *   - For 'variable': attributes:[pa_taglia + pa_brand] +
+     *                     variations:[{attributes, sku, regular_price,
+     *                                  sale_price, stock_quantity, ...}]
+     *
+     * Without this transform the bridge sees only raw aggregated data,
+     * defaults to creating a `simple` product with no attributes and
+     * empty stock — exactly the symptom (out-of-stock, no variants)
+     * the operator reported.
+     *
+     * @param array<string, mixed> $product  Aggregated GS product
+     * @return array<string, mixed>          Bridge-ready Woo shape
+     */
+    private static function transformToWoo( array $product ): array
+    {
+        $sizes     = (array) ( $product['sizes'] ?? [] );
+        $allEu     = array_column( $sizes, 'size_eu' );
+        $hasSizes  = count( $sizes ) > 1
+            || ( count( $sizes ) === 1 && ! empty( $sizes[0]['size_eu'] ) );
+        $type      = $hasSizes ? 'variable' : 'simple';
+
+        // Sneakers-vs-apparel heuristic mirrored from the legacy
+        // transform: alphabetic size labels (S, M, L, XL) → apparel.
+        $gsCategory = 'sneakers';
+        if ( ! empty( $allEu ) ) {
+            $alphaCount = 0;
+            foreach ( $allEu as $sz ) {
+                if ( preg_match( '/^[A-Z]{1,3}(\/[A-Z]{1,3})?$/i', trim( (string) $sz ) ) ) {
+                    $alphaCount++;
+                }
+            }
+            if ( $alphaCount > count( $allEu ) / 2 ) $gsCategory = 'abbigliamento';
+        }
+
+        $woo = [
+            'name'              => (string) ( $product['name'] ?? '' ),
+            'sku'               => (string) ( $product['sku']  ?? '' ),
+            'type'              => $type,
+            'status'            => 'publish',
+            '_gs_brand'         => (string) ( $product['brand']     ?? '' ),
+            '_gs_model'         => (string) ( $product['model']     ?? '' ),
+            '_gs_image_url'     => (string) ( $product['image_url'] ?? '' ),
+            '_gs_tag'           => 'super-sale',
+            '_gs_category'      => $gsCategory,
+        ];
+
+        $brand     = (string) ( $product['brand'] ?? '' );
+        $brandAttr = $brand !== ''
+            ? [ 'pa_brand' => [ 'options' => [ $brand ], 'visible' => true, 'variation' => false ] ]
+            : [];
+
+        if ( $type === 'simple' ) {
+            $base = (float) ( $sizes[0]['presented_price'] ?? 0 );
+            $woo['regular_price'] = (string) round( $base );
+            $woo['sale_price']    = '';
+            $qty                  = (int) ( $sizes[0]['available_quantity'] ?? 0 );
+            $woo['manage_stock']   = true;
+            $woo['stock_quantity'] = $qty;
+            $woo['stock_status']   = $qty > 0 ? 'instock' : 'outofstock';
+            if ( $brandAttr ) $woo['attributes'] = $brandAttr;
+            return $woo;
+        }
+
+        // Variable product: build pa_taglia attribute + per-size variants.
+        $woo['attributes'] = [
+            'pa_taglia' => [ 'options' => array_values( array_unique( $allEu ) ), 'visible' => true, 'variation' => true ],
+        ] + $brandAttr;
+
+        $variations = [];
+        $totalQty   = 0;
+        foreach ( $sizes as $size ) {
+            $pp  = (float) ( $size['presented_price']    ?? 0 );
+            $qty = (int)   ( $size['available_quantity'] ?? 0 );
+            $totalQty += $qty;
+            $variations[] = [
+                'attributes'     => [ 'pa_taglia' => (string) ( $size['size_eu'] ?? '' ) ],
+                'sku'            => (string) $woo['sku'] . '-EU' . (string) ( $size['size_eu'] ?? '' ),
+                'manage_stock'   => true,
+                'stock_quantity' => $qty,
+                'stock_status'   => $qty > 0 ? 'instock' : 'outofstock',
+                'status'         => 'publish',
+                'regular_price'  => (string) round( $pp ),
+                'sale_price'     => '',
+            ];
+        }
+        $woo['variations']     = $variations;
+        // Parent-level stock summary so the bridge's update path can
+        // detect stock-only changes against the existing parent.
+        $woo['manage_stock']   = false;
+        $woo['stock_quantity'] = $totalQty;
+        $woo['stock_status']   = $totalQty > 0 ? 'instock' : 'outofstock';
+        return $woo;
     }
 
     public function diff(array $items, Context $ctx): Diff

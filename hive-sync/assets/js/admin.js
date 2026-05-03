@@ -66,6 +66,56 @@
 
     HSync.state.usage = { source_configs: {}, mappings: {}, pipelines: {}, rules: {} };
 
+    /**
+     * Clone an entity for the "Duplica" flow. Produces a deep copy
+     * with the identifier fields wiped (so save() creates a new row)
+     * and the human-readable name suffixed with " (copia)" so the
+     * editor shows something obviously different from the original.
+     *
+     * @param {object|null|undefined} entity
+     * @param {string[]} idFields  e.g. ['slug'] for slug-keyed, ['id'] for id-keyed
+     * @return {object|null}
+     */
+    HSync.cloneForDuplicate = function (entity, idFields) {
+        if (!entity) return null;
+        const copy = JSON.parse(JSON.stringify(entity));
+        (idFields || ['slug']).forEach(f => {
+            if (f === 'id') copy.id = 0;
+            else            copy[f] = '';
+        });
+        // Suffix the most "namey" field we find. Entities have either
+        // `name` (mapping/pipeline/rule/source-config) or `label`
+        // (job seed_label) — handle both.
+        if (typeof copy.name === 'string' && copy.name !== '') {
+            copy.name = copy.name + ' (copia)';
+        }
+        if (copy.config && typeof copy.config._seed_label === 'string' && copy.config._seed_label !== '') {
+            // Job clones lose the seed_label downstream too, but for
+            // the brief moment it's in the editor, suffix it.
+            copy.config._seed_label = copy.config._seed_label + ' (copia)';
+        }
+        return copy;
+    };
+
+    /**
+     * Duplicating a source-config has to happen server-side because
+     * secrets (token / cookie) are redacted in the JSON the client
+     * sees — a JS-only clone would round-trip the placeholder ••••.
+     * The server reads the row with plaintext access and creates a
+     * new row with a fresh slug + " (copia)" suffix.
+     */
+    HSync.duplicateSourceConfig = async function (sourceId, slug) {
+        if (!slug) return;
+        try {
+            const data = await HSync.ajax('source_configs_duplicate', { slug: slug });
+            // Reload the sources panel so the new card row appears
+            // under its parent source.
+            await HSync.loadSources();
+            // Auto-open the new copy in the editor for immediate tweaks.
+            if (data.slug) HSync.loadSourceConfigEditor(sourceId, data.slug);
+        } catch (e) { alert('Errore: ' + e.message); }
+    };
+
     // ─── Cockpit (header status strip) ─────────────────────────────
 
     HSync.refreshCockpit = async function () {
@@ -293,6 +343,7 @@
             +     '<div class="hsync-row-meta"><code>' + esc(p.slug) + '</code> · ' + (p.steps || []).length + ' step</div>'
             +   '</div>'
             +   '<button class="button" data-action="pipeline-edit" data-slug="' + esc(p.slug) + '">Modifica</button>'
+            +   '<button class="button" data-action="pipeline-duplicate" data-slug="' + esc(p.slug) + '">Duplica</button>'
             +   '<button class="button" data-action="pipeline-delete" data-slug="' + esc(p.slug) + '">Elimina</button>'
             + '</div>'
         ).join('');
@@ -505,6 +556,7 @@
             +       (r.checks     || []).length + ' check</div>'
             +   '</div>'
             +   '<button class="button" data-action="rule-edit" data-slug="' + esc(r.slug) + '">Modifica</button>'
+            +   '<button class="button" data-action="rule-duplicate" data-slug="' + esc(r.slug) + '">Duplica</button>'
             +   '<button class="button" data-action="rule-delete" data-slug="' + esc(r.slug) + '">Elimina</button>'
             + '</div>'
         ).join('');
@@ -730,6 +782,7 @@
             +   '</div>'
             +   '<button class="button" data-action="job-run-now" data-id="' + j.id + '">Run</button>'
             +   '<button class="button" data-action="job-edit"    data-id="' + j.id + '">Modifica</button>'
+            +   '<button class="button" data-action="job-duplicate" data-id="' + j.id + '">Duplica</button>'
             +   '<button class="button" data-action="job-delete"  data-id="' + j.id + '">Elimina</button>'
             + '</div>';
         }).join('');
@@ -797,17 +850,25 @@
 
     HSync.saveJob = async function () {
         const j = HSync.state.editingJob;
+        // Preserve the full original config (buckets, mapping_slug,
+        // pipeline_slug, category_filter, markup_percent_override, …)
+        // — the editor doesn't expose those as form fields, so wiping
+        // the config to {} on every save would silently strip them.
+        // The only key the form CAN override is config_slug.
+        const baseConfig = j && typeof j.config === 'object' && j.config !== null
+            ? Object.assign({}, j.config)
+            : {};
         const data = {
             id:            String(j.id || 0),
             runnable_type: $('[data-field="job-type"]').value,
             runnable_ref:  $('[data-field="job-ref"]').value,
             cron_expr:     $('[data-field="job-cron"]').value,
             enabled:       $('[data-field="job-enabled"]').checked ? '1' : '0',
-            config:        {},
+            config:        baseConfig,
         };
         if (!data.runnable_ref) { alert('Scegli un riferimento.'); return; }
         const cfgSlugEl = $('[data-field="job-config-slug"]');
-        if (cfgSlugEl && cfgSlugEl.value) data.config = { config_slug: cfgSlugEl.value };
+        if (cfgSlugEl && cfgSlugEl.value) data.config.config_slug = cfgSlugEl.value;
         try {
             await HSync.ajax('job_save', data);
             HSync.closeJobEditor();
@@ -965,6 +1026,7 @@
                     +     '</div>'
                     +   '</div>'
                     +   '<button class="button" data-action="src-config-load" data-source="' + esc(s.id) + '" data-slug="' + esc(c.slug) + '">Modifica</button>'
+                    +   '<button class="button" data-action="src-config-duplicate" data-source="' + esc(s.id) + '" data-slug="' + esc(c.slug) + '">Duplica</button>'
                     +   '<button class="button" data-action="src-config-delete" data-slug="' + esc(c.slug) + '">Elimina</button>'
                     + '</div>'
                 ).join('')
@@ -1184,6 +1246,7 @@
             +     '</div>'
             +   '</div>'
             +   '<button class="button" data-action="mapping-edit" data-slug="' + esc(m.slug) + '">Modifica</button>'
+            +   '<button class="button" data-action="mapping-duplicate" data-slug="' + esc(m.slug) + '">Duplica</button>'
             +   '<button class="button" data-action="mapping-delete" data-slug="' + esc(m.slug) + '">Elimina</button>'
             + '</div>'
         ).join('');
@@ -2286,11 +2349,16 @@
         if (t.matches('[data-action="src-config-save"]'))   return HSync.saveSourceConfig(t.dataset.source);
         if (t.matches('[data-action="src-config-reset"]'))  return HSync.resetSourceConfigEditor(t.dataset.source);
         if (t.matches('[data-action="src-config-load"]'))   return HSync.loadSourceConfigEditor(t.dataset.source, t.dataset.slug);
+        if (t.matches('[data-action="src-config-duplicate"]'))   return HSync.duplicateSourceConfig(t.dataset.source, t.dataset.slug);
         if (t.matches('[data-action="src-config-delete"]')) return HSync.deleteSourceConfig(t.dataset.slug);
         if (t.matches('[data-action="mapping-new"]'))   return HSync.openMappingEditor(null);
         if (t.matches('[data-action="mapping-edit"]')) {
             const m = HSync.state.mappings.find(x => x.slug === t.dataset.slug);
             return HSync.openMappingEditor(m);
+        }
+        if (t.matches('[data-action="mapping-duplicate"]')) {
+            const m = HSync.state.mappings.find(x => x.slug === t.dataset.slug);
+            return HSync.openMappingEditor(HSync.cloneForDuplicate(m, ['slug']));
         }
         if (t.matches('[data-action="mapping-delete"]')) return HSync.deleteMapping(t.dataset.slug);
         if (t.matches('[data-action="mapping-save"]'))   return HSync.saveMapping();
@@ -2316,6 +2384,10 @@
             const p = HSync.state.pipelines.find(x => x.slug === t.dataset.slug);
             return HSync.openPipelineEditor(p);
         }
+        if (t.matches('[data-action="pipeline-duplicate"]')) {
+            const p = HSync.state.pipelines.find(x => x.slug === t.dataset.slug);
+            return HSync.openPipelineEditor(HSync.cloneForDuplicate(p, ['slug']));
+        }
         if (t.matches('[data-action="pipeline-delete"]')) return HSync.deletePipeline(t.dataset.slug);
         if (t.matches('[data-action="pipeline-save"]'))   return HSync.savePipeline();
         if (t.matches('[data-action="pipeline-cancel"]')) return HSync.closePipelineEditor();
@@ -2333,6 +2405,10 @@
             const r = HSync.state.rules.find(x => x.slug === t.dataset.slug);
             return HSync.openRuleEditor(r);
         }
+        if (t.matches('[data-action="rule-duplicate"]')) {
+            const r = HSync.state.rules.find(x => x.slug === t.dataset.slug);
+            return HSync.openRuleEditor(HSync.cloneForDuplicate(r, ['slug']));
+        }
         if (t.matches('[data-action="rule-delete"]'))     return HSync.deleteRule(t.dataset.slug);
         if (t.matches('[data-action="rule-save"]'))       return HSync.saveRule();
         if (t.matches('[data-action="rule-cancel"]'))     return HSync.closeRuleEditor();
@@ -2347,6 +2423,23 @@
         if (t.matches('[data-action="job-edit"]')) {
             const j = HSync.state.jobs.find(x => x.id === parseInt(t.dataset.id, 10));
             return HSync.openJobEditor(j);
+        }
+        if (t.matches('[data-action="job-duplicate"]')) {
+            const j = HSync.state.jobs.find(x => x.id === parseInt(t.dataset.id, 10));
+            // Jobs are id-keyed not slug-keyed; clear id + the
+            // _seed_id marker so the seeder doesn't think the copy
+            // is one of its managed defaults. Also start the copy
+            // disabled — duplicating an active cron is a footgun.
+            const clone = HSync.cloneForDuplicate(j, ['id']);
+            if (clone) {
+                if (clone.config && clone.config._seed_id !== undefined) delete clone.config._seed_id;
+                if (clone.config && clone.config._seed_label !== undefined) delete clone.config._seed_label;
+                clone.enabled = false;
+                clone.last_run_at = null;
+                clone.last_run_status = null;
+                clone.next_run_at = null;
+            }
+            return HSync.openJobEditor(clone);
         }
         if (t.matches('[data-action="job-delete"]'))   return HSync.deleteJob(parseInt(t.dataset.id, 10));
         if (t.matches('[data-action="job-run-now"]'))  return HSync.runJobNow(parseInt(t.dataset.id, 10));

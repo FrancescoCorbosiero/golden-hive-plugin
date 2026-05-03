@@ -1035,3 +1035,34 @@ add_action( 'wp_ajax_hsync_ajax_system_status', function () {
         'recommended_crontab' => '* * * * * curl -s "' . $wpUrl . '" > /dev/null 2>&1',
     ] );
 } );
+
+// ─── Source-config duplicate (server-side, preserves secrets) ─────
+//
+// Cloning a source-config in JS would round-trip the redacted secret
+// placeholder back to the DB. The duplicate has to happen here where
+// we have plaintext access — read the row, generate a new slug,
+// suffix the name with " (copia)", insert. Returns the new slug.
+
+add_action( 'wp_ajax_hsync_ajax_source_configs_duplicate', function () {
+    hsync_ajax_guard();
+    $slug = hsync_post_text( 'slug' );
+    if ( $slug === '' ) wp_send_json_error( [ 'message' => 'slug richiesto.' ] );
+
+    $repo = new \HiveSync\Core\Repo\SourceConfigRepository();
+    $row  = $repo->find( $slug );
+    if ( ! $row ) wp_send_json_error( [ 'message' => 'config non trovata: ' . $slug ] );
+
+    $copyName = ( (string) ( $row['name'] ?? '' ) ) !== ''
+        ? $row['name'] . ' (copia)'
+        : $slug . ' (copia)';
+
+    $newSlug = $repo->save( [
+        // Empty slug → repo generates a fresh one.
+        'slug'        => '',
+        'name'        => $copyName,
+        'source_kind' => (string) ( $row['source_kind'] ?? '' ),
+        'config'      => (array) ( $row['config'] ?? [] ),
+    ] );
+
+    wp_send_json_success( [ 'slug' => $newSlug, 'name' => $copyName ] );
+} );

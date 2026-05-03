@@ -39,6 +39,7 @@ function hsync_run_tick(): array {
         new \HiveSync\Core\Repo\RunRepository(),
         new \HiveSync\Core\Repo\RuleRepository(),
         new \HiveSync\Core\Repo\SourceConfigRepository(),
+        new \HiveSync\Core\Repo\MappingRepository(),
     );
     return $runner->tick( time() );
 }

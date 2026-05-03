@@ -125,6 +125,14 @@ final class CsvSource extends AbstractSource
         $items = [];
         $warnings = [];
 
+        // Optional per-fetch category filter — used by SF "subset" jobs
+        // where each scheduled job processes only the rows that fall
+        // into a given category set (so each subset can carry its own
+        // markup downstream). Match is case-insensitive substring on
+        // the mapped `categories` field; empty filter = pass all.
+        $catFilter = self::normalizeCategoryFilter($request->options['category_filter'] ?? null);
+        $skippedByFilter = 0;
+
         foreach ($rows as $rowIdx => $row) {
             $assoc = $header !== null
                 ? self::associate($header, $row)
@@ -136,14 +144,77 @@ final class CsvSource extends AbstractSource
                 $warnings[] = "Riga " . ( $rowIdx + 1 ) . ": SKU mancante, scartata.";
                 continue;
             }
+            if ($catFilter !== [] && ! self::rowMatchesCategoryFilter($mapped, $assoc, $catFilter)) {
+                $skippedByFilter++;
+                continue;
+            }
             $items[] = new FeedItem(sku: $sku, data: $mapped, raw: $assoc);
+        }
+
+        $stats = ['rows_parsed' => count($items), 'rows_skipped' => count($warnings)];
+        if ($skippedByFilter > 0) {
+            $stats['rows_filtered'] = $skippedByFilter;
+            $warnings[] = "Filtrati {$skippedByFilter} prodotti fuori dalle categorie selezionate.";
         }
 
         return new FetchResult(
             items: $items,
-            stats: ['rows_parsed' => count($items), 'rows_skipped' => count($warnings)],
+            stats: $stats,
             warnings: $warnings,
         );
+    }
+
+    /**
+     * @param mixed $raw
+     * @return string[]  lowercase trimmed list — empty list = "no filter"
+     */
+    private static function normalizeCategoryFilter($raw): array
+    {
+        if (is_string($raw)) {
+            $raw = str_contains($raw, ',') ? explode(',', $raw) : [$raw];
+        }
+        if (! is_array($raw)) return [];
+        $out = [];
+        foreach ($raw as $v) {
+            if (! is_scalar($v)) continue;
+            $v = strtolower(trim((string) $v));
+            if ($v !== '') $out[] = $v;
+        }
+        return array_values(array_unique($out));
+    }
+
+    /**
+     * Check the mapped row against the category allowlist. Looks at the
+     * `categories` mapped field first; falls back to `category` /
+     * `product_cat` / a raw column matching `cat`/`category`.
+     *
+     * @param string[] $filter
+     */
+    private static function rowMatchesCategoryFilter(array $mapped, array $raw, array $filter): bool
+    {
+        $candidates = [];
+        foreach (['categories', 'category', 'product_cat'] as $k) {
+            $v = $mapped[$k] ?? null;
+            if (is_string($v))      $candidates = array_merge($candidates, str_contains($v, '|') ? explode('|', $v) : [$v]);
+            elseif (is_array($v))   $candidates = array_merge($candidates, $v);
+        }
+        // Last-resort: scan raw row for any column whose name LOOKS LIKE
+        // a category. Useful when the mapping doesn't expose category.
+        if (empty($candidates)) {
+            foreach ($raw as $k => $v) {
+                if (! is_string($k) || ! is_scalar($v)) continue;
+                $kl = strtolower($k);
+                if (str_contains($kl, 'categ') || $kl === 'cat') $candidates[] = (string) $v;
+            }
+        }
+        foreach ($candidates as $c) {
+            $cl = strtolower(trim((string) $c));
+            if ($cl === '') continue;
+            foreach ($filter as $f) {
+                if ($cl === $f || str_contains($cl, $f)) return true;
+            }
+        }
+        return false;
     }
 
     public function diff(array $items, Context $ctx): Diff
@@ -169,7 +240,17 @@ final class CsvSource extends AbstractSource
             }
         }
 
-        return new Diff(new: $new, update: $update, unchanged: $unchanged);
+        // Split `update` into full vs stock-only so a job tagged
+        // buckets:['updateStock'] gets the cheap path. SF "refresh"
+        // jobs rely on this to stay sub-second per product.
+        [ $updateFull, $updateStock ] = StockOnlyClassifier::split( $update );
+
+        return new Diff(
+            new: $new,
+            update: $updateFull,
+            unchanged: $unchanged,
+            updateStock: $updateStock,
+        );
     }
 
     public function materialize(FeedItem $item, Context $ctx): MaterializeResult

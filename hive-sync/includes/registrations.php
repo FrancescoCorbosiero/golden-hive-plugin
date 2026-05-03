@@ -25,7 +25,9 @@ add_action( 'hive_sync/core_booted', function () {
 
     // Operations (import-rules — mutate the FeedItem draft during import)
     \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Media\DownloadMedia() );
+    \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Taxonomy\AutoCategorize() );
     \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Taxonomy\ResolveTaxonomy() );
+    \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Pricing\MarkupPercent() );
 
     // Checks (post-import — productId-scoped)
     \HiveSync\Core\Bootstrap::$checks->register( new \HiveSync\Checks\Media\HasImages() );

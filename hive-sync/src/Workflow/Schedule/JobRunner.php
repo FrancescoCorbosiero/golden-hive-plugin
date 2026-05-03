@@ -13,6 +13,7 @@ use HiveSync\Core\Pipeline\PipelineRepository;
 use HiveSync\Core\Pipeline\PipelineStep;
 use HiveSync\Core\Pipeline\PipelineStepKind;
 use HiveSync\Core\Repo\JobRepository;
+use HiveSync\Core\Repo\MappingRepository;
 use HiveSync\Core\Repo\RuleRepository;
 use HiveSync\Core\Repo\RunRepository;
 use HiveSync\Core\Repo\SourceConfigRepository;
@@ -56,6 +57,7 @@ final class JobRunner
         private readonly RunRepository $runs,
         private readonly RuleRepository $rules,
         private readonly SourceConfigRepository $sourceConfigs,
+        private readonly ?MappingRepository $mappings = null,
     ) {}
 
     /**
@@ -152,6 +154,17 @@ final class JobRunner
             if ( $stored ) $config = (array) $stored['config'];
         }
         $options = (array) ( $jobConfig['options'] ?? [] );
+
+        // Resolve mapping_slug → options.mapping at dispatch time so
+        // seeded jobs can reference a stable mapping by name. Edits
+        // to the mapping flow through to the job on the next tick.
+        if ( empty( $options['mapping'] ) && ! empty( $options['mapping_slug'] ) && $this->mappings ) {
+            $mapping = $this->mappings->find( (string) $options['mapping_slug'] );
+            if ( $mapping ) {
+                $options['mapping'] = (array) $mapping['config'];
+            }
+        }
+
         $deadline = time() + 25;
 
         $importer = new ImportRunner( $this->runs );

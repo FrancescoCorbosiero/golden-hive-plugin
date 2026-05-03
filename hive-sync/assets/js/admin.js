@@ -66,6 +66,77 @@
 
     HSync.state.usage = { source_configs: {}, mappings: {}, pipelines: {}, rules: {} };
 
+    // ─── Cockpit (header status strip) ─────────────────────────────
+
+    HSync.refreshCockpit = async function () {
+        try {
+            const data = await HSync.ajax('cockpit_status', {});
+            HSync.renderCockpit(data);
+        } catch (e) { /* non-fatal — header just stays in loading state */ }
+    };
+
+    HSync.renderCockpit = function (data) {
+        const set = (k, html, sub) => {
+            const el = document.querySelector('[data-cockpit="' + k + '"]');
+            if (el) el.innerHTML = html;
+            if (sub !== undefined) {
+                const subEl = document.querySelector('[data-cockpit="' + k + '-sub"]');
+                if (subEl) subEl.innerHTML = sub;
+            }
+        };
+        document.querySelectorAll('.hsync-cockpit-tile.is-loading').forEach(t => t.classList.remove('is-loading'));
+
+        // ── Tile: Jobs ────────────────────────────────────────────
+        const active = data.jobs_active || 0, total = data.jobs_total || 0;
+        set('jobs', '<span class="' + (active > 0 ? 'is-good' : 'is-dim') + '">' + active + '</span><span class="hsync-cockpit-tile-total">/' + total + '</span>',
+            active > 0 ? 'attivi su ' + total + ' totali' : 'nessuna automazione attiva');
+
+        // ── Tile: Last run ───────────────────────────────────────
+        const lr = data.last_run;
+        if (!lr) {
+            set('lastrun', '—', 'nessun import ancora eseguito');
+        } else {
+            const created = lr.created || 0, updated = lr.updated || 0, patched = lr.patched || 0, failed = lr.failed || 0;
+            const headline = (created + updated + patched) > 0
+                ? '<span class="is-good">' + (created + updated + patched) + '</span>'
+                : '<span class="' + (failed > 0 ? 'is-bad' : 'is-dim') + '">' + (failed > 0 ? failed : '0') + '</span>';
+            const sub = HSync.timeAgo(lr.finished_at || lr.started_at)
+                + (failed > 0 ? ' · <span class="is-bad">' + failed + ' falliti</span>' : '')
+                + (patched > 0 ? ' · ' + patched + ' stock' : '');
+            set('lastrun', headline, sub);
+        }
+
+        // ── Tile: Catalog ────────────────────────────────────────
+        set('products', String(data.product_count || 0), 'prodotti pubblicati');
+    };
+
+    /**
+     * "5 minuti fa", "2 ore fa", etc. Italian.
+     */
+    HSync.timeAgo = function (iso) {
+        if (!iso) return '—';
+        const t = Date.parse(iso.replace(' ', 'T') + (iso.endsWith('Z') || iso.includes('+') ? '' : 'Z'));
+        if (Number.isNaN(t)) return iso;
+        const diff = Math.max(0, Date.now() - t) / 1000;
+        if (diff < 60)        return 'pochi secondi fa';
+        if (diff < 3600)      return Math.floor(diff / 60) + ' min fa';
+        if (diff < 86400)     return Math.floor(diff / 3600) + ' ore fa';
+        if (diff < 86400 * 7) return Math.floor(diff / 86400) + ' giorni fa';
+        return new Date(t).toLocaleDateString('it-IT');
+    };
+
+    HSync.cockpitTickNow = async function () {
+        const btn = document.querySelector('[data-action="cockpit-tick"]');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ In esecuzione…'; }
+        try {
+            const data = await HSync.ajax('jobs_tick_now', {});
+            alert('Esecuzione lanciata: ' + (data.dispatched || 0) + ' avviati, ' + (data.skipped || 0) + ' saltati'
+                + (data.locked ? ' (sistema occupato — riprova tra poco)' : ''));
+        } catch (e) { alert('Errore: ' + e.message); }
+        if (btn) { btn.disabled = false; btn.innerHTML = '▶ Esegui ciclo automatizzazioni'; }
+        HSync.refreshCockpit();
+    };
+
     /**
      * Pulls the usage map (which slug is referenced by which jobs)
      * once and caches it on state. Cheap query — just iterates the
@@ -2128,8 +2199,13 @@
     // ─── Event delegation ─────────────────────────────────────────
 
     document.addEventListener('click', function (e) {
+        // Tab buttons contain nested spans (icon + step number) — when
+        // the user clicks one of those spans, e.target IS the span, not
+        // the button. closest() resolves to the nearest tab button.
+        const tabBtn = e.target.closest && e.target.closest('.hsync-tab');
+        if (tabBtn) return HSync.switchTab(tabBtn.dataset.tab);
         const t = e.target;
-        if (t.matches('.hsync-tab'))                    return HSync.switchTab(t.dataset.tab);
+        if (t.matches('[data-action="cockpit-tick"]')) return HSync.cockpitTickNow();
         if (t.matches('[data-action="test-fetch"]'))    return HSync.testFetch(t.dataset.source, t.closest('form'));
         if (t.matches('[data-action="src-config-save"]'))   return HSync.saveSourceConfig(t.dataset.source);
         if (t.matches('[data-action="src-config-reset"]'))  return HSync.resetSourceConfigEditor(t.dataset.source);
@@ -2575,6 +2651,10 @@
     // ─── Boot ─────────────────────────────────────────────────────
 
     document.addEventListener('DOMContentLoaded', function () {
+        HSync.refreshCockpit();
         HSync.loadSources();
+        // Refresh the cockpit periodically so the operator sees jobs
+        // tick in real time without having to reload the whole page.
+        setInterval(HSync.refreshCockpit, 30000);
     });
 })();

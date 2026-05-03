@@ -26,22 +26,51 @@ function hsync_render_admin_page(): void {
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
     ?>
     <div class="wrap hsync-wrap" id="hsync-app">
-        <h1 class="hsync-title">
-            Hive Sync
-            <span class="hsync-version">v<?php echo esc_html( HSYNC_VERSION ); ?></span>
-        </h1>
+        <header class="hsync-cockpit">
+            <div class="hsync-cockpit-brand">
+                <span class="hsync-cockpit-logo" aria-hidden="true">⬡</span>
+                <div>
+                    <h1 class="hsync-title">Hive Sync</h1>
+                    <span class="hsync-version">v<?php echo esc_html( HSYNC_VERSION ); ?> · sync engine</span>
+                </div>
+            </div>
+            <div class="hsync-cockpit-tiles" data-region="cockpit-tiles">
+                <div class="hsync-cockpit-tile is-loading">
+                    <div class="hsync-cockpit-tile-label">Automazioni</div>
+                    <div class="hsync-cockpit-tile-num" data-cockpit="jobs">—</div>
+                    <div class="hsync-cockpit-tile-sub" data-cockpit="jobs-sub">caricamento…</div>
+                </div>
+                <div class="hsync-cockpit-tile is-loading">
+                    <div class="hsync-cockpit-tile-label">Ultimo import</div>
+                    <div class="hsync-cockpit-tile-num" data-cockpit="lastrun">—</div>
+                    <div class="hsync-cockpit-tile-sub" data-cockpit="lastrun-sub">caricamento…</div>
+                </div>
+                <div class="hsync-cockpit-tile is-loading">
+                    <div class="hsync-cockpit-tile-label">Catalogo Woo</div>
+                    <div class="hsync-cockpit-tile-num" data-cockpit="products">—</div>
+                    <div class="hsync-cockpit-tile-sub" data-cockpit="products-sub">prodotti pubblicati</div>
+                </div>
+                <div class="hsync-cockpit-tile hsync-cockpit-tile-action">
+                    <button class="button button-primary button-hero" data-action="cockpit-tick">
+                        ▶ Esegui ciclo automatizzazioni
+                    </button>
+                    <small class="hsync-muted">Forza un giro adesso, senza aspettare il cron.</small>
+                </div>
+            </div>
+        </header>
 
         <nav class="hsync-tabs" role="tablist">
-            <button class="hsync-tab is-active" data-tab="sources" role="tab" aria-selected="true" title="I tuoi feed e API">1. Connetti</button>
-            <button class="hsync-tab" data-tab="mappings" role="tab" aria-selected="false" title="Allinea i campi del feed con WooCommerce">2. Mappa</button>
-            <button class="hsync-tab" data-tab="pipelines" role="tab" aria-selected="false" title="Cosa fare durante l'import">3. Componi</button>
-            <button class="hsync-tab" data-tab="rules" role="tab" aria-selected="false" title="Azioni sui prodotti esistenti">4. Regole</button>
-            <button class="hsync-tab" data-tab="run" role="tab" aria-selected="false" title="Lancia un import quando vuoi">5. Importa</button>
-            <button class="hsync-tab" data-tab="jobs" role="tab" aria-selected="false" title="Imposta automazioni">6. Automatizza</button>
-            <button class="hsync-tab" data-tab="media" role="tab" aria-selected="false" title="Pulizia foto e libreria">Media</button>
-            <button class="hsync-tab" data-tab="exports" role="tab" aria-selected="false" title="Scarica il catalogo">Esporta</button>
-            <button class="hsync-tab" data-tab="runs" role="tab" aria-selected="false" title="Storico import">Storico</button>
-            <button class="hsync-tab" data-tab="tools" role="tab" aria-selected="false" title="Pulizia avanzata">Strumenti</button>
+            <button class="hsync-tab is-active" data-tab="sources"   role="tab" aria-selected="true"  title="I tuoi feed e API"><span class="hsync-tab-step">1</span><span class="hsync-tab-icon">🔌</span> Connetti</button>
+            <button class="hsync-tab"           data-tab="mappings"  role="tab" aria-selected="false" title="Allinea i campi del feed con WooCommerce"><span class="hsync-tab-step">2</span><span class="hsync-tab-icon">🗺</span> Mappa</button>
+            <button class="hsync-tab"           data-tab="pipelines" role="tab" aria-selected="false" title="Cosa fare durante l'import"><span class="hsync-tab-step">3</span><span class="hsync-tab-icon">⚙</span> Componi</button>
+            <button class="hsync-tab"           data-tab="rules"     role="tab" aria-selected="false" title="Azioni sui prodotti esistenti"><span class="hsync-tab-step">4</span><span class="hsync-tab-icon">🎯</span> Regole</button>
+            <button class="hsync-tab"           data-tab="run"       role="tab" aria-selected="false" title="Lancia un import quando vuoi"><span class="hsync-tab-step">5</span><span class="hsync-tab-icon">▶</span> Importa</button>
+            <button class="hsync-tab"           data-tab="jobs"      role="tab" aria-selected="false" title="Imposta automazioni"><span class="hsync-tab-step">6</span><span class="hsync-tab-icon">⏱</span> Automatizza</button>
+            <span class="hsync-tab-sep" aria-hidden="true"></span>
+            <button class="hsync-tab" data-tab="media"   role="tab" aria-selected="false" title="Pulizia foto e libreria"><span class="hsync-tab-icon">🖼</span> Media</button>
+            <button class="hsync-tab" data-tab="exports" role="tab" aria-selected="false" title="Scarica il catalogo"><span class="hsync-tab-icon">⬇</span> Esporta</button>
+            <button class="hsync-tab" data-tab="runs"    role="tab" aria-selected="false" title="Storico import"><span class="hsync-tab-icon">📜</span> Storico</button>
+            <button class="hsync-tab" data-tab="tools"   role="tab" aria-selected="false" title="Pulizia avanzata"><span class="hsync-tab-icon">⚠</span> Strumenti</button>
         </nav>
 
         <section class="hsync-panel is-active" data-panel="sources">

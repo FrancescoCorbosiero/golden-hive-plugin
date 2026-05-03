@@ -921,3 +921,57 @@ add_action( 'wp_ajax_hsync_ajax_usage_summary', function () {
 
     wp_send_json_success( [ 'usage' => $usage ] );
 } );
+
+// ─── Cockpit header status ─────────────────────────────────────
+//
+// Lightweight aggregated status used by the page header strip:
+// counts of jobs (active/total), last run summary, Woo product count.
+// Single roundtrip per page load — refreshes only when the operator
+// switches tabs or hits "Tick now".
+
+add_action( 'wp_ajax_hsync_ajax_cockpit_status', function () {
+    hsync_ajax_guard();
+    global $wpdb;
+
+    $jobs       = ( new \HiveSync\Core\Repo\JobRepository() )->all();
+    $jobsTotal  = count( $jobs );
+    $jobsActive = 0;
+    foreach ( $jobs as $j ) if ( ! empty( $j['enabled'] ) ) $jobsActive++;
+
+    // Pull the most recent FINISHED run (skip rows still in progress
+    // so the header doesn't flash a stale summary mid-import).
+    $runs     = ( new \HiveSync\Core\Repo\RunRepository() )->recent( 5 );
+    $lastRun  = null;
+    foreach ( $runs as $r ) {
+        if ( ! empty( $r['finished_at'] ) ) { $lastRun = $r; break; }
+    }
+    if ( ! $lastRun && ! empty( $runs ) ) $lastRun = $runs[0];
+
+    $summary = is_array( $lastRun['report']['summary'] ?? null ) ? $lastRun['report']['summary'] : [];
+    $lastInfo = $lastRun
+        ? [
+            'id'          => (int) ( $lastRun['id'] ?? 0 ),
+            'status'      => (string) ( $lastRun['status'] ?? '' ),
+            'finished_at' => (string) ( $lastRun['finished_at'] ?? '' ),
+            'started_at'  => (string) ( $lastRun['started_at']  ?? '' ),
+            'kind'        => (string) ( $lastRun['runnable_type'] ?? '' ),
+            'ref'         => (string) ( $lastRun['runnable_ref']  ?? '' ),
+            'created'     => (int) ( $summary['created']       ?? 0 ),
+            'updated'     => (int) ( $summary['updated']       ?? 0 ),
+            'patched'     => (int) ( $summary['stock_patched'] ?? 0 ),
+            'failed'      => (int) ( $summary['failed']        ?? 0 ),
+        ]
+        : null;
+
+    $productCount = (int) $wpdb->get_var(
+        "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'product' AND post_status NOT IN ('trash','auto-draft')",
+    );
+
+    wp_send_json_success( [
+        'jobs_active'   => $jobsActive,
+        'jobs_total'    => $jobsTotal,
+        'last_run'      => $lastInfo,
+        'product_count' => $productCount,
+        'now_iso'       => gmdate( 'c' ),
+    ] );
+} );

@@ -72,27 +72,34 @@ final class Defaults
                 'slug'        => 'gs-default',
                 'name'        => 'Golden Sneakers — default',
                 'source_kind' => 'goldensneakers',
+                // Field names mirror the actual GS API payload — the
+                // upstream ships ONE ROW PER (SKU + size) with these
+                // exact keys. GoldenSneakersSource::aggregateFlatRows
+                // groups rows by SKU into a single product, exposing
+                // both the original product-level fields (product_name,
+                // image_full_url, ...) and the synthesized ones
+                // (sizes[], summary_qty, stock_status).
                 'config'      => [
                     'sku'            => 'sku',
-                    'name'           => 'name',
+                    'name'           => 'product_name',
                     'regular_price'  => 'presented_price',
                     'sale_price'     => 'offer_price',
-                    'price'          => 'offer_price',
-                    'stock_quantity' => 'available_summary_quantity',
+                    // summary_qty + stock_status are derived during
+                    // aggregation (sum of available_quantity across
+                    // all sizes; stock_status follows from > 0).
+                    'stock_quantity' => 'summary_qty',
                     'stock_status'   => 'stock_status',
                     'manage_stock'   => 'manage_stock',
+                    // Single product image — gallery isn't shipped
+                    // separately by the GS API.
+                    'image_url'      => 'image_full_url',
                     'featured_image' => 'image_full_url',
-                    'image'          => 'image_full_url',
-                    'brands'         => 'brand_name',
-                    'pa_marca'       => 'brand_name',
+                    'brand'          => 'brand_name',
+                    // Multi-value path: returns the list of EU sizes
+                    // — the materialize step expands them into Woo
+                    // variations automatically.
                     'pa_taglia'      => 'sizes.size_eu',
                     'size_mapper'    => 'size_mapper_name',
-                    // Templated fields the user can refine per-deployment.
-                    // Empty by default; uncomment / customize after import.
-                    // 'short_description' => '<p>Sneakers <strong>{brand_name}</strong>. {name}.</p>',
-                    // 'description'       => '<p>{name} — modello {brand_name}. Codice: {sku}.</p>',
-                    // 'meta_title'        => '{name} — {brand_name} | Hive',
-                    // 'meta_description'  => 'Acquista {name} originali. Spedizione veloce.',
                 ],
             ],
             [

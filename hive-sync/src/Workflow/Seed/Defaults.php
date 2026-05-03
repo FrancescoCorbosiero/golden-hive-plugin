@@ -117,15 +117,47 @@ final class Defaults
             ],
             [
                 'slug'        => 'sf-default',
-                'name'        => 'StockFirmati — default (flavor=stockfirmati)',
+                'name'        => 'StockFirmati — default (con template descrizioni)',
                 'source_kind' => 'csv',
-                // SF flavor handles all field translation internally
-                // (PRODUCT/MODEL grouping → variable Woo shape with
-                // pa_taglia variants). Mapping is intentionally empty —
-                // the operator can add overlay templates (description
-                // template, SEO, etc.) but the core fields are
-                // populated by the source itself.
-                'config'      => [],
+                // The SF flavor (CsvSource::sfTransformToWoo) already
+                // populates sku / name / prices / stock / variations /
+                // _sf_brand / _sf_category / _sf_images at fetch time.
+                // This mapping carries those values through (so the
+                // spine's required-fields validator passes) AND adds
+                // template-driven enrichment for description + SEO
+                // fields. Mirrors the field-by-field assignments the
+                // legacy gh_sf_apply chain made via assign_brand /
+                // assign_category / sideload_images.
+                'config'      => [
+                    // ── Spine pass-throughs ─────────────────────
+                    'sku'              => 'sku',
+                    'name'             => 'name',
+                    'regular_price'    => 'regular_price',
+                    'sale_price'       => 'sale_price',
+                    'stock_quantity'   => 'stock_quantity',
+                    'stock_status'     => 'stock_status',
+                    'manage_stock'     => 'manage_stock',
+
+                    // ── Taxonomy + media overlay ────────────────
+                    // taxonomy.resolve reads `brand` / `categories`
+                    // / `gallery_urls` from the draft and creates
+                    // missing terms; media.download reads
+                    // `gallery_urls` for sideload. We point those
+                    // at the _sf_* meta the flavor produces.
+                    'brand'            => '_sf_brand',
+                    'categories'       => '_sf_category',
+                    'gallery_urls'     => '_sf_images',
+
+                    // ── SEO / description templates ─────────────
+                    // Tweak per-deployment in the mapping editor.
+                    // {_sf_color} / {_sf_material} can be empty
+                    // strings when SF doesn't ship them — the
+                    // template engine substitutes '' silently.
+                    'short_description' => '{_sf_brand} {name}',
+                    'description'       => '<p><strong>{_sf_brand} {name}</strong> — colore {_sf_color}, materiale {_sf_material}.</p>',
+                    'meta_title'        => '{name} | {_sf_brand}',
+                    'meta_description'  => 'Acquista {name} di {_sf_brand}. Colore {_sf_color}, materiale {_sf_material}. Spedizione veloce.',
+                ],
             ],
         ];
     }

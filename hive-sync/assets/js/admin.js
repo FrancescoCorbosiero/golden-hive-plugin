@@ -66,6 +66,77 @@
 
     HSync.state.usage = { source_configs: {}, mappings: {}, pipelines: {}, rules: {} };
 
+    // ─── Cockpit (header status strip) ─────────────────────────────
+
+    HSync.refreshCockpit = async function () {
+        try {
+            const data = await HSync.ajax('cockpit_status', {});
+            HSync.renderCockpit(data);
+        } catch (e) { /* non-fatal — header just stays in loading state */ }
+    };
+
+    HSync.renderCockpit = function (data) {
+        const set = (k, html, sub) => {
+            const el = document.querySelector('[data-cockpit="' + k + '"]');
+            if (el) el.innerHTML = html;
+            if (sub !== undefined) {
+                const subEl = document.querySelector('[data-cockpit="' + k + '-sub"]');
+                if (subEl) subEl.innerHTML = sub;
+            }
+        };
+        document.querySelectorAll('.hsync-cockpit-tile.is-loading').forEach(t => t.classList.remove('is-loading'));
+
+        // ── Tile: Jobs ────────────────────────────────────────────
+        const active = data.jobs_active || 0, total = data.jobs_total || 0;
+        set('jobs', '<span class="' + (active > 0 ? 'is-good' : 'is-dim') + '">' + active + '</span><span class="hsync-cockpit-tile-total">/' + total + '</span>',
+            active > 0 ? 'attivi su ' + total + ' totali' : 'nessuna automazione attiva');
+
+        // ── Tile: Last run ───────────────────────────────────────
+        const lr = data.last_run;
+        if (!lr) {
+            set('lastrun', '—', 'nessun import ancora eseguito');
+        } else {
+            const created = lr.created || 0, updated = lr.updated || 0, patched = lr.patched || 0, failed = lr.failed || 0;
+            const headline = (created + updated + patched) > 0
+                ? '<span class="is-good">' + (created + updated + patched) + '</span>'
+                : '<span class="' + (failed > 0 ? 'is-bad' : 'is-dim') + '">' + (failed > 0 ? failed : '0') + '</span>';
+            const sub = HSync.timeAgo(lr.finished_at || lr.started_at)
+                + (failed > 0 ? ' · <span class="is-bad">' + failed + ' falliti</span>' : '')
+                + (patched > 0 ? ' · ' + patched + ' stock' : '');
+            set('lastrun', headline, sub);
+        }
+
+        // ── Tile: Catalog ────────────────────────────────────────
+        set('products', String(data.product_count || 0), 'prodotti pubblicati');
+    };
+
+    /**
+     * "5 minuti fa", "2 ore fa", etc. Italian.
+     */
+    HSync.timeAgo = function (iso) {
+        if (!iso) return '—';
+        const t = Date.parse(iso.replace(' ', 'T') + (iso.endsWith('Z') || iso.includes('+') ? '' : 'Z'));
+        if (Number.isNaN(t)) return iso;
+        const diff = Math.max(0, Date.now() - t) / 1000;
+        if (diff < 60)        return 'pochi secondi fa';
+        if (diff < 3600)      return Math.floor(diff / 60) + ' min fa';
+        if (diff < 86400)     return Math.floor(diff / 3600) + ' ore fa';
+        if (diff < 86400 * 7) return Math.floor(diff / 86400) + ' giorni fa';
+        return new Date(t).toLocaleDateString('it-IT');
+    };
+
+    HSync.cockpitTickNow = async function () {
+        const btn = document.querySelector('[data-action="cockpit-tick"]');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ In esecuzione…'; }
+        try {
+            const data = await HSync.ajax('jobs_tick_now', {});
+            alert('Esecuzione lanciata: ' + (data.dispatched || 0) + ' avviati, ' + (data.skipped || 0) + ' saltati'
+                + (data.locked ? ' (sistema occupato — riprova tra poco)' : ''));
+        } catch (e) { alert('Errore: ' + e.message); }
+        if (btn) { btn.disabled = false; btn.innerHTML = '▶ Esegui ciclo automatizzazioni'; }
+        HSync.refreshCockpit();
+    };
+
     /**
      * Pulls the usage map (which slug is referenced by which jobs)
      * once and caches it on state. Cheap query — just iterates the
@@ -577,24 +648,29 @@
             region.innerHTML = '<div class="hsync-empty">Nessun job schedulato.</div>';
             return;
         }
-        region.innerHTML = HSync.state.jobs.map(j => ''
+        region.innerHTML = HSync.state.jobs.map(j => {
+            const cronLabel = HSync.describeCron(j.cron_expr || '');
+            const seedLabel = (j.config && j.config._seed_label) ? esc(j.config._seed_label) : '';
+            return ''
             + '<div class="hsync-mapping-row">'
             +   '<div class="hsync-row-main">'
             +     '<div class="hsync-row-name">'
             +       (j.enabled ? '<span class="hsync-action-pill is-created">on</span>' : '<span class="hsync-action-pill is-skipped">off</span>') + ' '
-            +       '<code>' + esc(j.runnable_type) + '</code> · <code>' + esc(j.runnable_ref) + '</code>'
+            +       (seedLabel || ('<code>' + esc(j.runnable_type) + '</code> · <code>' + esc(j.runnable_ref) + '</code>'))
             +     '</div>'
             +     '<div class="hsync-row-meta">'
-            +       'cron: <code>' + esc(j.cron_expr || '—') + '</code> · '
-            +       'next: <code>' + esc(j.next_run_at || '—') + '</code> · '
-            +       'last: <code>' + esc(j.last_run_status || '—') + '</code>'
+            +       (cronLabel
+                        ? '<strong>' + esc(cronLabel) + '</strong> <code>' + esc(j.cron_expr || '—') + '</code>'
+                        : 'cron: <code>' + esc(j.cron_expr || '—') + '</code>')
+            +       ' · next: <code>' + esc(j.next_run_at || '—') + '</code>'
+            +       ' · last: <code>' + esc(j.last_run_status || '—') + '</code>'
             +     '</div>'
             +   '</div>'
             +   '<button class="button" data-action="job-run-now" data-id="' + j.id + '">Run</button>'
             +   '<button class="button" data-action="job-edit"    data-id="' + j.id + '">Modifica</button>'
             +   '<button class="button" data-action="job-delete"  data-id="' + j.id + '">Elimina</button>'
-            + '</div>'
-        ).join('');
+            + '</div>';
+        }).join('');
     };
 
     HSync.openJobEditor = function (job) {
@@ -644,7 +720,12 @@
             + '</label>'
             + '<label>Riferimento ' + refField + '</label>'
             + configField
-            + '<label>Cron expression (5 fields)<input type="text" data-field="job-cron" value="' + esc(j.cron_expr || '') + '" placeholder="*/15 * * * *"></label>'
+            + '<label>Cron expression (5 campi)'
+            +   '<input type="text" data-field="job-cron" value="' + esc(j.cron_expr || '') + '" placeholder="*/15 * * * *">'
+            +   '<small class="hsync-muted" data-region="job-cron-readout">'
+            +     (HSync.describeCron(j.cron_expr || '') || 'Inserisci una espressione cron valida.')
+            +   '</small>'
+            + '</label>'
             + '<label class="hsync-dryrun"><input type="checkbox" data-field="job-enabled"' + (j.enabled ? ' checked' : '') + '> Abilitato</label>'
             + '<div class="hsync-actions" style="margin-top:24px;border-top:1px solid #ccd0d4;padding-top:16px;">'
             +   '<button class="button button-primary" data-action="job-save">Salva</button>'
@@ -1711,6 +1792,78 @@
         { label: 'Lun-Ven 02:00',      expr: '0 2 * * 1-5' },
     ];
 
+    /**
+     * Translate a 5-field cron expression into Italian. Returns
+     * an empty string when the expression is unknown — caller falls
+     * back to showing the raw expression alone.
+     *
+     * Pattern matching only — no full cron evaluation. Common shapes
+     * (every N minutes/hours, daily, weekly, monthly) get a friendly
+     * label; anything else returns ''. The raw cron is always shown
+     * alongside this label so the operator can verify.
+     */
+    HSync.describeCron = function (expr) {
+        const e = String(expr || '').trim();
+        if (!e) return '';
+        const parts = e.split(/\s+/);
+        if (parts.length !== 5) return '';
+        const [m, h, dom, mon, dow] = parts;
+
+        const pad = n => String(n).padStart(2, '0');
+        const star = '*';
+
+        // Day-of-week phrases used when dow is restricted.
+        const dowPhrase = (s) => {
+            if (s === star) return 'ogni giorno';
+            if (s === '1-5') return 'da lunedì a venerdì';
+            if (s === '0,6' || s === '6,0') return 'sabato e domenica';
+            const single = { 0: 'domenica', 1: 'lunedì', 2: 'martedì', 3: 'mercoledì', 4: 'giovedì', 5: 'venerdì', 6: 'sabato', 7: 'domenica' };
+            if (/^\d$/.test(s) && single[s]) return single[s];
+            return '';
+        };
+
+        // — Sub-hour: */N * * * *  → ogni N minuti
+        const stepMin = m.match(/^\*\/(\d+)$/);
+        if (stepMin && h === star && dom === star && mon === star && dow === star) {
+            const n = parseInt(stepMin[1], 10);
+            if (n === 1) return 'Ogni minuto';
+            return 'Ogni ' + n + ' minuti';
+        }
+        // — Hourly at minute M: M * * * *
+        if (/^\d+$/.test(m) && h === star && dom === star && mon === star && dow === star) {
+            const mm = parseInt(m, 10);
+            if (mm === 0) return 'Ogni ora (al minuto :00)';
+            return 'Ogni ora (al minuto :' + pad(mm) + ')';
+        }
+        // — Every N hours at minute M: M */N * * *
+        const stepHr = h.match(/^\*\/(\d+)$/);
+        if (/^\d+$/.test(m) && stepHr && dom === star && mon === star && dow === star) {
+            const n = parseInt(stepHr[1], 10);
+            const mm = parseInt(m, 10);
+            const at = mm === 0 ? '' : ' (al minuto :' + pad(mm) + ')';
+            if (n === 1) return 'Ogni ora' + at;
+            return 'Ogni ' + n + ' ore' + at;
+        }
+        // — Daily at H:M: M H * * <dow>
+        if (/^\d+$/.test(m) && /^\d+$/.test(h) && dom === star && mon === star) {
+            const time = pad(parseInt(h, 10)) + ':' + pad(parseInt(m, 10));
+            const phrase = dowPhrase(dow);
+            if (phrase === 'ogni giorno') return 'Ogni giorno alle ' + time;
+            if (phrase) return ucfirst(phrase) + ' alle ' + time;
+            return '';
+        }
+        // — Monthly on day D at H:M: M H D * *
+        if (/^\d+$/.test(m) && /^\d+$/.test(h) && /^\d+$/.test(dom) && mon === star && dow === star) {
+            const day = parseInt(dom, 10);
+            const time = pad(parseInt(h, 10)) + ':' + pad(parseInt(m, 10));
+            const ord = day === 1 ? 'il 1°' : 'il ' + day;
+            return ucfirst(ord) + ' di ogni mese alle ' + time;
+        }
+        return '';
+
+        function ucfirst(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+    };
+
     HSync.saveCurrentAsJob = async function () {
         const sourceId = $('[data-field="run-source"]').value;
         if (!sourceId) { alert('Scegli una sorgente.'); return; }
@@ -1796,7 +1949,25 @@
         const out = $('[data-region="run-output"]');
         out.innerHTML = '<p class="hsync-loading">Tick 1: starting…</p>';
 
-        const accumulated = { rows: [], summary: null, warnings: [], runId: null };
+        // Two-bucket accumulator across ticks:
+        //   - diffSnapshot: the source-diff numbers (fetched, new,
+        //     update, update_stock, unchanged) — captured ONCE from the
+        //     first tick and held stable. On subsequent ticks the diff
+        //     re-runs and counts shrink as items get processed (already-
+        //     created items leave the `new` bucket on tick 2, etc.) so
+        //     they're not the right thing to display.
+        //   - totals: the result counters (created, updated,
+        //     stock_patched, skipped, failed, pre_blocked, post_blocked)
+        //     SUMMED across every tick — that's the cumulative work
+        //     done by the run, not just the last tick's slice.
+        // Server-side each tick still resets its own summary; the JS
+        // is the system of record for cross-tick aggregation.
+        const RESULT_KEYS = ['created', 'updated', 'stock_patched', 'skipped', 'failed', 'pre_blocked', 'post_blocked'];
+        const accumulated = {
+            rows: [], warnings: [], runId: null,
+            diffSnapshot: null,
+            totals: RESULT_KEYS.reduce((acc, k) => (acc[k] = 0, acc), {}),
+        };
         let cursor = null;
         let tick = 0;
         const maxTicks = 200;  // hard cap — refuse to loop forever on a misbehaving source
@@ -1814,17 +1985,34 @@
                 });
 
                 accumulated.runId    = data.run_id || accumulated.runId;
-                accumulated.summary  = data.summary || accumulated.summary;
                 accumulated.warnings = data.warnings || accumulated.warnings;
                 if (Array.isArray(data.rows)) {
                     // Server returns rows from THIS tick only; concat to grow live.
                     accumulated.rows = accumulated.rows.concat(data.rows).slice(0, 1000);
                 }
 
+                const tickSummary = data.summary || {};
+                if (!accumulated.diffSnapshot) {
+                    accumulated.diffSnapshot = {
+                        fetched:      tickSummary.fetched      || 0,
+                        new:          tickSummary.new          || 0,
+                        update:       tickSummary.update       || 0,
+                        update_stock: tickSummary.update_stock || 0,
+                        unchanged:    tickSummary.unchanged    || 0,
+                    };
+                }
+                RESULT_KEYS.forEach(k => {
+                    accumulated.totals[k] += (tickSummary[k] || 0);
+                });
+
+                // Compose the summary the renderer reads: diff snapshot
+                // from tick 1, result totals across all ticks.
+                const composed = Object.assign({}, accumulated.diffSnapshot, accumulated.totals);
+
                 HSync.renderRunResult({
                     status:   data.status,
                     run_id:   accumulated.runId,
-                    summary:  accumulated.summary,
+                    summary:  composed,
                     warnings: accumulated.warnings,
                     rows:     accumulated.rows,
                     progress: data.progress,
@@ -2011,8 +2199,13 @@
     // ─── Event delegation ─────────────────────────────────────────
 
     document.addEventListener('click', function (e) {
+        // Tab buttons contain nested spans (icon + step number) — when
+        // the user clicks one of those spans, e.target IS the span, not
+        // the button. closest() resolves to the nearest tab button.
+        const tabBtn = e.target.closest && e.target.closest('.hsync-tab');
+        if (tabBtn) return HSync.switchTab(tabBtn.dataset.tab);
         const t = e.target;
-        if (t.matches('.hsync-tab'))                    return HSync.switchTab(t.dataset.tab);
+        if (t.matches('[data-action="cockpit-tick"]')) return HSync.cockpitTickNow();
         if (t.matches('[data-action="test-fetch"]'))    return HSync.testFetch(t.dataset.source, t.closest('form'));
         if (t.matches('[data-action="src-config-save"]'))   return HSync.saveSourceConfig(t.dataset.source);
         if (t.matches('[data-action="src-config-reset"]'))  return HSync.resetSourceConfigEditor(t.dataset.source);
@@ -2139,6 +2332,14 @@
             const idx = parseInt(e.target.dataset.customValue, 10);
             const key = HSync.state.mappingCustomKeys[idx];
             if (key) HSync.state.mappingValues[key] = e.target.value;
+        }
+        // Live cron-to-Italian readout under the job-cron input.
+        if (e.target.matches('[data-field="job-cron"]')) {
+            const readout = document.querySelector('[data-region="job-cron-readout"]');
+            if (readout) {
+                const t = HSync.describeCron(e.target.value);
+                readout.textContent = t || 'Espressione non riconosciuta — controlla i 5 campi (min ora dom mese dow).';
+            }
         }
     });
 
@@ -2450,6 +2651,10 @@
     // ─── Boot ─────────────────────────────────────────────────────
 
     document.addEventListener('DOMContentLoaded', function () {
+        HSync.refreshCockpit();
         HSync.loadSources();
+        // Refresh the cockpit periodically so the operator sees jobs
+        // tick in real time without having to reload the whole page.
+        setInterval(HSync.refreshCockpit, 30000);
     });
 })();

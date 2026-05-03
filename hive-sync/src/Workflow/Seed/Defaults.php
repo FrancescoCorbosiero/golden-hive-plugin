@@ -71,7 +71,7 @@ final class Defaults
             [
                 'slug'        => 'gs-default',
                 'name'        => 'Golden Sneakers — default',
-                'source_kind' => 'goldensneakers',
+                'source_kind' => 'json',
                 // Field names mirror the actual GS API payload — the
                 // upstream ships ONE ROW PER (SKU + size) with these
                 // exact keys. GoldenSneakersSource::aggregateFlatRows
@@ -388,29 +388,39 @@ final class Defaults
     }
 
     /**
-     * Default job lineup. The runnable_ref `goldensneakers/<slug>`
-     * points at the saved source-config the operator creates in the
-     * Connetti tab — until that exists the jobs do nothing useful, so
-     * shipping them disabled is safe.
+     * Default job lineup — three buckets, one job each. Together they
+     * keep a JSON feed in sync with the local catalog:
+     *
+     *   - add-new       (every 30m) — process only `new` bucket; full
+     *                                 pipeline (media + categorize +
+     *                                 taxonomy + checks)
+     *   - refresh-stocks (every 15m) — process only `updateStock`; uses
+     *                                 ImportRunner's fast-stock-patch
+     *                                 path (no media, no taxonomy,
+     *                                 sub-second per product)
+     *   - re-update      (every 6h)  — process only `update` (full,
+     *                                 non-stock changes); full pipeline
+     *
+     * runnable_ref points at a saved source-config the operator wires
+     * up in the Connetti tab. Jobs ship DISABLED so missing configs
+     * aren't a runtime hazard until the operator turns them on.
+     *
+     * For other feeds (StockFirmati, etc.) the operator clones one of
+     * these jobs and points runnable_ref at their own source-config
+     * + tweaks the buckets / cron as needed.
      *
      * @return array<int, array{_seed_id:string, label:string, runnable_type:string, runnable_ref:string, cron:string, config:array}>
      */
     public static function defaultJobs(): array
     {
-        // Saved source-config slugs the operator creates in the
-        // Connetti tab. The seeder ships jobs disabled, so missing
-        // configs aren't a runtime hazard until the operator wires
-        // them up + flips the toggle.
-        $gsRef = 'goldensneakers/gs-prod';
-        $sfRef = 'csv/sf-prod';
+        $ref = 'json/gs-prod';
 
-        $jobs = [
-            // ─── GS — three-bucket maintenance trio ────────────────
+        return [
             [
                 '_seed_id'      => 'gs-add-new',
                 'label'         => 'GS — Aggiungi nuovi prodotti',
                 'runnable_type' => 'source.import',
-                'runnable_ref'  => $gsRef,
+                'runnable_ref'  => $ref,
                 'cron'          => '*/30 * * * *',
                 'config'        => [
                     'options' => [
@@ -424,7 +434,7 @@ final class Defaults
                 '_seed_id'      => 'gs-refresh-stocks',
                 'label'         => 'GS — Refresh prezzi e stock',
                 'runnable_type' => 'source.import',
-                'runnable_ref'  => $gsRef,
+                'runnable_ref'  => $ref,
                 'cron'          => '*/15 * * * *',
                 'config'        => [
                     'options' => [
@@ -437,7 +447,7 @@ final class Defaults
                 '_seed_id'      => 'gs-re-update',
                 'label'         => 'GS — Re-update completo (campi non-stock)',
                 'runnable_type' => 'source.import',
-                'runnable_ref'  => $gsRef,
+                'runnable_ref'  => $ref,
                 'cron'          => '0 */6 * * *',
                 'config'        => [
                     'options' => [
@@ -447,85 +457,6 @@ final class Defaults
                     ],
                 ],
             ],
-        ];
-
-        // ─── SF — sample subset trio (Sneakers @ markup 30%) ─────
-        // Clone these per category subset (Abbigliamento @ 25%, etc.)
-        // The subset is the (category_filter, markup_percent) pair —
-        // one source-config + one mapping + one base pipeline serve
-        // every subset; only the runtime params per job differ.
-        foreach ( self::sfSubsetTemplates() as $subset ) {
-            [ $catFilter, $markupPct, $tag ] = [ $subset['filter'], $subset['markup'], $subset['tag'] ];
-
-            $jobs[] = [
-                '_seed_id'      => "sf-{$tag}-add-new",
-                'label'         => "SF [{$tag} +{$markupPct}%] — Aggiungi nuovi prodotti",
-                'runnable_type' => 'source.import',
-                'runnable_ref'  => $sfRef,
-                'cron'          => '*/45 * * * *',
-                'config'        => [
-                    'options' => [
-                        'mapping_slug'    => 'sf-default',
-                        'pipeline_slug'   => 'import-sf-with-markup',
-                        'buckets'         => [ 'new' ],
-                        'category_filter' => $catFilter,
-                        // markup_percent_override is read by the
-                        // dispatcher and patched into the pipeline's
-                        // pricing.markup_percent step at run time, so
-                        // every subset uses the same pipeline def.
-                        'markup_percent_override' => $markupPct,
-                    ],
-                ],
-            ];
-            $jobs[] = [
-                '_seed_id'      => "sf-{$tag}-refresh-stocks",
-                'label'         => "SF [{$tag} +{$markupPct}%] — Refresh prezzi e stock",
-                'runnable_type' => 'source.import',
-                'runnable_ref'  => $sfRef,
-                'cron'          => '*/20 * * * *',
-                'config'        => [
-                    'options' => [
-                        'mapping_slug'            => 'sf-default',
-                        'buckets'                 => [ 'updateStock' ],
-                        'category_filter'         => $catFilter,
-                        'markup_percent_override' => $markupPct,
-                    ],
-                ],
-            ];
-            $jobs[] = [
-                '_seed_id'      => "sf-{$tag}-re-update",
-                'label'         => "SF [{$tag} +{$markupPct}%] — Re-update completo",
-                'runnable_type' => 'source.import',
-                'runnable_ref'  => $sfRef,
-                'cron'          => '0 */8 * * *',
-                'config'        => [
-                    'options' => [
-                        'mapping_slug'            => 'sf-default',
-                        'pipeline_slug'           => 'import-sf-with-markup',
-                        'buckets'                 => [ 'update' ],
-                        'category_filter'         => $catFilter,
-                        'markup_percent_override' => $markupPct,
-                    ],
-                ],
-            ];
-        }
-
-        return $jobs;
-    }
-
-    /**
-     * Sample subset definitions — the operator edits these in the UI
-     * after seeding (or duplicates a job and tweaks the markup +
-     * filter). Each tuple becomes 3 jobs (new / refresh / re-update).
-     *
-     * @return array<int, array{tag:string, filter:array<int,string>, markup:int}>
-     */
-    private static function sfSubsetTemplates(): array
-    {
-        return [
-            [ 'tag' => 'sneakers',      'filter' => [ 'sneakers', 'scarpe' ],     'markup' => 30 ],
-            [ 'tag' => 'abbigliamento', 'filter' => [ 'abbigliamento', 'cloth' ], 'markup' => 40 ],
-            [ 'tag' => 'accessori',     'filter' => [ 'accessori', 'cappello', 'borsa' ], 'markup' => 50 ],
         ];
     }
 }

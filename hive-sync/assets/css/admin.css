@@ -1,26 +1,127 @@
-/* Hive Sync — admin styles. All scoped under .hsync-wrap. */
+/* Hive Sync — admin styles. Spaceship-cockpit aesthetic: dark
+   accent header, sticky tabs, generous padding, subtle motion.
+   All scoped under .hsync-wrap. */
 
-.hsync-wrap { max-width: 1400px; }
-.hsync-wrap .hsync-title { display: flex; align-items: baseline; gap: 12px; }
-.hsync-wrap .hsync-version { font-size: 12px; color: #777; font-weight: normal; }
+.hsync-wrap { max-width: 1500px; margin-right: 20px; }
+.hsync-wrap .hsync-title {
+    margin: 0; font-size: 22px; font-weight: 600; color: #fff;
+    letter-spacing: -0.01em; line-height: 1.1;
+}
+.hsync-wrap .hsync-version {
+    font-size: 11px; color: rgba(255,255,255,0.55); font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.05em;
+}
 
+/* ─── Cockpit header strip ───────────────────────────────────── */
+.hsync-wrap .hsync-cockpit {
+    background: linear-gradient(135deg, #1d2327 0%, #2c3338 100%);
+    color: #fff; padding: 20px 24px; border-radius: 8px;
+    margin: 16px 0 0; display: grid;
+    grid-template-columns: minmax(220px, 1fr) 3fr; gap: 24px;
+    align-items: center;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+.hsync-wrap .hsync-cockpit-brand {
+    display: flex; align-items: center; gap: 14px;
+}
+.hsync-wrap .hsync-cockpit-logo {
+    font-size: 38px; line-height: 1; color: #ffb900;
+    text-shadow: 0 2px 8px rgba(255, 185, 0, 0.35);
+}
+.hsync-wrap .hsync-cockpit-tiles {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+}
+.hsync-wrap .hsync-cockpit-tile {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 6px; padding: 10px 14px; min-height: 78px;
+    display: flex; flex-direction: column; justify-content: center;
+    transition: background 0.15s ease;
+}
+.hsync-wrap .hsync-cockpit-tile:hover { background: rgba(255,255,255,0.10); }
+.hsync-wrap .hsync-cockpit-tile.is-loading { opacity: 0.55; }
+.hsync-wrap .hsync-cockpit-tile-label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: rgba(255,255,255,0.55); margin-bottom: 4px;
+}
+.hsync-wrap .hsync-cockpit-tile-num {
+    font-size: 24px; font-weight: 700; line-height: 1;
+    color: #fff; font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+.hsync-wrap .hsync-cockpit-tile-num .is-good { color: #6cce82; }
+.hsync-wrap .hsync-cockpit-tile-num .is-bad  { color: #ff6b6e; }
+.hsync-wrap .hsync-cockpit-tile-num .is-dim  { color: rgba(255,255,255,0.55); }
+.hsync-wrap .hsync-cockpit-tile-total {
+    font-size: 14px; color: rgba(255,255,255,0.45); font-weight: 500;
+}
+.hsync-wrap .hsync-cockpit-tile-sub {
+    font-size: 11px; color: rgba(255,255,255,0.65); margin-top: 4px;
+    line-height: 1.3;
+}
+.hsync-wrap .hsync-cockpit-tile-sub .is-good { color: #6cce82; }
+.hsync-wrap .hsync-cockpit-tile-sub .is-bad  { color: #ff6b6e; }
+.hsync-wrap .hsync-cockpit-tile-action {
+    background: rgba(255,185,0,0.10); border-color: rgba(255,185,0,0.30);
+    text-align: center; gap: 6px;
+}
+.hsync-wrap .hsync-cockpit-tile-action .button-hero {
+    background: #ffb900; border-color: #ffb900; color: #1d2327;
+    font-weight: 600; padding: 6px 14px; height: auto;
+    box-shadow: 0 2px 4px rgba(255,185,0,0.25);
+}
+.hsync-wrap .hsync-cockpit-tile-action .button-hero:hover {
+    background: #ffc933; border-color: #ffc933; color: #1d2327;
+}
+.hsync-wrap .hsync-cockpit-tile-action small {
+    color: rgba(255,255,255,0.55); font-size: 10px;
+}
+
+@media (max-width: 1100px) {
+    .hsync-wrap .hsync-cockpit { grid-template-columns: 1fr; }
+    .hsync-wrap .hsync-cockpit-tiles { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ─── Tabs (sticky + iconified) ──────────────────────────────── */
 .hsync-wrap .hsync-tabs {
-    display: flex; gap: 2px; margin: 16px 0 0; border-bottom: 1px solid #ccd0d4;
+    display: flex; gap: 4px; margin: 18px 0 0; padding: 0 4px;
+    border-bottom: 2px solid #d1d5d9;
+    position: sticky; top: 32px; z-index: 10;
+    background: #f0f0f1; align-items: flex-end;
 }
 .hsync-wrap .hsync-tab {
     background: transparent; border: 1px solid transparent; border-bottom: none;
-    padding: 8px 16px; cursor: pointer; font-size: 14px;
-    color: #50575e; border-radius: 4px 4px 0 0;
+    padding: 9px 14px; cursor: pointer; font-size: 13px; font-weight: 500;
+    color: #50575e; border-radius: 6px 6px 0 0;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: background 0.12s ease, color 0.12s ease;
 }
-.hsync-wrap .hsync-tab:hover { background: #f0f0f1; color: #1d2327; }
+.hsync-wrap .hsync-tab:hover {
+    background: rgba(34, 113, 177, 0.08); color: #2271b1;
+}
 .hsync-wrap .hsync-tab.is-active {
-    background: #fff; border-color: #ccd0d4; color: #1d2327;
-    margin-bottom: -1px;
+    background: #fff; border-color: #d1d5d9; color: #1d2327;
+    margin-bottom: -2px; font-weight: 600;
+    box-shadow: 0 -2px 0 #2271b1 inset;
+}
+.hsync-wrap .hsync-tab-step {
+    display: inline-block; min-width: 18px; height: 18px;
+    border-radius: 50%; background: rgba(0,0,0,0.06); color: #50575e;
+    font-size: 10px; line-height: 18px; text-align: center;
+    font-weight: 700; font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+.hsync-wrap .hsync-tab.is-active .hsync-tab-step {
+    background: #2271b1; color: #fff;
+}
+.hsync-wrap .hsync-tab-icon { font-size: 14px; }
+.hsync-wrap .hsync-tab-sep {
+    flex: 0 0 1px; height: 24px; align-self: center;
+    background: #d1d5d9; margin: 0 6px;
 }
 
 .hsync-wrap .hsync-panel {
-    display: none; background: #fff; border: 1px solid #ccd0d4; border-top: none;
-    padding: 20px; min-height: 320px;
+    display: none; background: #fff;
+    border: 1px solid #d1d5d9; border-top: none;
+    padding: 24px; min-height: 320px;
+    border-radius: 0 0 8px 8px;
 }
 .hsync-wrap .hsync-panel.is-active { display: block; }
 
@@ -98,13 +199,33 @@
     display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; margin-bottom: 12px;
 }
 .hsync-wrap .hsync-stat {
-    background: #fff; border: 1px solid #ccd0d4; border-radius: 4px;
-    padding: 10px; text-align: center;
+    background: linear-gradient(180deg, #fff 0%, #fafafa 100%);
+    border: 1px solid #d1d5d9; border-radius: 6px;
+    padding: 14px 12px; text-align: center;
+    position: relative; overflow: hidden;
 }
-.hsync-wrap .hsync-stat .hsync-stat-num { font-size: 18px; font-weight: 600; color: #1d2327; }
-.hsync-wrap .hsync-stat .hsync-stat-label { font-size: 11px; color: #646970; text-transform: uppercase; }
+.hsync-wrap .hsync-stat::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+    width: 3px; background: #d1d5d9;
+}
+.hsync-wrap .hsync-stat .hsync-stat-num {
+    font-size: 22px; font-weight: 700; color: #1d2327;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    line-height: 1.1;
+}
+.hsync-wrap .hsync-stat .hsync-stat-label {
+    font-size: 10px; color: #646970; text-transform: uppercase;
+    letter-spacing: 0.05em; font-weight: 600; margin-top: 4px;
+    line-height: 1.2;
+}
+.hsync-wrap .hsync-stat.is-good            { background: linear-gradient(180deg, #f3fbf4 0%, #e8f7eb 100%); }
+.hsync-wrap .hsync-stat.is-good::before    { background: #1e7e34; }
 .hsync-wrap .hsync-stat.is-good .hsync-stat-num { color: #1e7e34; }
-.hsync-wrap .hsync-stat.is-bad  .hsync-stat-num { color: #d63638; }
+.hsync-wrap .hsync-stat.is-bad             { background: linear-gradient(180deg, #fdf3f4 0%, #fbe5e6 100%); }
+.hsync-wrap .hsync-stat.is-bad::before     { background: #d63638; }
+.hsync-wrap .hsync-stat.is-bad .hsync-stat-num  { color: #d63638; }
+.hsync-wrap .hsync-stat.is-dim::before     { background: #c3c5c7; }
+.hsync-wrap .hsync-stat.is-dim .hsync-stat-num  { color: #8c8f94; }
 
 .hsync-wrap .hsync-warnings { margin: 12px 0; }
 .hsync-wrap .hsync-warning {
@@ -155,14 +276,17 @@
 
 /* Tab intro banner — a one-line context cue at the top of each tab. */
 .hsync-wrap .hsync-tab-intro {
-    background: #f0f6fc; border-left: 3px solid #2271b1;
-    padding: 10px 14px; margin: 0 0 16px;
-    font-size: 13px; color: #1d2327; line-height: 1.5;
+    background: linear-gradient(135deg, #f0f6fc 0%, #e8f1f9 100%);
+    border-left: 4px solid #2271b1;
+    padding: 14px 18px; margin: 0 0 20px;
+    font-size: 13px; color: #1d2327; line-height: 1.55;
+    border-radius: 0 6px 6px 0;
 }
 .hsync-wrap .hsync-tab-intro strong { color: #135e96; }
+.hsync-wrap .hsync-tab-intro em { font-style: normal; font-weight: 600; color: #2271b1; }
 .hsync-wrap .hsync-tab-intro code {
-    background: rgba(34, 113, 177, 0.08); padding: 1px 6px; border-radius: 3px;
-    font-size: 12px;
+    background: rgba(34, 113, 177, 0.10); padding: 1px 6px; border-radius: 3px;
+    font-size: 12px; color: #135e96;
 }
 
 /* Media tab */
@@ -378,17 +502,31 @@
 
 .hsync-wrap .hsync-mapping-row {
     display: flex; align-items: center; gap: 12px;
-    padding: 12px; border: 1px solid #ccd0d4; border-radius: 4px;
+    padding: 14px 16px; border: 1px solid #d1d5d9; border-radius: 6px;
     margin-bottom: 8px; background: #fff;
+    transition: border-color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
 }
-.hsync-wrap .hsync-mapping-row .hsync-row-main { flex: 1; }
-.hsync-wrap .hsync-mapping-row .hsync-row-name { font-weight: 600; }
-.hsync-wrap .hsync-mapping-row .hsync-row-meta { font-size: 12px; color: #646970; }
+.hsync-wrap .hsync-mapping-row:hover {
+    border-color: #2271b1;
+    box-shadow: 0 2px 8px rgba(34, 113, 177, 0.08);
+    transform: translateY(-1px);
+}
+.hsync-wrap .hsync-mapping-row .hsync-row-main { flex: 1; min-width: 0; }
+.hsync-wrap .hsync-mapping-row .hsync-row-name {
+    font-weight: 600; font-size: 14px; color: #1d2327;
+    display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+}
+.hsync-wrap .hsync-mapping-row .hsync-row-meta {
+    font-size: 12px; color: #646970; margin-top: 4px;
+}
 
 .hsync-wrap .hsync-empty {
-    text-align: center; padding: 32px; color: #646970; font-style: italic;
-    background: #f6f7f7; border-radius: 4px;
+    text-align: center; padding: 40px 24px; color: #646970;
+    background: linear-gradient(180deg, #fafafa 0%, #f6f7f7 100%);
+    border: 2px dashed #d1d5d9; border-radius: 8px;
+    font-size: 14px;
 }
+.hsync-wrap .hsync-empty em { font-style: normal; color: #2271b1; font-weight: 600; }
 
 .hsync-wrap .hsync-error {
     background: #fbd0d2; border-left: 3px solid #d63638; padding: 8px 12px;

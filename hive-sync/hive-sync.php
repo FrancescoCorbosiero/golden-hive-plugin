@@ -68,6 +68,12 @@ add_action( 'plugins_loaded', function () {
         hsync_migrate_schema();
         update_option( 'hsync_db_version', HSYNC_VERSION, false );
     }
+    // One-shot data migration: rename source_kind 'goldensneakers'
+    // → 'json' (with config.flavor flag) for the GoldenSneakersSource
+    // → JsonSource refactor. No-op once it's run.
+    if ( function_exists( 'hsync_migrate_gs_to_json' ) ) {
+        hsync_migrate_gs_to_json();
+    }
 
     if ( class_exists( '\\HiveSync\\Core\\Bootstrap' ) ) {
         \HiveSync\Core\Bootstrap::boot();

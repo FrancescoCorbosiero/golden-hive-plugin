@@ -135,3 +135,65 @@ function hsync_migrate_schema(): void {
         dbDelta( $sql );
     }
 }
+
+/**
+ * One-time migration: rename source_kind = 'goldensneakers' →
+ * 'json' (with config.flavor = 'goldensneakers') everywhere it
+ * appears, so existing source-configs / mappings / job runnable_refs
+ * keep working after the GoldenSneakersSource → JsonSource rename.
+ *
+ * Idempotent — runs once per install via the option flag below;
+ * subsequent activations no-op.
+ */
+function hsync_migrate_gs_to_json(): void {
+    if ( get_option( 'hsync_migrated_gs_to_json' ) === 'done' ) return;
+    global $wpdb;
+    if ( ! isset( $wpdb ) ) return;
+
+    // 1. Source configs: kind 'goldensneakers' → 'json' + flavor flag
+    //    inside the JSON config blob.
+    $cfgTable = hsync_table( 'source_configs' );
+    $rows = $wpdb->get_results(
+        $wpdb->prepare( "SELECT id, config FROM `$cfgTable` WHERE source_kind = %s", 'goldensneakers' ),
+        ARRAY_A,
+    );
+    foreach ( $rows ?: [] as $row ) {
+        $cfg = json_decode( (string) $row['config'], true );
+        if ( ! is_array( $cfg ) ) $cfg = [];
+        $cfg['flavor'] = 'goldensneakers';
+        $wpdb->update(
+            $cfgTable,
+            [
+                'source_kind' => 'json',
+                'config'      => wp_json_encode( $cfg ),
+                'updated_at'  => gmdate( 'Y-m-d H:i:s' ),
+            ],
+            [ 'id' => (int) $row['id'] ],
+        );
+    }
+
+    // 2. Mappings: same kind rename.
+    $mapTable = hsync_table( 'mappings' );
+    $wpdb->update(
+        $mapTable,
+        [ 'source_kind' => 'json', 'updated_at' => gmdate( 'Y-m-d H:i:s' ) ],
+        [ 'source_kind' => 'goldensneakers' ],
+    );
+
+    // 3. Jobs: runnable_ref 'goldensneakers/<slug>' → 'json/<slug>'.
+    $jobTable = hsync_table( 'jobs' );
+    $jobRows = $wpdb->get_results(
+        "SELECT id, runnable_ref FROM `$jobTable` WHERE runnable_type = 'source.import' AND runnable_ref LIKE 'goldensneakers/%'",
+        ARRAY_A,
+    );
+    foreach ( $jobRows ?: [] as $row ) {
+        $newRef = 'json/' . substr( (string) $row['runnable_ref'], strlen( 'goldensneakers/' ) );
+        $wpdb->update(
+            $jobTable,
+            [ 'runnable_ref' => $newRef, 'updated_at' => gmdate( 'Y-m-d H:i:s' ) ],
+            [ 'id' => (int) $row['id'] ],
+        );
+    }
+
+    update_option( 'hsync_migrated_gs_to_json', 'done', false );
+}

@@ -975,3 +975,63 @@ add_action( 'wp_ajax_hsync_ajax_cockpit_status', function () {
         'now_iso'       => gmdate( 'c' ),
     ] );
 } );
+
+// ─── Cleanup helpers (history logs, deletion log, lock release) ───
+//
+// Surface every plugin-owned growing log so the operator can wipe
+// noise without dropping the plugin. All idempotent + reversible-
+// confirmation gated client-side.
+
+add_action( 'wp_ajax_hsync_ajax_runs_purge_all', function () {
+    hsync_ajax_guard();
+    $deleted = ( new \HiveSync\Core\Repo\RunRepository() )->purgeAll();
+    wp_send_json_success( [ 'deleted' => $deleted ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_runs_purge_older', function () {
+    hsync_ajax_guard();
+    $days = isset( $_POST['days'] ) ? max( 1, (int) wp_unslash( $_POST['days'] ) ) : 30;
+    $deleted = ( new \HiveSync\Core\Repo\RunRepository() )->purgeOlderThan( $days );
+    wp_send_json_success( [ 'deleted' => $deleted, 'days' => $days ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_media_log_clear', function () {
+    hsync_ajax_guard();
+    delete_option( \HiveSync\Media\Cleaner::LOG_OPTION_KEY );
+    wp_send_json_success( [ 'cleared' => true ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_release_tick_lock', function () {
+    hsync_ajax_guard();
+    delete_transient( 'hsync_jobs_tick_lock' );
+    wp_send_json_success( [ 'released' => true ] );
+} );
+
+// ─── System status (production WP-Cron readiness check) ───────────
+//
+// Surfaces whether the operator's environment is set up for the
+// recommended "real cron hits wp-cron.php" pattern. We can't
+// actively probe their crontab, but we CAN tell them whether
+// DISABLE_WP_CRON is set + when our event last fired + whether the
+// next scheduled fire is in the past (= cron is broken).
+
+add_action( 'wp_ajax_hsync_ajax_system_status', function () {
+    hsync_ajax_guard();
+
+    $next       = wp_next_scheduled( 'hive_sync_jobs_tick' );
+    $now        = time();
+    $disableWp  = defined( 'DISABLE_WP_CRON' ) && DISABLE_WP_CRON === true;
+    $altCron    = defined( 'ALTERNATE_WP_CRON' ) && ALTERNATE_WP_CRON === true;
+    $wpUrl      = site_url( 'wp-cron.php?doing_wp_cron' );
+    $isOverdue  = $next && $next < ( $now - 600 ); // > 10 min overdue
+
+    wp_send_json_success( [
+        'next_tick_at'     => $next ? gmdate( 'c', $next ) : null,
+        'next_tick_in_sec' => $next ? ( $next - $now ) : null,
+        'overdue'          => $isOverdue,
+        'disable_wp_cron'  => $disableWp,
+        'alternate_wp_cron'=> $altCron,
+        'wp_cron_url'      => $wpUrl,
+        'recommended_crontab' => '* * * * * curl -s "' . $wpUrl . '" > /dev/null 2>&1',
+    ] );
+} );

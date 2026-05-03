@@ -10,10 +10,14 @@ defined( 'ABSPATH' ) || exit;
 add_action( 'admin_enqueue_scripts', function ( $hook ) {
     if ( $hook !== 'toplevel_page_hive-sync' ) return;
 
+    // Dashicons is bundled with WordPress admin but isn't loaded
+    // automatically on every screen — enqueue it explicitly so our
+    // tab + cockpit icons render without falling back to text.
+    wp_enqueue_style( 'dashicons' );
     wp_enqueue_style(
         'hive-sync-admin',
         HSYNC_URL . 'assets/css/admin.css',
-        [],
+        [ 'dashicons' ],
         HSYNC_VERSION,
     );
     wp_enqueue_script(

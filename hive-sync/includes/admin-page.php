@@ -28,7 +28,7 @@ function hsync_render_admin_page(): void {
     <div class="wrap hsync-wrap" id="hsync-app">
         <header class="hsync-cockpit">
             <div class="hsync-cockpit-brand">
-                <span class="hsync-cockpit-logo" aria-hidden="true">⬡</span>
+                <span class="hsync-cockpit-logo dashicons dashicons-update" aria-hidden="true"></span>
                 <div>
                     <h1 class="hsync-title">Hive Sync</h1>
                     <span class="hsync-version">v<?php echo esc_html( HSYNC_VERSION ); ?> · sync engine</span>
@@ -52,25 +52,27 @@ function hsync_render_admin_page(): void {
                 </div>
                 <div class="hsync-cockpit-tile hsync-cockpit-tile-action">
                     <button class="button button-primary button-hero" data-action="cockpit-tick">
-                        ▶ Esegui ciclo automatizzazioni
+                        <span class="dashicons dashicons-controls-play" aria-hidden="true"></span>
+                        Esegui ciclo automatizzazioni
                     </button>
                     <small class="hsync-muted">Forza un giro adesso, senza aspettare il cron.</small>
                 </div>
             </div>
+            <div class="hsync-cockpit-status" data-region="cockpit-system-status"></div>
         </header>
 
         <nav class="hsync-tabs" role="tablist">
-            <button class="hsync-tab is-active" data-tab="sources"   role="tab" aria-selected="true"  title="I tuoi feed e API"><span class="hsync-tab-step">1</span><span class="hsync-tab-icon">🔌</span> Connetti</button>
-            <button class="hsync-tab"           data-tab="mappings"  role="tab" aria-selected="false" title="Allinea i campi del feed con WooCommerce"><span class="hsync-tab-step">2</span><span class="hsync-tab-icon">🗺</span> Mappa</button>
-            <button class="hsync-tab"           data-tab="pipelines" role="tab" aria-selected="false" title="Cosa fare durante l'import"><span class="hsync-tab-step">3</span><span class="hsync-tab-icon">⚙</span> Componi</button>
-            <button class="hsync-tab"           data-tab="rules"     role="tab" aria-selected="false" title="Azioni sui prodotti esistenti"><span class="hsync-tab-step">4</span><span class="hsync-tab-icon">🎯</span> Regole</button>
-            <button class="hsync-tab"           data-tab="run"       role="tab" aria-selected="false" title="Lancia un import quando vuoi"><span class="hsync-tab-step">5</span><span class="hsync-tab-icon">▶</span> Importa</button>
-            <button class="hsync-tab"           data-tab="jobs"      role="tab" aria-selected="false" title="Imposta automazioni"><span class="hsync-tab-step">6</span><span class="hsync-tab-icon">⏱</span> Automatizza</button>
+            <button class="hsync-tab is-active" data-tab="sources"   role="tab" aria-selected="true"  title="I tuoi feed e API"><span class="hsync-tab-step">1</span><span class="hsync-tab-icon dashicons dashicons-admin-plugins" aria-hidden="true"></span> Connetti</button>
+            <button class="hsync-tab"           data-tab="mappings"  role="tab" aria-selected="false" title="Allinea i campi del feed con WooCommerce"><span class="hsync-tab-step">2</span><span class="hsync-tab-icon dashicons dashicons-randomize" aria-hidden="true"></span> Mappa</button>
+            <button class="hsync-tab"           data-tab="pipelines" role="tab" aria-selected="false" title="Cosa fare durante l'import"><span class="hsync-tab-step">3</span><span class="hsync-tab-icon dashicons dashicons-admin-settings" aria-hidden="true"></span> Componi</button>
+            <button class="hsync-tab"           data-tab="rules"     role="tab" aria-selected="false" title="Azioni sui prodotti esistenti"><span class="hsync-tab-step">4</span><span class="hsync-tab-icon dashicons dashicons-filter" aria-hidden="true"></span> Regole</button>
+            <button class="hsync-tab"           data-tab="run"       role="tab" aria-selected="false" title="Lancia un import quando vuoi"><span class="hsync-tab-step">5</span><span class="hsync-tab-icon dashicons dashicons-controls-play" aria-hidden="true"></span> Importa</button>
+            <button class="hsync-tab"           data-tab="jobs"      role="tab" aria-selected="false" title="Imposta automazioni"><span class="hsync-tab-step">6</span><span class="hsync-tab-icon dashicons dashicons-clock" aria-hidden="true"></span> Automatizza</button>
             <span class="hsync-tab-sep" aria-hidden="true"></span>
-            <button class="hsync-tab" data-tab="media"   role="tab" aria-selected="false" title="Pulizia foto e libreria"><span class="hsync-tab-icon">🖼</span> Media</button>
-            <button class="hsync-tab" data-tab="exports" role="tab" aria-selected="false" title="Scarica il catalogo"><span class="hsync-tab-icon">⬇</span> Esporta</button>
-            <button class="hsync-tab" data-tab="runs"    role="tab" aria-selected="false" title="Storico import"><span class="hsync-tab-icon">📜</span> Storico</button>
-            <button class="hsync-tab" data-tab="tools"   role="tab" aria-selected="false" title="Pulizia avanzata"><span class="hsync-tab-icon">⚠</span> Strumenti</button>
+            <button class="hsync-tab" data-tab="media"   role="tab" aria-selected="false" title="Pulizia foto e libreria"><span class="hsync-tab-icon dashicons dashicons-format-image" aria-hidden="true"></span> Media</button>
+            <button class="hsync-tab" data-tab="exports" role="tab" aria-selected="false" title="Scarica il catalogo"><span class="hsync-tab-icon dashicons dashicons-download" aria-hidden="true"></span> Esporta</button>
+            <button class="hsync-tab" data-tab="runs"    role="tab" aria-selected="false" title="Storico import"><span class="hsync-tab-icon dashicons dashicons-list-view" aria-hidden="true"></span> Storico</button>
+            <button class="hsync-tab" data-tab="tools"   role="tab" aria-selected="false" title="Pulizia avanzata"><span class="hsync-tab-icon dashicons dashicons-warning" aria-hidden="true"></span> Strumenti</button>
         </nav>
 
         <section class="hsync-panel is-active" data-panel="sources">
@@ -233,6 +235,7 @@ function hsync_render_admin_page(): void {
                 </select>
                 <button class="button" data-action="media-search">Cerca</button>
                 <button class="button" data-action="media-rebuild-index">Aggiorna indice</button>
+                <button class="button" data-action="media-log-clear">Svuota log eliminazioni</button>
                 <button class="button button-primary" data-action="media-cleanup-preview">Pulizia sicura…</button>
             </div>
             <div data-region="media-cleanup-output"></div>
@@ -310,9 +313,16 @@ function hsync_render_admin_page(): void {
                 <strong>Lo storico dei tuoi import.</strong>
                 Verifica cos'è andato bene e cosa no. Gli import lunghi vengono
                 divisi in più passate — qui li vedi proseguire automaticamente.
+                <br>
+                Lo storico viene <em>auto-pulito</em> ogni 24h: i record più
+                vecchi di 30 giorni e quelli oltre i 5000 totali vengono
+                cancellati. Puoi forzare la pulizia con i bottoni qui sotto.
             </div>
             <div class="hsync-toolbar">
                 <button class="button" data-action="runs-refresh">Aggiorna</button>
+                <button class="button" data-action="runs-purge-older" data-days="7">Cancella più vecchi di 7 giorni</button>
+                <button class="button" data-action="runs-purge-older" data-days="30">Cancella più vecchi di 30 giorni</button>
+                <button class="button is-danger" data-action="runs-purge-all">Cancella tutto lo storico</button>
             </div>
             <div data-region="runs-list">
                 <p class="hsync-loading">Caricamento…</p>

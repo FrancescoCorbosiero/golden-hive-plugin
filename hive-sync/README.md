@@ -191,6 +191,39 @@ materialize bridge (variant + sideload logic). Eventually that gets
 absorbed into hive-sync directly; until then the bridge contract
 keeps the dependency one-way and explicit.
 
+## WP-Cron in produzione
+
+Il plugin schedule un evento `hive_sync_jobs_tick` ogni 5 minuti che
+fa il dispatch dei job. Il default WordPress fa scattare gli eventi
+sul page-load di un visitatore — fragile su siti a basso traffico.
+
+**Setup raccomandato in produzione:**
+
+```php
+// wp-config.php
+define( 'DISABLE_WP_CRON', true );
+```
+
+```sh
+# crontab -e
+* * * * * curl -s "https://example.com/wp-cron.php?doing_wp_cron" > /dev/null 2>&1
+```
+
+Il cockpit header mostra un banner rosso quando l'evento è in
+ritardo di oltre 10 minuti — diagnosi rapida quando WP-Cron è broken.
+
+## No junk
+
+Il plugin non scrive file su disk fuori dalla media library WP
+standard. Su uninstall (delete dalla schermata Plugin di WP):
+`uninstall.php` droppa le 8 tabelle `wp_hsync_*`, cancella le 4
+options + 2 transients, e clear-a tutti gli scheduled cron events.
+
+Lo storico run è auto-prunato ogni 24h (default: > 30 giorni o > 5000
+record). Il log eliminazioni media è FIFO capped a 500. Tutti i
+bottoni di pulizia manuale stanno nei tab Storico / Media /
+Strumenti.
+
 ## Tech
 
 - PHP 8.1+ — strict types, readonly value objects, `match` expressions

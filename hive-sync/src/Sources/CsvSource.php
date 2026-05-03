@@ -35,7 +35,7 @@ final class CsvSource extends AbstractSource
 
     public function label(): string
     {
-        return 'CSV (URL o file locale)';
+        return 'CSV — Feed da URL o file (StockFirmati, ecc.)';
     }
 
     public function capabilities(): SourceCapabilities

@@ -37,7 +37,7 @@ final class GoldenSneakersSource extends AbstractSource
 
     public function label(): string
     {
-        return 'Golden Sneakers';
+        return 'JSON — Feed Golden Sneakers';
     }
 
     public function capabilities(): SourceCapabilities
@@ -96,70 +96,68 @@ final class GoldenSneakersSource extends AbstractSource
                 warnings: ['Config invalida — verifica url/token.'],
             );
         }
+        $cfg = $val['config'];
 
-        if (! function_exists('hsync_gs_fetch')) {
-            return new FetchResult(items: [], warnings: ['Host adapter non caricato.']);
+        // Direct HTTP fetch — bypasses the legacy bridge so the editor's
+        // probe sees the actual API response shape (one row per
+        // SKU+size, with the upstream's native field names) instead of
+        // whatever shape the bridge happens to normalize to. The bridge
+        // is still used for materialize via hsync_gs_materialize.
+        $url     = (string) ($cfg['url']    ?? '');
+        $token   = (string) ($cfg['token']  ?? '');
+        $cookie  = (string) ($cfg['cookie'] ?? '');
+        if ($url === '' || $token === '') {
+            return new FetchResult(items: [], warnings: ['URL o token mancanti nella config.']);
         }
 
-        $resp = \hsync_gs_fetch($val['config'], $request->options);
-        if ($resp === null) {
-            return new FetchResult(items: [], warnings: ['Host GS non disponibile.']);
+        $headers = [ 'Accept' => 'application/json' ];
+        if ($token  !== '') $headers['Authorization'] = 'Bearer ' . $token;
+        if ($cookie !== '') $headers['Cookie']        = $cookie;
+
+        $resp = wp_remote_get($url, [
+            'headers'    => $headers,
+            'timeout'    => 30,
+            'user-agent' => 'HiveSync/' . (defined('HSYNC_VERSION') ? HSYNC_VERSION : '1.0'),
+        ]);
+        if (is_wp_error($resp)) {
+            return new FetchResult(items: [], warnings: ['Errore HTTP: ' . $resp->get_error_message()]);
+        }
+        $code = (int) wp_remote_retrieve_response_code($resp);
+        $body = (string) wp_remote_retrieve_body($resp);
+        if ($code < 200 || $code >= 300) {
+            return new FetchResult(items: [], warnings: ["HTTP $code dalla sorgente GS."]);
+        }
+        $decoded = json_decode($body, true);
+        if (! is_array($decoded)) {
+            return new FetchResult(items: [], warnings: ['Risposta GS non è JSON valido.']);
         }
 
-        // The GS API ships ONE ROW PER (SKU + size) — multiple rows
-        // share an SKU when a sneaker has several sizes. We aggregate
-        // those rows by SKU into a single FeedItem per product so the
-        // downstream pipeline (variants, mapping, materialize) sees one
-        // logical product at a time.
-        //
-        // If the host bridge already aggregated upstream (older bridge
-        // versions sometimes did), the loop is a no-op: each SKU
-        // appears once and `sizes` arrives pre-built. The aggregator
-        // is idempotent — it only merges when it sees duplicate SKUs.
-        $rawRows = [];
-        foreach ((array) ($resp['items'] ?? []) as $row) {
-            if (! is_array($row)) continue;
-            // Three accepted shapes from the bridge:
-            //  - { sku, data: {...}, raw: {...} }   pre-wrapped
-            //  - { sku, data: {...} }               wrapped, raw missing
-            //  - { ...flat fields... }              flat, no wrapper
-            // Normalize all three into a single "flat row" that's safe
-            // to aggregate.
-            if (isset($row['data']) && is_array($row['data'])) {
-                $flat = $row['data'] + (is_array($row['raw'] ?? null) ? $row['raw'] : []);
-                if (isset($row['sku']) && ! isset($flat['sku'])) $flat['sku'] = (string) $row['sku'];
-            } else {
-                $flat = $row;
+        // Accept both flat-array AND wrapped responses: top-level array,
+        // {data: [...]}, {items: [...]}, {results: [...]}.
+        $rawRows = $decoded;
+        foreach (['data', 'items', 'results'] as $k) {
+            if (isset($rawRows[$k]) && is_array($rawRows[$k])) {
+                $rawRows = $rawRows[$k];
+                break;
             }
-            $rawRows[] = $flat;
+        }
+        if (! array_is_list($rawRows)) {
+            return new FetchResult(items: [], warnings: ['Risposta GS: lista di righe non rilevata.']);
         }
 
         $items = self::aggregateFlatRows($rawRows);
 
-        // Apply the user's mapping (if any) AFTER aggregation. The
-        // mapping config targets the canonical aggregated field names
-        // (product_name, summary_qty, sizes.size_eu, ...).
-        //
-        // OVERLAY semantics: the mapped output is merged ON TOP of the
-        // original aggregated data, NOT replacing it. This matters
-        // because the legacy GS materialize bridge expects its own
-        // native keys (product_name, sizes, image_full_url, ...) and
-        // would break if we replaced them. With overlay:
-        //
-        //   - The bridge keeps seeing what it always saw.
-        //   - The user's mapping ADDS Woo-shaped keys (regular_price,
-        //     stock_quantity, ...) that downstream import-rules + a
-        //     future generic upsert path can honor.
-        //   - Templates / SEO meta fields the bridge doesn't know
-        //     about (description, meta_title, ...) flow through.
+        // Apply the user's mapping (if any) AFTER aggregation. OVERLAY
+        // semantics: mapped output is merged ON TOP of the aggregated
+        // data so the legacy bridge's materialize keeps seeing its
+        // expected native keys while downstream import-rules + UI also
+        // see the user's Woo-shaped keys.
         $mapping = (array) ($request->options['mapping'] ?? []);
         if ($mapping) {
             $remapped = [];
             foreach ($items as $item) {
                 $mappedFields = CsvSource::applyMapping($item->data, $mapping);
-                $newData = $mappedFields + $item->data;  // mapped fields win
-                // Always preserve the SKU — the diff/dedup pipeline
-                // requires it.
+                $newData = $mappedFields + $item->data;
                 $newData['sku'] = $item->sku;
                 $remapped[] = new FeedItem(
                     sku:  $item->sku,
@@ -172,8 +170,8 @@ final class GoldenSneakersSource extends AbstractSource
 
         return new FetchResult(
             items: $items,
-            stats: ((array) ($resp['stats'] ?? [])) + [ 'flat_rows' => count($rawRows), 'products' => count($items) ],
-            warnings: array_map('strval', (array) ($resp['warnings'] ?? [])),
+            stats: [ 'flat_rows' => count($rawRows), 'products' => count($items) ],
+            warnings: [],
         );
     }
 
@@ -209,21 +207,46 @@ final class GoldenSneakersSource extends AbstractSource
             if ($sku === '') continue;
 
             if (! isset($bySku[$sku])) {
-                $bySku[$sku] = [
-                    'data' => [
-                        'sku'              => $sku,
-                        'product_name'     => (string) ($r['product_name'] ?? ''),
-                        'brand_name'       => (string) ($r['brand_name'] ?? ''),
-                        'size_mapper_name' => (string) ($r['size_mapper_name'] ?? ''),
-                        'image_full_url'   => (string) ($r['image_full_url'] ?? ''),
-                        'image_name'       => (string) ($r['image_name'] ?? ''),
-                        'presented_price'  => $r['presented_price'] ?? null,
-                        'offer_price'      => $r['offer_price'] ?? null,
-                        'sizes'            => [],
-                        'summary_qty'      => 0,
-                    ],
-                    'raw' => [],
+                $productName = (string) ($r['product_name'] ?? '');
+                $brand       = (string) ($r['brand_name']   ?? '');
+                $imageUrl    = (string) ($r['image_full_url'] ?? '');
+                $presented   = $r['presented_price'] ?? null;
+                $offer       = $r['offer_price']     ?? null;
+
+                $bySku[$sku]['data'] = [
+                    // ── GS API native names (what the editor probe shows) ──
+                    'sku'              => $sku,
+                    'product_name'     => $productName,
+                    'brand_name'       => $brand,
+                    'size_mapper_name' => (string) ($r['size_mapper_name'] ?? ''),
+                    'image_full_url'   => $imageUrl,
+                    'image_name'       => (string) ($r['image_name'] ?? ''),
+                    'presented_price'  => $presented,
+                    'offer_price'      => $offer,
+                    'sizes'            => [],
+                    'summary_qty'      => 0,
+
+                    // ── Bridge-compatible aliases (legacy materialize) ──
+                    // The legacy rp_rc_gs_apply expects these field names
+                    // verbatim. Duplicating them here means the bridge
+                    // keeps working without any changes on its side.
+                    'name'             => $productName,
+                    'brand'            => $brand,
+                    'model'            => '',
+                    'image_url'        => $imageUrl,
+                    'type'             => 'variable',
+                    'status'           => 'publish',
+                    '_gs_brand'        => $brand,
+                    '_gs_model'        => '',
+                    '_gs_image_url'    => $imageUrl,
+                    '_gs_tag'          => 'super-sale',
+
+                    // ── Woo-shaped (consumed by import-rules + UI) ──
+                    'regular_price'    => $presented !== null ? (string) $presented : '',
+                    'sale_price'       => $offer     !== null ? (string) $offer     : '',
+                    'manage_stock'     => true,
                 ];
+                $bySku[$sku]['raw'] = [];
             }
             $bySku[$sku]['raw'][] = $r;
 
@@ -231,18 +254,24 @@ final class GoldenSneakersSource extends AbstractSource
             if ($sizeEu === '') continue; // no size = nothing to aggregate
             $qty = (int) ($r['available_quantity'] ?? 0);
             $bySku[$sku]['data']['sizes'][] = [
-                'size_eu'             => $sizeEu,
-                'size_us'             => (string) ($r['size_us'] ?? ''),
-                'available_quantity'  => $qty,
-                'barcode'             => (string) ($r['barcode'] ?? ''),
+                'size_eu'            => $sizeEu,
+                'size_us'            => (string) ($r['size_us'] ?? ''),
+                'available_quantity' => $qty,
+                'barcode'            => (string) ($r['barcode'] ?? ''),
+                // Bridge-compatible per-size pricing (legacy expects
+                // offer_price + presented_price ON each size record).
+                'offer_price'        => $r['offer_price']     ?? null,
+                'presented_price'    => $r['presented_price'] ?? null,
             ];
             $bySku[$sku]['data']['summary_qty'] += $qty;
         }
 
         $items = [];
         foreach ($bySku as $sku => $bundle) {
-            $bundle['data']['manage_stock'] = true;
-            $bundle['data']['stock_status'] = $bundle['data']['summary_qty'] > 0 ? 'instock' : 'outofstock';
+            $bundle['data']['stock_status']   = $bundle['data']['summary_qty'] > 0 ? 'instock' : 'outofstock';
+            $bundle['data']['stock_quantity'] = $bundle['data']['summary_qty'];
+            // Bridge-compatible aggregate stock field name.
+            $bundle['data']['total_available'] = $bundle['data']['summary_qty'];
             $items[] = new FeedItem(
                 sku: (string) $sku,
                 data: $bundle['data'],
@@ -254,34 +283,39 @@ final class GoldenSneakersSource extends AbstractSource
 
     public function diff(array $items, Context $ctx): Diff
     {
-        if (! function_exists('hsync_gs_diff')) {
-            return new Diff();
+        // Self-contained diff: just check SKU existence in Woo. Same
+        // approach as CsvSource — a feed item is `update` if its SKU
+        // already exists, `new` otherwise. Refinement into update vs
+        // updateStock happens in StockOnlyClassifier::split which
+        // compares per-field against the existing product.
+        $new = $update = [];
+        $skuLookup = function_exists('wc_get_product_id_by_sku');
+
+        foreach ($items as $item) {
+            if (! $item instanceof FeedItem) continue;
+            if ($item->sku === '') {
+                $new[] = $item;
+                continue;
+            }
+            $existingId = $skuLookup ? (int) \wc_get_product_id_by_sku($item->sku) : 0;
+            if ($existingId > 0) {
+                $update[] = new FeedItem(
+                    sku:  $item->sku,
+                    data: $item->data + ['_existing_id' => $existingId],
+                    raw:  $item->raw,
+                );
+            } else {
+                $new[] = $item;
+            }
         }
 
-        $payload = array_map(
-            static fn(FeedItem $i): array => $i->data,
-            $items,
-        );
-        $resp = \hsync_gs_diff($payload);
-        if ($resp === null) {
-            return new Diff();
-        }
-
-        $newItems       = self::wrapBucket((array) ($resp['new']       ?? []));
-        $unchangedItems = self::wrapBucket((array) ($resp['unchanged'] ?? []));
-        $updateRaw      = self::wrapBucket((array) ($resp['update']    ?? []));
-
-        // Refine the bridge's `update` bucket into full vs stock-only
-        // by comparing each item against the current Woo product. The
-        // fast-stock-patch path in ImportRunner picks up `updateStock`
-        // and skips media + taxonomy + full upsert.
-        [ $fullBucket, $stockBucket ] = StockOnlyClassifier::split( $updateRaw );
+        [ $updateFull, $updateStock ] = StockOnlyClassifier::split($update);
 
         return new Diff(
-            new: $newItems,
-            update: $fullBucket,
-            unchanged: $unchangedItems,
-            updateStock: $stockBucket,
+            new: $new,
+            update: $updateFull,
+            unchanged: [],
+            updateStock: $updateStock,
         );
     }
 
@@ -319,20 +353,4 @@ final class GoldenSneakersSource extends AbstractSource
             : MaterializeResult::created($pid, $r);
     }
 
-    /**
-     * @param array<int, array> $bucket
-     * @return FeedItem[]
-     */
-    private static function wrapBucket(array $bucket): array
-    {
-        $out = [];
-        foreach ($bucket as $woo) {
-            if (! is_array($woo)) continue;
-            $out[] = new FeedItem(
-                sku: (string) ($woo['sku'] ?? ''),
-                data: $woo,
-            );
-        }
-        return $out;
-    }
 }

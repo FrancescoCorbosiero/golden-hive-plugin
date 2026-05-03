@@ -280,6 +280,67 @@ Contract version: `HSYNC_HOST_CONTRACT_VERSION = 1`.
 
 ---
 
+## WP-Cron in produzione (CRITICAL)
+
+L'intera catena di automazione (ogni job, refresh stocks, cleanup
+periodico) gira su `wp_schedule_event` con hook `hive_sync_jobs_tick`
+ogni 5 minuti. **Il default WordPress** fa scattare gli eventi cron
+sul page-load di un visitatore — fragile su siti a basso traffico,
+spesso la causa di "i job non partono".
+
+**Setup raccomandato in produzione:**
+
+1. In `wp-config.php`:
+   ```php
+   define( 'DISABLE_WP_CRON', true );
+   ```
+2. Cron di sistema (Linux) — `crontab -e`:
+   ```
+   * * * * * curl -s "https://example.com/wp-cron.php?doing_wp_cron" > /dev/null 2>&1
+   ```
+   (o `wp cron event run --due-now` via WP-CLI se presente.)
+
+Senza questo setup, gli eventi possono restare "in coda" finché un
+admin non visita una pagina del sito. Il cockpit header espone uno
+status banner rosso quando `hive_sync_jobs_tick` è in ritardo di
+oltre 10 minuti — cattura i casi in cui WP-Cron è broken.
+
+L'AJAX `hsync_ajax_system_status` ritorna i dati grezzi
+(`next_tick_at`, `disable_wp_cron`, `recommended_crontab`, `overdue`)
+per debug rapido.
+
+## Pulizia + lifecycle (no junk)
+
+Il plugin è progettato per non lasciare tracce su disk/DB se si
+disinstalla. Cosa scrive e come si pulisce:
+
+| Cosa | Dove | Pulizia |
+|---|---|---|
+| 8 tabelle `wp_hsync_*` | DB | DROP in `uninstall.php` |
+| 4 options (`hsync_db_version`, `hsync_migrated_gs_to_json`, `hsync_media_whitelist`, `hsync_media_deletion_log`) | `wp_options` | `delete_option` in `uninstall.php` |
+| 2 transients (usage index, tick lock) | `wp_options` (transient_*) | `delete_transient` in `uninstall.php` + deactivation |
+| `hsync_runs_pruned_today` | transient | Auto-expires DAY_IN_SECONDS |
+| WP-Cron event `hive_sync_jobs_tick` | `cron` option | `wp_clear_scheduled_hook` in deactivation + uninstall |
+| File su disk | nessuno | n/a — non scriviamo file standalone (le immagini sideloaded vivono nella WP media library standard) |
+
+**Crescita controllata:**
+
+- `wp_hsync_runs` viene auto-prunata ogni 24h dal cron tick:
+  - `hsync_runs_retention_days` (default 30) — DELETE finished runs older than N days
+  - `hsync_runs_keep_max` (default 5000) — safety cap, trim a tutti tranne i più recenti N
+- `hsync_media_deletion_log` capped FIFO a 500 entries da `Cleaner::LOG_MAX`
+- Action Scheduler (se Woo lo usa) ha la propria gestione retention separata — vedi tab Automatizza → Stato del motore
+
+**Bottoni di pulizia manuale (UI):**
+
+| Tab | Bottone | Effetto |
+|---|---|---|
+| Storico | Cancella più vecchi di 7/30 giorni | `runs_purge_older` AJAX |
+| Storico | Cancella tutto lo storico | `runs_purge_all` AJAX |
+| Media | Svuota log eliminazioni | `media_log_clear` AJAX (delete_option) |
+| Automatizza | Stato del motore → Purge past-due | Action Scheduler retention |
+| Strumenti | Nuclear Cleanup | Bulk delete per scelta operatore |
+
 ## Idempotency / migration markers
 
 | Option | Scope | Reset condition |

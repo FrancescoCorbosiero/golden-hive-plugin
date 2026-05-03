@@ -127,14 +127,76 @@
 
     HSync.cockpitTickNow = async function () {
         const btn = document.querySelector('[data-action="cockpit-tick"]');
-        if (btn) { btn.disabled = true; btn.textContent = '⏳ In esecuzione…'; }
+        const restore = btn ? btn.innerHTML : '';
+        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="dashicons dashicons-update spin" aria-hidden="true"></span> In esecuzione…'; }
         try {
             const data = await HSync.ajax('jobs_tick_now', {});
             alert('Esecuzione lanciata: ' + (data.dispatched || 0) + ' avviati, ' + (data.skipped || 0) + ' saltati'
                 + (data.locked ? ' (sistema occupato — riprova tra poco)' : ''));
         } catch (e) { alert('Errore: ' + e.message); }
-        if (btn) { btn.disabled = false; btn.innerHTML = '▶ Esegui ciclo automatizzazioni'; }
+        if (btn) { btn.disabled = false; btn.innerHTML = restore; }
         HSync.refreshCockpit();
+        HSync.refreshSystemStatus();
+    };
+
+    /**
+     * Surfaces a yellow/red strip in the cockpit when the WP-Cron tick
+     * looks broken: hook overdue, DISABLE_WP_CRON without a real cron,
+     * etc. Doesn't try to fix anything — just tells the operator what
+     * to put in their crontab.
+     */
+    HSync.refreshSystemStatus = async function () {
+        const region = document.querySelector('[data-region="cockpit-system-status"]');
+        if (!region) return;
+        try {
+            const s = await HSync.ajax('system_status', {});
+            // Healthy when: next tick is in the future + not overdue.
+            // The DISABLE_WP_CRON case is informational, not a problem
+            // by itself — but combined with overdue it's the smoking gun.
+            if (!s.overdue && s.next_tick_in_sec !== null && s.next_tick_in_sec >= 0) {
+                region.innerHTML = '';
+                return;
+            }
+            const reason = s.overdue
+                ? 'L\'evento WP-Cron è in ritardo di oltre 10 minuti.'
+                : 'Nessun evento WP-Cron pianificato.';
+            const remedy = s.disable_wp_cron
+                ? 'Hai <code>DISABLE_WP_CRON=true</code>: serve un cron di sistema che chiami questo URL ogni minuto.'
+                : 'Il cron interno di WP non sta scattando. Per produzione usa il cron di sistema (più affidabile):';
+            region.innerHTML = ''
+                + '<div class="hsync-cron-warn">'
+                + '<strong>⚠ WP-Cron non sta lavorando.</strong> ' + reason + ' ' + remedy
+                + '<br><br>'
+                + '<code>' + esc(s.recommended_crontab) + '</code>'
+                + '</div>';
+        } catch (e) { /* non-fatal */ }
+    };
+
+    HSync.purgeRunsAll = async function () {
+        if (!confirm('Cancellare TUTTO lo storico dei run? Le run in corso non vengono toccate.')) return;
+        try {
+            const data = await HSync.ajax('runs_purge_all', {});
+            alert('Eliminati ' + (data.deleted || 0) + ' record dallo storico.');
+            HSync.loadRuns();
+        } catch (e) { alert('Errore: ' + e.message); }
+    };
+
+    HSync.purgeRunsOlder = async function (days) {
+        const d = parseInt(days, 10) || 30;
+        if (!confirm('Cancellare i record più vecchi di ' + d + ' giorni?')) return;
+        try {
+            const data = await HSync.ajax('runs_purge_older', { days: d });
+            alert('Eliminati ' + (data.deleted || 0) + ' record (più vecchi di ' + d + ' giorni).');
+            HSync.loadRuns();
+        } catch (e) { alert('Errore: ' + e.message); }
+    };
+
+    HSync.clearMediaLog = async function () {
+        if (!confirm('Svuotare il log delle eliminazioni media? Lo storico cancellazioni andrà perso.')) return;
+        try {
+            await HSync.ajax('media_log_clear', {});
+            alert('Log eliminazioni svuotato.');
+        } catch (e) { alert('Errore: ' + e.message); }
     };
 
     /**
@@ -2206,6 +2268,9 @@
         if (tabBtn) return HSync.switchTab(tabBtn.dataset.tab);
         const t = e.target;
         if (t.matches('[data-action="cockpit-tick"]')) return HSync.cockpitTickNow();
+        if (t.matches('[data-action="runs-purge-all"]'))    return HSync.purgeRunsAll();
+        if (t.matches('[data-action="runs-purge-older"]'))  return HSync.purgeRunsOlder(t.dataset.days);
+        if (t.matches('[data-action="media-log-clear"]'))   return HSync.clearMediaLog();
         if (t.matches('[data-action="test-fetch"]'))    return HSync.testFetch(t.dataset.source, t.closest('form'));
         if (t.matches('[data-action="src-config-save"]'))   return HSync.saveSourceConfig(t.dataset.source);
         if (t.matches('[data-action="src-config-reset"]'))  return HSync.resetSourceConfigEditor(t.dataset.source);
@@ -2652,9 +2717,11 @@
 
     document.addEventListener('DOMContentLoaded', function () {
         HSync.refreshCockpit();
+        HSync.refreshSystemStatus();
         HSync.loadSources();
         // Refresh the cockpit periodically so the operator sees jobs
         // tick in real time without having to reload the whole page.
         setInterval(HSync.refreshCockpit, 30000);
+        setInterval(HSync.refreshSystemStatus, 60000);
     });
 })();

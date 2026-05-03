@@ -281,3 +281,31 @@ add_filter( 'hive_sync/host/source/gs/materialize', function ( $resp, array $ite
     }
     return rp_rc_gs_create_product( $item_data, $sideload );
 }, 10, 4 );
+
+// ─── SF source delegation ─────────────────────────────────────────
+
+/**
+ * SF materialize: route Hive Sync's pre-transformed SF item to the
+ * legacy create/update functions. Mirrors the GS pattern. The
+ * incoming $item_data already has the full Woo shape (type +
+ * attributes + variations + _sf_* meta) produced by
+ * HiveSync\Sources\CsvSource::sfTransformToWoo.
+ */
+add_filter( 'hive_sync/host/source/sf/materialize', function ( $resp, array $item_data, bool $dry_run, bool $sideload ) {
+    if ( $resp !== null ) return $resp;
+    if ( $dry_run ) return [ 'action' => 'skipped', 'id' => 0, 'reason' => 'dry_run' ];
+    if ( ! function_exists( 'gh_sf_create_product' ) || ! function_exists( 'gh_sf_update_product' ) ) {
+        return null;
+    }
+
+    $existing = (int) ( $item_data['_existing_id'] ?? 0 );
+    if ( $existing === 0 && function_exists( 'wc_get_product_id_by_sku' ) && ! empty( $item_data['sku'] ) ) {
+        $existing = (int) wc_get_product_id_by_sku( (string) $item_data['sku'] );
+    }
+
+    if ( $existing > 0 ) {
+        $item_data['_existing_id'] = $existing;
+        return gh_sf_update_product( $item_data );
+    }
+    return gh_sf_create_product( $item_data, $sideload );
+}, 10, 4 );

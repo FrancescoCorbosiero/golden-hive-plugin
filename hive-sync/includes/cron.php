@@ -34,17 +34,40 @@ add_filter( 'cron_schedules', function ( $schedules ) {
 add_action( HSYNC_CRON_HOOK, 'hsync_run_tick' );
 
 function hsync_run_tick(): array {
+    $runs = new \HiveSync\Core\Repo\RunRepository();
     $runner = new \HiveSync\Workflow\Schedule\JobRunner(
         new \HiveSync\Core\Repo\JobRepository(),
-        new \HiveSync\Core\Repo\RunRepository(),
+        $runs,
         new \HiveSync\Core\Repo\RuleRepository(),
         new \HiveSync\Core\Repo\SourceConfigRepository(),
         new \HiveSync\Core\Repo\MappingRepository(),
     );
-    return $runner->tick( time() );
+    $result = $runner->tick( time() );
+
+    // Periodic auto-prune of the runs table — only fires once a day
+    // (gated by a transient so high-frequency tick scheduling doesn't
+    // hammer the DB with DELETE queries). Drops finished runs older
+    // than `hsync_runs_retention_days` (default 30) AND caps total
+    // rows at `hsync_runs_keep_max` (default 5000) as a safety net.
+    if ( ! get_transient( 'hsync_runs_pruned_today' ) ) {
+        $days = (int) get_option( 'hsync_runs_retention_days', 30 );
+        $cap  = (int) get_option( 'hsync_runs_keep_max', 5000 );
+        if ( $days > 0 ) $runs->purgeOlderThan( $days );
+        if ( $cap  > 0 ) $runs->trimToRecent( $cap );
+        set_transient( 'hsync_runs_pruned_today', 1, DAY_IN_SECONDS );
+    }
+
+    return $result;
 }
 
 register_deactivation_hook( HSYNC_FILE, function () {
-    $next = wp_next_scheduled( HSYNC_CRON_HOOK );
-    if ( $next ) wp_unschedule_event( $next, HSYNC_CRON_HOOK );
+    // Clear ALL schedules for our hook (not just the next one — there
+    // can be multiple instances if a previous deactivation failed mid-
+    // way or the install was migrated from a different cron interval).
+    wp_clear_scheduled_hook( HSYNC_CRON_HOOK );
+    // Drop transient state so a re-activation starts clean. Data
+    // tables and saved configs survive — that's deletion's job, not
+    // deactivation's.
+    delete_transient( 'hsync_jobs_tick_lock' );
+    delete_transient( 'hsync_media_usage_index_v1' );
 } );

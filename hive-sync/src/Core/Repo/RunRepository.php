@@ -89,6 +89,59 @@ final class RunRepository
         return array_map( [ self::class, 'hydrate' ], (array) $rows );
     }
 
+    /**
+     * Delete every run record. Used by the manual "Pulisci storico"
+     * button. Returns rows deleted.
+     */
+    public function purgeAll(): int
+    {
+        global $wpdb;
+        if ( ! isset( $wpdb ) ) return 0;
+        return (int) $wpdb->query( "DELETE FROM `" . \hsync_table( 'runs' ) . "`" );
+    }
+
+    /**
+     * Delete every FINISHED run older than $olderThanDays. In-flight
+     * runs (no finished_at) are preserved so we don't kill an active
+     * cursor-based execution mid-flight. Returns rows deleted.
+     *
+     * Used by both the manual Storico tab purge ("Mantieni solo
+     * ultimi 30 giorni") and the periodic auto-prune wired into the
+     * cron tick (see includes/cron.php).
+     */
+    public function purgeOlderThan( int $olderThanDays ): int
+    {
+        global $wpdb;
+        if ( ! isset( $wpdb ) || $olderThanDays < 1 ) return 0;
+        $cutoff = gmdate( 'Y-m-d H:i:s', time() - ( $olderThanDays * 86400 ) );
+        return (int) $wpdb->query(
+            $wpdb->prepare(
+                "DELETE FROM `" . \hsync_table( 'runs' ) . "` WHERE finished_at IS NOT NULL AND finished_at < %s",
+                $cutoff,
+            ),
+        );
+    }
+
+    /**
+     * Keep only the N most recent runs (regardless of age). Used as a
+     * safety cap so even a misbehaving cron-firing-every-second
+     * scenario won't blow the runs table to millions of rows.
+     */
+    public function trimToRecent( int $keep ): int
+    {
+        global $wpdb;
+        if ( ! isset( $wpdb ) || $keep < 1 ) return 0;
+        $tbl = \hsync_table( 'runs' );
+        return (int) $wpdb->query(
+            $wpdb->prepare(
+                "DELETE FROM `$tbl` WHERE id NOT IN (
+                    SELECT id FROM ( SELECT id FROM `$tbl` ORDER BY id DESC LIMIT %d ) sub
+                )",
+                $keep,
+            ),
+        );
+    }
+
     private static function hydrate( array $row ): array
     {
         return [

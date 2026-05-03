@@ -117,24 +117,15 @@ final class Defaults
             ],
             [
                 'slug'        => 'sf-default',
-                'name'        => 'StockFirmati — default',
+                'name'        => 'StockFirmati — default (flavor=stockfirmati)',
                 'source_kind' => 'csv',
-                'config'      => [
-                    // Field names mirror the SF CSV header used by the
-                    // legacy gh_rc_sf_* importer. Adjust only if SF
-                    // changes its column layout.
-                    'sku'            => 'codice',
-                    'name'           => 'descrizione',
-                    'regular_price'  => 'prezzo_listino',
-                    'sale_price'     => 'prezzo_vendita',
-                    'stock_quantity' => 'giacenza',
-                    'stock_status'   => 'disponibile',
-                    'image_url'      => 'immagine',
-                    'gallery_urls'   => 'gallery',
-                    'brand'          => 'marca',
-                    'categories'     => 'categoria',
-                    'pa_taglia'      => 'taglie',
-                ],
+                // SF flavor handles all field translation internally
+                // (PRODUCT/MODEL grouping → variable Woo shape with
+                // pa_taglia variants). Mapping is intentionally empty —
+                // the operator can add overlay templates (description
+                // template, SEO, etc.) but the core fields are
+                // populated by the source itself.
+                'config'      => [],
             ],
         ];
     }
@@ -413,14 +404,16 @@ final class Defaults
      */
     public static function defaultJobs(): array
     {
-        $ref = 'json/gs-prod';
+        $gsRef = 'json/gs-prod';
+        $sfRef = 'csv/sf-prod';
 
         return [
+            // ── Golden Sneakers (JSON) ─────────────────────────────
             [
                 '_seed_id'      => 'gs-add-new',
                 'label'         => 'GS — Aggiungi nuovi prodotti',
                 'runnable_type' => 'source.import',
-                'runnable_ref'  => $ref,
+                'runnable_ref'  => $gsRef,
                 'cron'          => '*/30 * * * *',
                 'config'        => [
                     'options' => [
@@ -434,7 +427,7 @@ final class Defaults
                 '_seed_id'      => 'gs-refresh-stocks',
                 'label'         => 'GS — Refresh prezzi e stock',
                 'runnable_type' => 'source.import',
-                'runnable_ref'  => $ref,
+                'runnable_ref'  => $gsRef,
                 'cron'          => '*/15 * * * *',
                 'config'        => [
                     'options' => [
@@ -447,11 +440,56 @@ final class Defaults
                 '_seed_id'      => 'gs-re-update',
                 'label'         => 'GS — Re-update completo (campi non-stock)',
                 'runnable_type' => 'source.import',
-                'runnable_ref'  => $ref,
+                'runnable_ref'  => $gsRef,
                 'cron'          => '0 */6 * * *',
                 'config'        => [
                     'options' => [
                         'mapping_slug'  => 'gs-default',
+                        'pipeline_slug' => 'import-default',
+                        'buckets'       => [ 'update' ],
+                    ],
+                ],
+            ],
+
+            // ── StockFirmati (CSV with PRODUCT+MODEL records) ─────
+            [
+                '_seed_id'      => 'sf-add-new',
+                'label'         => 'SF — Aggiungi nuovi prodotti',
+                'runnable_type' => 'source.import',
+                'runnable_ref'  => $sfRef,
+                // 45 minutes — SF feed is heavier than GS (more rows
+                // per product), so we don't hammer it as often.
+                'cron'          => '*/45 * * * *',
+                'config'        => [
+                    'options' => [
+                        'mapping_slug'  => 'sf-default',
+                        'pipeline_slug' => 'import-default',
+                        'buckets'       => [ 'new' ],
+                    ],
+                ],
+            ],
+            [
+                '_seed_id'      => 'sf-refresh-stocks',
+                'label'         => 'SF — Refresh prezzi e stock',
+                'runnable_type' => 'source.import',
+                'runnable_ref'  => $sfRef,
+                'cron'          => '*/20 * * * *',
+                'config'        => [
+                    'options' => [
+                        'mapping_slug' => 'sf-default',
+                        'buckets'      => [ 'updateStock' ],
+                    ],
+                ],
+            ],
+            [
+                '_seed_id'      => 'sf-re-update',
+                'label'         => 'SF — Re-update completo (campi non-stock)',
+                'runnable_type' => 'source.import',
+                'runnable_ref'  => $sfRef,
+                'cron'          => '0 */8 * * *',
+                'config'        => [
+                    'options' => [
+                        'mapping_slug'  => 'sf-default',
                         'pipeline_slug' => 'import-default',
                         'buckets'       => [ 'update' ],
                     ],

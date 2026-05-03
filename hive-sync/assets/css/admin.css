@@ -360,6 +360,19 @@
 .hsync-wrap .button.is-danger:hover { background: #b62a2c; color: #fff; }
 .hsync-wrap .button.is-danger:disabled { background: #f0c0c1; border-color: #f0c0c1; }
 
+/* Usage pills — surface "in uso" / "non usato" status next to each
+   entity name (mappings, pipelines, rules, source-configs) so the
+   operator sees at a glance which entries are wired up. */
+.hsync-wrap .hsync-usage-pill {
+    display: inline-block; font-size: 10px; font-weight: 600;
+    padding: 2px 8px; border-radius: 10px; vertical-align: middle;
+    text-transform: uppercase; letter-spacing: 0.3px; margin-left: 6px;
+    cursor: help;
+}
+.hsync-wrap .hsync-usage-pill.is-active  { background: #d1f4d6; color: #1e4022; border: 1px solid #6cce82; }
+.hsync-wrap .hsync-usage-pill.is-pending { background: #fff3cd; color: #664d03; border: 1px solid #e5d97b; }
+.hsync-wrap .hsync-usage-pill.is-orphan  { background: #f0f0f1; color: #646970; border: 1px solid #ccd0d4; }
+
 .hsync-wrap .hsync-mapping-row {
     display: flex; align-items: center; gap: 12px;
     padding: 12px; border: 1px solid #ccd0d4; border-radius: 4px;

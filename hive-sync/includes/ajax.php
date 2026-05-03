@@ -861,3 +861,63 @@ add_action( 'wp_ajax_hsync_ajax_nuclear_delete_by_source', function () {
     @set_time_limit( 300 );
     wp_send_json_success( \HiveSync\Tools\NuclearCleanup::deleteBySource( $source ) );
 } );
+
+// ─── Usage summary ───────────────────────────────────────────────
+//
+// Returns a map of which entities (source-configs, mappings,
+// pipelines, rules) are referenced by active jobs. The UI decorates
+// each list item with an "in uso" / "non usato" pill so the operator
+// can see at a glance which entries are wired up and which are
+// abandoned drafts.
+//
+// Single source of truth = the jobs table. A pipeline that's only
+// referenced by a disabled job is still "in uso" (the operator may
+// flip it on later); the badge surfaces the enabled-job count
+// separately so abandoned-while-disabled is detectable.
+
+add_action( 'wp_ajax_hsync_ajax_usage_summary', function () {
+    hsync_ajax_guard();
+    $jobs = ( new \HiveSync\Core\Repo\JobRepository() )->all();
+
+    $usage = [
+        'source_configs' => [],
+        'mappings'       => [],
+        'pipelines'      => [],
+        'rules'          => [],
+    ];
+    $bump = function ( string $kind, string $key, int $jobId, bool $enabled ) use ( &$usage ): void {
+        if ( $key === '' ) return;
+        if ( ! isset( $usage[ $kind ][ $key ] ) ) {
+            $usage[ $kind ][ $key ] = [ 'jobs' => [], 'enabled_jobs' => 0 ];
+        }
+        $usage[ $kind ][ $key ]['jobs'][] = $jobId;
+        if ( $enabled ) $usage[ $kind ][ $key ]['enabled_jobs']++;
+    };
+
+    foreach ( $jobs as $j ) {
+        $jid     = (int) ( $j['id'] ?? 0 );
+        $type    = (string) ( $j['runnable_type'] ?? '' );
+        $ref     = (string) ( $j['runnable_ref']  ?? '' );
+        $cfg     = (array)  ( $j['config']        ?? [] );
+        $options = (array)  ( $cfg['options']     ?? [] );
+        $enabled = ! empty( $j['enabled'] );
+
+        // Source-config: extract `<config_slug>` from "<source_id>/<config_slug>"
+        if ( $type === 'source.import' && str_contains( $ref, '/' ) ) {
+            [ , $configSlug ] = explode( '/', $ref, 2 );
+            $bump( 'source_configs', (string) $configSlug, $jid, $enabled );
+        }
+
+        // Rule reference: rule.<slug>
+        if ( $type === 'rule' || str_starts_with( $ref, 'rule.' ) || str_starts_with( $type, 'rule.' ) ) {
+            $slug = str_starts_with( $ref, 'rule.' ) ? substr( $ref, 5 ) : $ref;
+            $bump( 'rules', (string) $slug, $jid, $enabled );
+        }
+
+        // Mapping + pipeline slugs come through options.
+        $bump( 'mappings',  (string) ( $options['mapping_slug']  ?? '' ), $jid, $enabled );
+        $bump( 'pipelines', (string) ( $options['pipeline_slug'] ?? '' ), $jid, $enabled );
+    }
+
+    wp_send_json_success( [ 'usage' => $usage ] );
+} );

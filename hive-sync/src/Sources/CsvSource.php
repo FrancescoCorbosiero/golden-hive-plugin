@@ -89,17 +89,32 @@ final class CsvSource extends AbstractSource
             ],
             'flavor' => [
                 'type'    => 'enum',
-                'label'   => 'Tipo CSV',
+                'label'   => 'Formato del feed CSV',
                 'options' => [ 'generic', 'stockfirmati' ],
+                'option_labels' => [
+                    'generic'      => 'Generico — 1 riga CSV = 1 prodotto',
+                    'stockfirmati' => 'StockFirmati — RECORD_TYPE PRODUCT + MODEL (raggruppa per SKU)',
+                ],
                 'default' => 'generic',
-                // generic       → 1 row = 1 product, mapping translates fields
-                // stockfirmati  → PRODUCT + MODEL record types, group by SKU,
-                //                 produces variable Woo product + variations
+                'description' => 'Lascia "Generico" se il tuo CSV è una lista normale di prodotti. Scegli "StockFirmati" SOLO per il feed SF, che ha due tipi di riga: PRODUCT (master) e MODEL (varianti per taglia).',
             ],
-            'sf_markup_multiplier' => [
-                'type'    => 'int',
-                'label'   => 'SF: moltiplicatore prezzo (cost × N)',
-                'default' => 35,  // stored ×10 so the user can put 35 = 3.5
+            'sf_markup_mode' => [
+                'type'    => 'enum',
+                'label'   => 'SF: come applicare il markup',
+                'options' => [ 'multiplier', 'percent' ],
+                'option_labels' => [
+                    'multiplier' => 'Moltiplicatore (cost × N)',
+                    'percent'    => 'Percentuale (+N% sul cost)',
+                ],
+                'default' => 'multiplier',
+                'description' => 'Solo per il feed StockFirmati. Determina come ricavare il prezzo di vendita dal cost wholesale.',
+            ],
+            'sf_markup_value' => [
+                'type'    => 'text',
+                'label'   => 'SF: valore markup',
+                'default' => '3.5',
+                'max'     => 16,
+                'description' => 'Esempi: "3.5" se moltiplicatore (cost × 3.5), "250" se percentuale (+250%, equivalente). Decimali con virgola o punto (3,5 o 3.5).',
             ],
         ];
     }
@@ -150,7 +165,7 @@ final class CsvSource extends AbstractSource
             foreach ($rows as $row) {
                 $assocRows[] = $header !== null ? self::associate($header, $row) : $row;
             }
-            $multiplier = max(1, (int) ($cfg['sf_markup_multiplier'] ?? 35)) / 10.0;
+            $multiplier = self::resolveSfMarkup($cfg);
             $items = self::sfNormalizeAndTransform($assocRows, $multiplier);
             $items = self::applySfCategoryFilter($items, $request->options['category_filter'] ?? null);
             if ($mapping) {
@@ -645,6 +660,40 @@ final class CsvSource extends AbstractSource
             if ($matched) $out[] = $item;
         }
         return $out;
+    }
+
+    /**
+     * Resolve the effective price multiplier from the source-config.
+     * Supports two operator-facing modes:
+     *
+     *   - 'multiplier' (default) — value is the literal factor. 3.5
+     *                              means cost × 3.5. Decimals + commas
+     *                              accepted (3.5 / 3,5 / 2.0 / 1).
+     *   - 'percent'              — value is a markup percent applied
+     *                              ABOVE the cost. 250 → +250% → cost × 3.5.
+     *                              0 means no markup.
+     *
+     * Backward compat: if sf_markup_value is empty but the legacy
+     * sf_markup_multiplier (int × 10) is present, fall through to it
+     * so existing source-configs keep working without manual edit.
+     */
+    private static function resolveSfMarkup(array $cfg): float
+    {
+        $rawValue = trim((string) ($cfg['sf_markup_value'] ?? ''));
+        if ($rawValue === '') {
+            // Legacy field: int × 10 (e.g. 35 → 3.5).
+            $legacy = (int) ($cfg['sf_markup_multiplier'] ?? 35);
+            return max(0.01, $legacy / 10.0);
+        }
+        // Accept European decimal separator (3,5 → 3.5).
+        $value = (float) str_replace(',', '.', $rawValue);
+        $mode  = (string) ($cfg['sf_markup_mode'] ?? 'multiplier');
+        if ($mode === 'percent') {
+            // 250 → cost × 3.5. Negative percents are clamped to a
+            // floor so we never invert the sign of a price.
+            return max(0.01, 1.0 + ($value / 100.0));
+        }
+        return max(0.01, $value);
     }
 
     private static function sfClean(string $v): string

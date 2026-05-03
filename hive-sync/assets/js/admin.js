@@ -1069,9 +1069,14 @@
             const id = idPrefix + '-' + field;
             let input = '';
             if (type === 'enum') {
-                const opts = (spec.options || []).map(o =>
-                    '<option value="' + esc(o) + '"' + (spec.default === o ? ' selected' : '') + '>' + esc(o) + '</option>'
-                ).join('');
+                // Enum options can carry human labels via spec.option_labels
+                // (a {value: label} map). When absent the raw value is
+                // shown — kept for backward compat.
+                const labels = spec.option_labels || {};
+                const opts = (spec.options || []).map(o => {
+                    const txt = (labels[o] !== undefined && labels[o] !== null) ? labels[o] : o;
+                    return '<option value="' + esc(o) + '"' + (spec.default === o ? ' selected' : '') + '>' + esc(txt) + '</option>';
+                }).join('');
                 input = '<select id="' + esc(id) + '" name="' + esc(field) + '"><option value="">—</option>' + opts + '</select>';
             } else if (type === 'bool') {
                 input = '<input type="checkbox" id="' + esc(id) + '" name="' + esc(field) + '"' + (spec.default ? ' checked' : '') + '>';
@@ -1084,7 +1089,13 @@
             } else {
                 input = '<input type="text" id="' + esc(id) + '" name="' + esc(field) + '" value="' + esc(spec.default || '') + '">';
             }
-            return '<label for="' + esc(id) + '">' + esc(label) + required + input + '</label>';
+            // Optional inline help — surfaces underneath the input as a
+            // muted small line. Schema author opts in by adding
+            // spec.description.
+            const desc = spec.description
+                ? '<small class="hsync-muted">' + esc(spec.description) + '</small>'
+                : '';
+            return '<label for="' + esc(id) + '">' + esc(label) + required + input + desc + '</label>';
         }).join('');
     };
 

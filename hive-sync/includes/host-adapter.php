@@ -158,3 +158,17 @@ function hsync_gs_materialize( array $item_data, bool $dry_run = false, bool $si
     $resp = apply_filters( 'hive_sync/host/source/gs/materialize', null, $item_data, $dry_run, $sideload );
     return is_array( $resp ) ? $resp : null;
 }
+
+/**
+ * StockFirmati materialize delegation. Mirrors the GS pattern exactly:
+ * the legacy bridge wires this filter to gh_sf_create_product /
+ * gh_sf_update_product. The bridge owns brand + category + image
+ * sideload + variant updates that the generic hsync_upsert_product
+ * doesn't currently handle.
+ *
+ * @return array{action: string, id: int, reason?: string}|null
+ */
+function hsync_sf_materialize( array $item_data, bool $dry_run = false, bool $sideload = true ): ?array {
+    $resp = apply_filters( 'hive_sync/host/source/sf/materialize', null, $item_data, $dry_run, $sideload );
+    return is_array( $resp ) ? $resp : null;
+}

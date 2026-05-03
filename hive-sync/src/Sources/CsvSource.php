@@ -87,8 +87,25 @@ final class CsvSource extends AbstractSource
                 'label'   => 'Prima riga = header',
                 'default' => true,
             ],
+            'flavor' => [
+                'type'    => 'enum',
+                'label'   => 'Tipo CSV',
+                'options' => [ 'generic', 'stockfirmati' ],
+                'default' => 'generic',
+                // generic       → 1 row = 1 product, mapping translates fields
+                // stockfirmati  → PRODUCT + MODEL record types, group by SKU,
+                //                 produces variable Woo product + variations
+            ],
+            'sf_markup_multiplier' => [
+                'type'    => 'int',
+                'label'   => 'SF: moltiplicatore prezzo (cost × N)',
+                'default' => 35,  // stored ×10 so the user can put 35 = 3.5
+            ],
         ];
     }
+
+    public const FLAVOR_GENERIC = 'generic';
+    public const FLAVOR_SF      = 'stockfirmati';
 
     public function fetch(FetchRequest $request, Context $ctx): FetchResult
     {
@@ -114,6 +131,7 @@ final class CsvSource extends AbstractSource
         $delimiter = (string) ($cfg['delimiter'] ?? ',');
         $enclosure = (string) ($cfg['enclosure'] ?? '"');
         $hasHeader = (bool) ($cfg['has_header'] ?? true);
+        $flavor    = (string) ($cfg['flavor']     ?? self::FLAVOR_GENERIC);
         $mapping   = (array) ($request->options['mapping'] ?? []);
 
         $rows = self::parseCsv($contents, $delimiter, $enclosure);
@@ -122,6 +140,36 @@ final class CsvSource extends AbstractSource
         }
 
         $header = $hasHeader ? array_shift($rows) : null;
+
+        // Stock-Firmati flavor short-circuits the per-row mapping path:
+        // the CSV format is two-record-types (PRODUCT + MODEL) and the
+        // grouping by SKU + variant assembly is handled inline. Then
+        // the normal mapping (if any) runs as an overlay on top.
+        if ($flavor === self::FLAVOR_SF) {
+            $assocRows = [];
+            foreach ($rows as $row) {
+                $assocRows[] = $header !== null ? self::associate($header, $row) : $row;
+            }
+            $multiplier = max(1, (int) ($cfg['sf_markup_multiplier'] ?? 35)) / 10.0;
+            $items = self::sfNormalizeAndTransform($assocRows, $multiplier);
+            $items = self::applySfCategoryFilter($items, $request->options['category_filter'] ?? null);
+            if ($mapping) {
+                $remapped = [];
+                foreach ($items as $item) {
+                    $mappedFields = self::applyMapping($item->data, $mapping);
+                    $newData = $mappedFields + $item->data;
+                    $newData['sku'] = $item->sku;
+                    $remapped[] = new FeedItem(sku: $item->sku, data: $newData, raw: $item->raw);
+                }
+                $items = $remapped;
+            }
+            return new FetchResult(
+                items: $items,
+                stats: ['flat_rows' => count($assocRows), 'products' => count($items), 'flavor' => 'stockfirmati'],
+                warnings: [],
+            );
+        }
+
         $items = [];
         $warnings = [];
 
@@ -258,6 +306,25 @@ final class CsvSource extends AbstractSource
         if ($ctx->dryRun) {
             return MaterializeResult::skipped(null, 'dry_run');
         }
+
+        // SF flavor routes through the legacy bridge (same pattern as
+        // JsonSource's goldensneakers flavor). The bridge's
+        // gh_sf_create_product / gh_sf_update_product handle brand +
+        // category + media + variant updates that the generic
+        // hsync_upsert_product can't currently do for existing variables.
+        if (! empty($item->data['_hsync_flavor']) && $item->data['_hsync_flavor'] === self::FLAVOR_SF) {
+            if (! function_exists('hsync_sf_materialize')) {
+                return MaterializeResult::failed('Bridge SF non disponibile (host adapter).');
+            }
+            $sideload = (bool) ($ctx->meta['sideload'] ?? true);
+            try {
+                $r = \hsync_sf_materialize($item->data, false, $sideload);
+            } catch (\Throwable $e) {
+                return MaterializeResult::failed($e->getMessage());
+            }
+            return self::interpretBridgeResponse($r);
+        }
+
         if (! function_exists('hsync_upsert_product')) {
             return MaterializeResult::failed('host adapter non caricato (product/upsert).');
         }
@@ -375,5 +442,243 @@ final class CsvSource extends AbstractSource
             if ( $resolved !== null ) $out[ $key ] = $resolved;
         }
         return $out;
+    }
+
+    // ─── Stock-Firmati flavor helpers ────────────────────────────
+    //
+    // Port of golden-hive's gh_sf_normalize + gh_sf_transform_to_woo.
+    // SF CSV has two RECORD_TYPEs sharing one SKU:
+    //   - PRODUCT row → master fields (brand, name, prices, images)
+    //   - MODEL row   → one variant (size + per-size quantity + barcode)
+    //
+    // Output: one FeedItem per SKU, data already in the
+    // (type / attributes / variations) shape the bridge's gh_sf_create
+    // /update_product expects.
+
+    /**
+     * @param array<int, array<string, mixed>> $assocRows
+     * @return FeedItem[]
+     */
+    private static function sfNormalizeAndTransform(array $assocRows, float $multiplier): array
+    {
+        $products = [];
+        foreach ($assocRows as $row) {
+            $type = strtoupper(trim((string) ($row['RECORD_TYPE'] ?? '')));
+            if ($type !== 'PRODUCT') continue;
+            $sku = trim((string) ($row['SKU'] ?? $row['ORDERCODE'] ?? ''));
+            if ($sku === '') continue;
+            $products[$sku] = [
+                'sku'             => $sku,
+                'ordercode'       => trim((string) ($row['ORDERCODE'] ?? $sku)),
+                'product_id'      => trim((string) ($row['PRODUCT_ID'] ?? '')),
+                'brand'           => self::sfClean((string) ($row['BRAND']      ?? '')),
+                'model_name'      => self::sfClean((string) ($row['MODEL_NAME'] ?? '')),
+                'name'            => self::sfClean((string) ($row['Titel_ITA']       ?? '')),
+                'description'     => self::sfClean((string) ($row['Description_ITA'] ?? '')),
+                'street_price'    => (float) ($row['STREET_PRICE'] ?? 0),
+                'cost_price'      => (float) ($row['PRICE']        ?? 0),
+                'weight'          => (float) ($row['WEIGHT']       ?? 0),
+                'images'          => array_values(array_filter([
+                    trim((string) ($row['PICTURE_1'] ?? '')),
+                    trim((string) ($row['PICTURE_2'] ?? '')),
+                    trim((string) ($row['PICTURE_3'] ?? '')),
+                ])),
+                'sex'             => self::sfClean((string) ($row['SEX']      ?? '')),
+                'category'        => self::sfClean((string) ($row['CAT']      ?? '')),
+                'subcategory'     => self::sfClean((string) ($row['SUBCAT']   ?? '')),
+                'color_code'      => trim((string) ($row['COLOR_CODE'] ?? '')),
+                'color'           => self::sfClean((string) ($row['COLOR']    ?? '')),
+                'material'        => self::sfClean((string) ($row['MATERIAL'] ?? '')),
+                'made_in'         => trim((string) ($row['MADE_IN']  ?? '')),
+                'season'          => trim((string) ($row['STAGIONE'] ?? '')),
+                'source_url'      => trim((string) ($row['Product_url'] ?? '')),
+                'sizes'           => [],
+                '_raw_rows'       => [ $row ],
+            ];
+        }
+
+        // Second pass: MODEL rows become variants of the matching SKU.
+        foreach ($assocRows as $row) {
+            $type = strtoupper(trim((string) ($row['RECORD_TYPE'] ?? '')));
+            if ($type !== 'MODEL') continue;
+            $parentSku = trim((string) ($row['SKU'] ?? ''));
+            if ($parentSku === '' || ! isset($products[$parentSku])) continue;
+            $size = self::sfClean((string) ($row['MODEL_SIZE'] ?? ''));
+            if ($size === '') continue;
+            $products[$parentSku]['sizes'][] = [
+                'size'     => $size,
+                'quantity' => (int) ($row['QUANTITY'] ?? 0),
+                'barcode'  => trim((string) ($row['BARCODE'] ?? '')),
+                'ean'      => trim((string) ($row['EAN']     ?? '')),
+                'model_id' => trim((string) ($row['MODEL_ID'] ?? '')),
+                'price'    => (float) ($row['PRICE'] ?? $products[$parentSku]['cost_price']),
+            ];
+            $products[$parentSku]['_raw_rows'][] = $row;
+        }
+
+        $items = [];
+        foreach ($products as $sku => $p) {
+            $rawRows = $p['_raw_rows'];
+            unset($p['_raw_rows']);
+            $woo = self::sfTransformToWoo($p, $multiplier);
+            $woo['_hsync_flavor'] = self::FLAVOR_SF;
+            $items[] = new FeedItem(sku: (string) $sku, data: $woo, raw: $rawRows);
+        }
+        return $items;
+    }
+
+    /**
+     * Port of gh_sf_transform_to_woo. Produces the exact shape the
+     * legacy bridge's gh_sf_create_product / gh_sf_update_product
+     * expect: type + status + meta (`_sf_*`) + variations[].
+     *
+     * @param array<string, mixed> $product
+     * @return array<string, mixed>
+     */
+    private static function sfTransformToWoo(array $product, float $multiplier): array
+    {
+        $sizes    = $product['sizes'] ?? [];
+        $hasSizes = count($sizes) > 0;
+        $type     = $hasSizes ? 'variable' : 'simple';
+
+        $streetPrice = (float) ($product['street_price'] ?? 0);
+        $costPrice   = (float) ($product['cost_price']   ?? 0);
+        $salePrice   = round($costPrice * $multiplier);
+        $regPrice    = round($streetPrice);
+
+        $name = ($product['name'] !== '')
+            ? $product['name']
+            : trim(($product['brand'] ?? '') . ' ' . ($product['model_name'] ?? ''));
+
+        $woo = [
+            'name'              => $name,
+            'sku'               => $product['sku'],
+            'type'              => $type,
+            'status'             => 'publish',
+            'description'       => $product['description'] ?? '',
+            'weight'            => ($product['weight'] ?? 0) > 0 ? (string) $product['weight'] : '',
+            // SF-specific meta read by the legacy bridge for taxonomy +
+            // image sideload during create/update.
+            '_sf_brand'         => $product['brand']       ?? '',
+            '_sf_category'      => $product['category']    ?? '',
+            '_sf_subcategory'   => $product['subcategory'] ?? '',
+            '_sf_sex'           => $product['sex']         ?? '',
+            '_sf_color'         => $product['color']       ?? '',
+            '_sf_material'      => $product['material']    ?? '',
+            '_sf_made_in'       => $product['made_in']     ?? '',
+            '_sf_season'        => $product['season']      ?? '',
+            '_sf_images'        => $product['images']      ?? [],
+            '_sf_source_url'    => $product['source_url']  ?? '',
+            '_sf_cost_price'    => $costPrice,
+        ];
+
+        if ($type === 'simple') {
+            $woo['regular_price']  = (string) $regPrice;
+            $woo['sale_price']     = $salePrice > 0 ? (string) $salePrice : '';
+            $woo['manage_stock']   = true;
+            // No size = total stock from the PRODUCT row (we don't have
+            // it explicitly but the legacy code summed sizes which here
+            // is empty). Default to 0 — adjust manually if needed.
+            $woo['stock_quantity'] = 0;
+            $woo['stock_status']   = 'outofstock';
+            return $woo;
+        }
+
+        $allSizes = array_column($sizes, 'size');
+        $woo['attributes'] = [
+            'pa_taglia' => [
+                'options'   => array_values(array_unique($allSizes)),
+                'visible'   => true,
+                'variation' => true,
+            ],
+        ];
+
+        $variations = [];
+        $totalQty   = 0;
+        foreach ($sizes as $size) {
+            $varCost   = (float) ($size['price']    ?: $costPrice);
+            $varSale   = round($varCost * $multiplier);
+            $varReg    = round($streetPrice);
+            $qty       = (int) ($size['quantity'] ?? 0);
+            $totalQty += $qty;
+            $variations[] = [
+                'attributes'     => [ 'pa_taglia' => (string) $size['size'] ],
+                'sku'            => (string) $product['sku'] . '-' . self::sfSlug((string) $size['size']),
+                'regular_price'  => (string) $varReg,
+                'sale_price'     => $varSale > 0 ? (string) $varSale : '',
+                'manage_stock'   => true,
+                'stock_quantity' => $qty,
+                'stock_status'   => $qty > 0 ? 'instock' : 'outofstock',
+                'status'         => 'publish',
+            ];
+        }
+        $woo['variations']     = $variations;
+        $woo['manage_stock']   = false;
+        $woo['stock_quantity'] = $totalQty;
+        $woo['stock_status']   = $totalQty > 0 ? 'instock' : 'outofstock';
+        return $woo;
+    }
+
+    /**
+     * SF subset filter: keep items whose `_sf_category` (post-normalize)
+     * matches the operator's filter. Used by the multi-job-per-subset
+     * pattern (e.g. one job per category subset, each with its own
+     * markup pipeline override).
+     *
+     * @param FeedItem[] $items
+     * @param mixed      $rawFilter
+     * @return FeedItem[]
+     */
+    private static function applySfCategoryFilter(array $items, $rawFilter): array
+    {
+        $filter = self::normalizeCategoryFilter($rawFilter);
+        if ($filter === []) return $items;
+        $out = [];
+        foreach ($items as $item) {
+            $cat = strtolower(trim((string) ($item->data['_sf_category'] ?? '')));
+            $sub = strtolower(trim((string) ($item->data['_sf_subcategory'] ?? '')));
+            $matched = false;
+            foreach ($filter as $f) {
+                if ($cat !== '' && ($cat === $f || str_contains($cat, $f))) { $matched = true; break; }
+                if ($sub !== '' && ($sub === $f || str_contains($sub, $f))) { $matched = true; break; }
+            }
+            if ($matched) $out[] = $item;
+        }
+        return $out;
+    }
+
+    private static function sfClean(string $v): string
+    {
+        // Strip control chars + collapse whitespace (matches gh_sf_clean).
+        $v = preg_replace('/[\x00-\x1F\x7F]/u', ' ', $v) ?? $v;
+        $v = preg_replace('/\s+/', ' ', $v) ?? $v;
+        return trim($v);
+    }
+
+    private static function sfSlug(string $v): string
+    {
+        if (function_exists('sanitize_title')) return \sanitize_title($v);
+        return strtolower(preg_replace('/[^a-z0-9]+/i', '-', $v) ?? $v);
+    }
+
+    /**
+     * @param mixed $r
+     */
+    private static function interpretBridgeResponse($r): MaterializeResult
+    {
+        if (! is_array($r)) {
+            return MaterializeResult::failed('host_returned_non_array');
+        }
+        $action = (string) ($r['action'] ?? 'error');
+        $pid    = (int) ($r['id'] ?? 0);
+        if ($action === 'error' || $pid <= 0) {
+            return MaterializeResult::failed(
+                error: (string) ($r['reason'] ?? 'unknown_error'),
+                productId: $pid > 0 ? $pid : null,
+            );
+        }
+        return $action === 'updated'
+            ? MaterializeResult::updated($pid, $r)
+            : MaterializeResult::created($pid, $r);
     }
 }

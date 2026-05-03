@@ -78,11 +78,14 @@ final class JsonSource extends AbstractSource
             ],
             'flavor' => [
                 'type'    => 'enum',
-                'label'   => 'Modalità',
+                'label'   => 'Formato del feed JSON',
                 'options' => [ self::FLAVOR_GENERIC, self::FLAVOR_GS ],
+                'option_labels' => [
+                    self::FLAVOR_GENERIC => 'Generico — 1 elemento JSON = 1 prodotto',
+                    self::FLAVOR_GS      => 'Golden Sneakers — 1 elemento = 1 taglia (raggruppa per SKU)',
+                ],
                 'default' => self::FLAVOR_GENERIC,
-                // generic     → 1 row = 1 product, pass-through to mapping
-                // goldensneakers → 1 row per (sku+size), aggregate + transform
+                'description' => 'Lascia "Generico" se il tuo feed restituisce una lista normale di prodotti. Scegli "Golden Sneakers" SOLO per il feed GS, dove ogni riga rappresenta una singola taglia di un prodotto e va raggruppata.',
             ],
         ];
     }

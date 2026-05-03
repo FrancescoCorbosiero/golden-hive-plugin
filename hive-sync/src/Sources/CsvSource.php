@@ -89,24 +89,32 @@ final class CsvSource extends AbstractSource
             ],
             'flavor' => [
                 'type'    => 'enum',
-                'label'   => 'Tipo CSV',
+                'label'   => 'Formato del feed CSV',
                 'options' => [ 'generic', 'stockfirmati' ],
+                'option_labels' => [
+                    'generic'      => 'Generico — 1 riga CSV = 1 prodotto',
+                    'stockfirmati' => 'StockFirmati — RECORD_TYPE PRODUCT + MODEL (raggruppa per SKU)',
+                ],
                 'default' => 'generic',
-                // generic       → 1 row = 1 product, mapping translates fields
-                // stockfirmati  → PRODUCT + MODEL record types, group by SKU,
-                //                 produces variable Woo product + variations
+                'description' => 'Lascia "Generico" se il tuo CSV è una lista normale di prodotti. Scegli "StockFirmati" SOLO per il feed SF, che ha due tipi di riga: PRODUCT (master) e MODEL (varianti per taglia).',
             ],
             'sf_markup_mode' => [
                 'type'    => 'enum',
-                'label'   => 'SF: modalità markup',
+                'label'   => 'SF: come applicare il markup',
                 'options' => [ 'multiplier', 'percent' ],
+                'option_labels' => [
+                    'multiplier' => 'Moltiplicatore (cost × N)',
+                    'percent'    => 'Percentuale (+N% sul cost)',
+                ],
                 'default' => 'multiplier',
+                'description' => 'Solo per il feed StockFirmati. Determina come ricavare il prezzo di vendita dal cost wholesale.',
             ],
             'sf_markup_value' => [
                 'type'    => 'text',
-                'label'   => 'SF: valore markup (es. 3.5 se moltiplicatore, 250 se percentuale)',
+                'label'   => 'SF: valore markup',
                 'default' => '3.5',
                 'max'     => 16,
+                'description' => 'Esempi: "3.5" se moltiplicatore (cost × 3.5), "250" se percentuale (+250%, equivalente). Decimali con virgola o punto (3,5 o 3.5).',
             ],
         ];
     }

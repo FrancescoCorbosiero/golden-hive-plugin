@@ -139,7 +139,10 @@
     font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
     color: #646970; margin-bottom: 6px; font-weight: 600;
 }
-.hsync-wrap .hsync-summary-section .hsync-summary { grid-template-columns: repeat(6, 1fr); }
+.hsync-wrap .hsync-summary-section .hsync-summary { grid-template-columns: repeat(7, 1fr); }
+@media (max-width: 1100px) {
+    .hsync-wrap .hsync-summary-section .hsync-summary { grid-template-columns: repeat(4, 1fr); }
+}
 .hsync-wrap .hsync-stat.is-dim .hsync-stat-num { color: #646970; }
 .hsync-wrap .hsync-summary-foot {
     background: #f0f6fc; border-left: 3px solid #2271b1;

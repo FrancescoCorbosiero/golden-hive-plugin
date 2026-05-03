@@ -1876,9 +1876,15 @@
         // and the result must reconcile to that count. We surface every
         // bucket — including the four blocking/failure paths — so users can
         // see exactly where each item went.
-        const processingPool = (s.new || 0) + (s.update || 0);
-        const accounted = (s.created || 0) + (s.updated || 0) + (s.skipped || 0)
-                        + (s.failed || 0) + (s.pre_blocked || 0) + (s.post_blocked || 0);
+        // Reconciliation math — every bucket the diff produced is part
+        // of the processing pool, every result counter is part of the
+        // accounted total. update_stock + stock_patched are first-class
+        // here (the fast-stock-patch path can dwarf new+update on big
+        // refresh runs).
+        const processingPool = (s.new || 0) + (s.update || 0) + (s.update_stock || 0);
+        const accounted = (s.created || 0) + (s.updated || 0) + (s.stock_patched || 0)
+                        + (s.skipped || 0) + (s.failed || 0)
+                        + (s.pre_blocked || 0) + (s.post_blocked || 0);
         const inFlight = Math.max(0, processingPool - accounted);
         const reconcileBad = (status === 'done' && inFlight > 0) ? 'is-bad' : '';
 
@@ -1886,21 +1892,25 @@
             + '<div class="hsync-summary-section">'
             +   '<div class="hsync-summary-label">Source diff</div>'
             +   '<div class="hsync-summary">'
-            +     stat('Fetched',   s.fetched)
-            +     stat('New',       s.new)
-            +     stat('Update',    s.update)
-            +     stat('Unchanged (skipped by diff)', s.unchanged, 'is-dim')
+            +     stat('Fetched',         s.fetched)
+            +     stat('New',             s.new)
+            +     stat('Update (full)',   s.update)
+            +     stat('Update (stock)',  s.update_stock,
+                                          (s.update_stock || 0) > 0 ? 'is-good' : 'is-dim')
+            +     stat('Unchanged',       s.unchanged, 'is-dim')
             +   '</div>'
             + '</div>'
             + '<div class="hsync-summary-section">'
-            +   '<div class="hsync-summary-label">Processing pool: ' + processingPool + ' items (new + update)</div>'
+            +   '<div class="hsync-summary-label">Processing pool: ' + processingPool + ' items'
+            +     ' (new + update + update_stock)</div>'
             +   '<div class="hsync-summary">'
-            +     stat('Created',          s.created,      (s.created || 0) > 0 ? 'is-good' : '')
-            +     stat('Updated',          s.updated,      (s.updated || 0) > 0 ? 'is-good' : '')
-            +     stat('Skipped (dry/no-op)', s.skipped,   (s.skipped || 0) > 0 ? 'is-dim'  : '')
-            +     stat('Failed',           s.failed,       (s.failed  || 0) > 0 ? 'is-bad'  : '')
-            +     stat('Pre-check blocked',  s.pre_blocked,  (s.pre_blocked  || 0) > 0 ? 'is-bad' : '')
-            +     stat('Post-check blocked', s.post_blocked, (s.post_blocked || 0) > 0 ? 'is-bad' : '')
+            +     stat('Created',           s.created,       (s.created       || 0) > 0 ? 'is-good' : '')
+            +     stat('Updated',           s.updated,       (s.updated       || 0) > 0 ? 'is-good' : '')
+            +     stat('Stock patched',     s.stock_patched, (s.stock_patched || 0) > 0 ? 'is-good' : '')
+            +     stat('Skipped',           s.skipped,       (s.skipped       || 0) > 0 ? 'is-dim'  : '')
+            +     stat('Failed',            s.failed,        (s.failed        || 0) > 0 ? 'is-bad'  : '')
+            +     stat('Pre-check blocked',  s.pre_blocked,  (s.pre_blocked   || 0) > 0 ? 'is-bad' : '')
+            +     stat('Post-check blocked', s.post_blocked, (s.post_blocked  || 0) > 0 ? 'is-bad' : '')
             +   '</div>'
             +   (status === 'done' && processingPool > 0
                 ? '<div class="hsync-summary-foot ' + reconcileBad + '">'

@@ -577,24 +577,29 @@
             region.innerHTML = '<div class="hsync-empty">Nessun job schedulato.</div>';
             return;
         }
-        region.innerHTML = HSync.state.jobs.map(j => ''
+        region.innerHTML = HSync.state.jobs.map(j => {
+            const cronLabel = HSync.describeCron(j.cron_expr || '');
+            const seedLabel = (j.config && j.config._seed_label) ? esc(j.config._seed_label) : '';
+            return ''
             + '<div class="hsync-mapping-row">'
             +   '<div class="hsync-row-main">'
             +     '<div class="hsync-row-name">'
             +       (j.enabled ? '<span class="hsync-action-pill is-created">on</span>' : '<span class="hsync-action-pill is-skipped">off</span>') + ' '
-            +       '<code>' + esc(j.runnable_type) + '</code> · <code>' + esc(j.runnable_ref) + '</code>'
+            +       (seedLabel || ('<code>' + esc(j.runnable_type) + '</code> · <code>' + esc(j.runnable_ref) + '</code>'))
             +     '</div>'
             +     '<div class="hsync-row-meta">'
-            +       'cron: <code>' + esc(j.cron_expr || '—') + '</code> · '
-            +       'next: <code>' + esc(j.next_run_at || '—') + '</code> · '
-            +       'last: <code>' + esc(j.last_run_status || '—') + '</code>'
+            +       (cronLabel
+                        ? '<strong>' + esc(cronLabel) + '</strong> <code>' + esc(j.cron_expr || '—') + '</code>'
+                        : 'cron: <code>' + esc(j.cron_expr || '—') + '</code>')
+            +       ' · next: <code>' + esc(j.next_run_at || '—') + '</code>'
+            +       ' · last: <code>' + esc(j.last_run_status || '—') + '</code>'
             +     '</div>'
             +   '</div>'
             +   '<button class="button" data-action="job-run-now" data-id="' + j.id + '">Run</button>'
             +   '<button class="button" data-action="job-edit"    data-id="' + j.id + '">Modifica</button>'
             +   '<button class="button" data-action="job-delete"  data-id="' + j.id + '">Elimina</button>'
-            + '</div>'
-        ).join('');
+            + '</div>';
+        }).join('');
     };
 
     HSync.openJobEditor = function (job) {
@@ -644,7 +649,12 @@
             + '</label>'
             + '<label>Riferimento ' + refField + '</label>'
             + configField
-            + '<label>Cron expression (5 fields)<input type="text" data-field="job-cron" value="' + esc(j.cron_expr || '') + '" placeholder="*/15 * * * *"></label>'
+            + '<label>Cron expression (5 campi)'
+            +   '<input type="text" data-field="job-cron" value="' + esc(j.cron_expr || '') + '" placeholder="*/15 * * * *">'
+            +   '<small class="hsync-muted" data-region="job-cron-readout">'
+            +     (HSync.describeCron(j.cron_expr || '') || 'Inserisci una espressione cron valida.')
+            +   '</small>'
+            + '</label>'
             + '<label class="hsync-dryrun"><input type="checkbox" data-field="job-enabled"' + (j.enabled ? ' checked' : '') + '> Abilitato</label>'
             + '<div class="hsync-actions" style="margin-top:24px;border-top:1px solid #ccd0d4;padding-top:16px;">'
             +   '<button class="button button-primary" data-action="job-save">Salva</button>'
@@ -1711,6 +1721,78 @@
         { label: 'Lun-Ven 02:00',      expr: '0 2 * * 1-5' },
     ];
 
+    /**
+     * Translate a 5-field cron expression into Italian. Returns
+     * an empty string when the expression is unknown — caller falls
+     * back to showing the raw expression alone.
+     *
+     * Pattern matching only — no full cron evaluation. Common shapes
+     * (every N minutes/hours, daily, weekly, monthly) get a friendly
+     * label; anything else returns ''. The raw cron is always shown
+     * alongside this label so the operator can verify.
+     */
+    HSync.describeCron = function (expr) {
+        const e = String(expr || '').trim();
+        if (!e) return '';
+        const parts = e.split(/\s+/);
+        if (parts.length !== 5) return '';
+        const [m, h, dom, mon, dow] = parts;
+
+        const pad = n => String(n).padStart(2, '0');
+        const star = '*';
+
+        // Day-of-week phrases used when dow is restricted.
+        const dowPhrase = (s) => {
+            if (s === star) return 'ogni giorno';
+            if (s === '1-5') return 'da lunedì a venerdì';
+            if (s === '0,6' || s === '6,0') return 'sabato e domenica';
+            const single = { 0: 'domenica', 1: 'lunedì', 2: 'martedì', 3: 'mercoledì', 4: 'giovedì', 5: 'venerdì', 6: 'sabato', 7: 'domenica' };
+            if (/^\d$/.test(s) && single[s]) return single[s];
+            return '';
+        };
+
+        // — Sub-hour: */N * * * *  → ogni N minuti
+        const stepMin = m.match(/^\*\/(\d+)$/);
+        if (stepMin && h === star && dom === star && mon === star && dow === star) {
+            const n = parseInt(stepMin[1], 10);
+            if (n === 1) return 'Ogni minuto';
+            return 'Ogni ' + n + ' minuti';
+        }
+        // — Hourly at minute M: M * * * *
+        if (/^\d+$/.test(m) && h === star && dom === star && mon === star && dow === star) {
+            const mm = parseInt(m, 10);
+            if (mm === 0) return 'Ogni ora (al minuto :00)';
+            return 'Ogni ora (al minuto :' + pad(mm) + ')';
+        }
+        // — Every N hours at minute M: M */N * * *
+        const stepHr = h.match(/^\*\/(\d+)$/);
+        if (/^\d+$/.test(m) && stepHr && dom === star && mon === star && dow === star) {
+            const n = parseInt(stepHr[1], 10);
+            const mm = parseInt(m, 10);
+            const at = mm === 0 ? '' : ' (al minuto :' + pad(mm) + ')';
+            if (n === 1) return 'Ogni ora' + at;
+            return 'Ogni ' + n + ' ore' + at;
+        }
+        // — Daily at H:M: M H * * <dow>
+        if (/^\d+$/.test(m) && /^\d+$/.test(h) && dom === star && mon === star) {
+            const time = pad(parseInt(h, 10)) + ':' + pad(parseInt(m, 10));
+            const phrase = dowPhrase(dow);
+            if (phrase === 'ogni giorno') return 'Ogni giorno alle ' + time;
+            if (phrase) return ucfirst(phrase) + ' alle ' + time;
+            return '';
+        }
+        // — Monthly on day D at H:M: M H D * *
+        if (/^\d+$/.test(m) && /^\d+$/.test(h) && /^\d+$/.test(dom) && mon === star && dow === star) {
+            const day = parseInt(dom, 10);
+            const time = pad(parseInt(h, 10)) + ':' + pad(parseInt(m, 10));
+            const ord = day === 1 ? 'il 1°' : 'il ' + day;
+            return ucfirst(ord) + ' di ogni mese alle ' + time;
+        }
+        return '';
+
+        function ucfirst(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+    };
+
     HSync.saveCurrentAsJob = async function () {
         const sourceId = $('[data-field="run-source"]').value;
         if (!sourceId) { alert('Scegli una sorgente.'); return; }
@@ -2174,6 +2256,14 @@
             const idx = parseInt(e.target.dataset.customValue, 10);
             const key = HSync.state.mappingCustomKeys[idx];
             if (key) HSync.state.mappingValues[key] = e.target.value;
+        }
+        // Live cron-to-Italian readout under the job-cron input.
+        if (e.target.matches('[data-field="job-cron"]')) {
+            const readout = document.querySelector('[data-region="job-cron-readout"]');
+            if (readout) {
+                const t = HSync.describeCron(e.target.value);
+                readout.textContent = t || 'Espressione non riconosciuta — controlla i 5 campi (min ora dom mese dow).';
+            }
         }
     });
 

@@ -62,7 +62,7 @@ return array(
     'HiveSync\\Operations\\Taxonomy\\AutoCategorize' => $baseDir . '/src/Operations/Taxonomy/AutoCategorize.php',
     'HiveSync\\Operations\\Taxonomy\\ResolveTaxonomy' => $baseDir . '/src/Operations/Taxonomy/ResolveTaxonomy.php',
     'HiveSync\\Sources\\CsvSource' => $baseDir . '/src/Sources/CsvSource.php',
-    'HiveSync\\Sources\\GoldenSneakersSource' => $baseDir . '/src/Sources/GoldenSneakersSource.php',
+    'HiveSync\\Sources\\JsonSource' => $baseDir . '/src/Sources/JsonSource.php',
     'HiveSync\\Sources\\StockOnlyClassifier' => $baseDir . '/src/Sources/StockOnlyClassifier.php',
     'HiveSync\\Tools\\NuclearCleanup' => $baseDir . '/src/Tools/NuclearCleanup.php',
     'HiveSync\\Workflow\\Export\\Exporter' => $baseDir . '/src/Workflow/Export/Exporter.php',

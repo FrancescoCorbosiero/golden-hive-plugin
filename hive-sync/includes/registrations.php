@@ -14,7 +14,7 @@ add_action( 'hive_sync/core_booted', function () {
     if ( ! class_exists( '\\HiveSync\\Core\\Bootstrap' ) ) return;
 
     // Sources
-    \HiveSync\Core\Bootstrap::$sources->register( new \HiveSync\Sources\GoldenSneakersSource() );
+    \HiveSync\Core\Bootstrap::$sources->register( new \HiveSync\Sources\JsonSource() );
     \HiveSync\Core\Bootstrap::$sources->register( new \HiveSync\Sources\CsvSource() );
 
     // Operations (post-import)

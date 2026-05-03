@@ -1796,7 +1796,25 @@
         const out = $('[data-region="run-output"]');
         out.innerHTML = '<p class="hsync-loading">Tick 1: starting…</p>';
 
-        const accumulated = { rows: [], summary: null, warnings: [], runId: null };
+        // Two-bucket accumulator across ticks:
+        //   - diffSnapshot: the source-diff numbers (fetched, new,
+        //     update, update_stock, unchanged) — captured ONCE from the
+        //     first tick and held stable. On subsequent ticks the diff
+        //     re-runs and counts shrink as items get processed (already-
+        //     created items leave the `new` bucket on tick 2, etc.) so
+        //     they're not the right thing to display.
+        //   - totals: the result counters (created, updated,
+        //     stock_patched, skipped, failed, pre_blocked, post_blocked)
+        //     SUMMED across every tick — that's the cumulative work
+        //     done by the run, not just the last tick's slice.
+        // Server-side each tick still resets its own summary; the JS
+        // is the system of record for cross-tick aggregation.
+        const RESULT_KEYS = ['created', 'updated', 'stock_patched', 'skipped', 'failed', 'pre_blocked', 'post_blocked'];
+        const accumulated = {
+            rows: [], warnings: [], runId: null,
+            diffSnapshot: null,
+            totals: RESULT_KEYS.reduce((acc, k) => (acc[k] = 0, acc), {}),
+        };
         let cursor = null;
         let tick = 0;
         const maxTicks = 200;  // hard cap — refuse to loop forever on a misbehaving source
@@ -1814,17 +1832,34 @@
                 });
 
                 accumulated.runId    = data.run_id || accumulated.runId;
-                accumulated.summary  = data.summary || accumulated.summary;
                 accumulated.warnings = data.warnings || accumulated.warnings;
                 if (Array.isArray(data.rows)) {
                     // Server returns rows from THIS tick only; concat to grow live.
                     accumulated.rows = accumulated.rows.concat(data.rows).slice(0, 1000);
                 }
 
+                const tickSummary = data.summary || {};
+                if (!accumulated.diffSnapshot) {
+                    accumulated.diffSnapshot = {
+                        fetched:      tickSummary.fetched      || 0,
+                        new:          tickSummary.new          || 0,
+                        update:       tickSummary.update       || 0,
+                        update_stock: tickSummary.update_stock || 0,
+                        unchanged:    tickSummary.unchanged    || 0,
+                    };
+                }
+                RESULT_KEYS.forEach(k => {
+                    accumulated.totals[k] += (tickSummary[k] || 0);
+                });
+
+                // Compose the summary the renderer reads: diff snapshot
+                // from tick 1, result totals across all ticks.
+                const composed = Object.assign({}, accumulated.diffSnapshot, accumulated.totals);
+
                 HSync.renderRunResult({
                     status:   data.status,
                     run_id:   accumulated.runId,
-                    summary:  accumulated.summary,
+                    summary:  composed,
                     warnings: accumulated.warnings,
                     rows:     accumulated.rows,
                     progress: data.progress,

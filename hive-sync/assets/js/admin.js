@@ -2102,9 +2102,12 @@
         const mappingSlug = $('[data-field="run-mapping"]').value;
         const mapping = mappingSlug ? HSync.state.mappings.find(m => m.slug === mappingSlug) : null;
         const pipelineSlug = ($('[data-field="run-pipeline"]') || {}).value || '';
+        const limitInput = $('[data-field="run-limit"]');
+        const limit = limitInput ? Math.max(0, parseInt(limitInput.value, 10) || 0) : 0;
         const options = {};
         if (mapping)        options.mapping = mapping.config;
         if (pipelineSlug)   options.pipeline_slug = pipelineSlug;
+        if (limit > 0)      options.limit = limit;
 
         await HSync.runImportTicked(sourceId, configSlug, config, options, dryRun, null);
     };

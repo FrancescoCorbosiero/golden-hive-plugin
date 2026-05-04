@@ -87,6 +87,17 @@ final class JsonSource extends AbstractSource
                 'default' => self::FLAVOR_GENERIC,
                 'description' => 'Lascia "Generico" se il tuo feed restituisce una lista normale di prodotti. Scegli "Golden Sneakers" SOLO per il feed GS, dove ogni riga rappresenta una singola taglia di un prodotto e va raggruppata.',
             ],
+            'import_status' => [
+                'type'    => 'enum',
+                'label'   => 'Stato iniziale dei prodotti importati',
+                'options' => [ 'publish', 'draft' ],
+                'option_labels' => [
+                    'publish' => 'Pubblicato — visibile sul sito appena importato',
+                    'draft'   => 'Bozza — invisibile finché non lo pubblichi (serve una Regola)',
+                ],
+                'default' => 'publish',
+                'description' => 'Imposta "Bozza" se vuoi importare in staging e poi attivare i prodotti a gruppi (per categoria/brand) tramite una Regola periodica nel tab Regole. Si applica solo ai NUOVI prodotti — quelli esistenti mantengono il loro stato.',
+            ],
         ];
     }
 
@@ -144,9 +155,20 @@ final class JsonSource extends AbstractSource
             return new FetchResult(items: [], warnings: ['Risposta JSON: lista di righe non rilevata.']);
         }
 
+        // Honor the import_status knob: stamp the desired creation
+        // status onto each FeedItem.data so the host bridge / Woo
+        // factory pick it up on CREATE. Existing products keep their
+        // current status (the bridge doesn't touch it on update paths).
+        // 'publish' is the historical default — pre-existing configs
+        // that don't carry the knob keep the old behavior.
+        $importStatus = (string) ($cfg['import_status'] ?? 'publish');
+        if (! in_array($importStatus, ['publish', 'draft'], true)) {
+            $importStatus = 'publish';
+        }
+
         $items = $flavor === self::FLAVOR_GS
-            ? self::aggregateFlatRows($rawRows)
-            : self::wrapRows($rawRows);
+            ? self::aggregateFlatRows($rawRows, $importStatus)
+            : self::wrapRows($rawRows, $importStatus);
 
         // Apply the user's mapping (if any) AFTER fetch. OVERLAY
         // semantics: mapped output is merged ON TOP so source-native
@@ -183,13 +205,19 @@ final class JsonSource extends AbstractSource
      * @param array<int, array<string, mixed>> $rows
      * @return FeedItem[]
      */
-    private static function wrapRows(array $rows): array
+    private static function wrapRows(array $rows, string $importStatus = 'publish'): array
     {
         $out = [];
         foreach ($rows as $r) {
             if (! is_array($r)) continue;
             $sku = (string) ($r['sku'] ?? '');
             if ($sku === '') continue;
+            // Default the status on rows that don't declare one. Mapped
+            // configs that explicitly set `status` win — the operator
+            // staying in control of per-item overrides.
+            if (! isset($r['status']) || $r['status'] === '') {
+                $r['status'] = $importStatus;
+            }
             $out[] = new FeedItem(sku: $sku, data: $r, raw: $r);
         }
         return $out;
@@ -205,7 +233,7 @@ final class JsonSource extends AbstractSource
      * @param array<int, array<string, mixed>> $rows
      * @return FeedItem[]
      */
-    private static function aggregateFlatRows(array $rows): array
+    private static function aggregateFlatRows(array $rows, string $importStatus = 'publish'): array
     {
         $bySku = [];
         foreach ($rows as $r) {
@@ -253,7 +281,7 @@ final class JsonSource extends AbstractSource
                 'image_name' => $bundle['image_name'],
                 'sizes'      => $bundle['sizes'],
             ];
-            $woo = self::transformToWoo($bridgeProduct);
+            $woo = self::transformToWoo($bridgeProduct, $importStatus);
 
             // Surface the API-native field names back on top so the
             // mapping editor's "Anteprima sorgente" probe shows them.
@@ -282,7 +310,7 @@ final class JsonSource extends AbstractSource
      * @param array<string, mixed> $product
      * @return array<string, mixed>
      */
-    private static function transformToWoo(array $product): array
+    private static function transformToWoo(array $product, string $importStatus = 'publish'): array
     {
         $sizes    = (array) ($product['sizes'] ?? []);
         $allEu    = array_column($sizes, 'size_eu');
@@ -305,7 +333,7 @@ final class JsonSource extends AbstractSource
             'name'              => (string) ($product['name'] ?? ''),
             'sku'               => (string) ($product['sku']  ?? ''),
             'type'              => $type,
-            'status'            => 'publish',
+            'status'            => $importStatus,
             '_gs_brand'         => (string) ($product['brand']     ?? ''),
             '_gs_model'         => (string) ($product['model']     ?? ''),
             '_gs_image_url'     => (string) ($product['image_url'] ?? ''),
@@ -346,7 +374,11 @@ final class JsonSource extends AbstractSource
                 'manage_stock'   => true,
                 'stock_quantity' => $qty,
                 'stock_status'   => $qty > 0 ? 'instock' : 'outofstock',
-                'status'         => 'publish',
+                // Variations follow the parent's status — a draft
+                // parent with published variations would be a confusing
+                // half-state; flipping the parent later (via a Rule)
+                // also flips children when we re-save.
+                'status'         => $importStatus,
                 'regular_price'  => (string) round($pp),
                 'sale_price'     => '',
             ];

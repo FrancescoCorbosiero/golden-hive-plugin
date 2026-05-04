@@ -586,13 +586,87 @@
         ).join('');
     };
 
-    HSync.openRuleEditor = function (rule) {
+    HSync.openRuleEditor = async function (rule) {
         HSync.state.editingRule = rule
             ? JSON.parse(JSON.stringify(rule))
-            : { slug: '', name: '', selection: { mode: 'all', filter: {} }, operations: [], checks: [], enabled: false };
+            : { slug: '', name: '', selection: { mode: 'all', filter: [] }, operations: [], checks: [], enabled: false };
         $('[data-region="rules-list"]').classList.add('is-hidden');
         $('[data-region="rule-editor"]').classList.remove('is-hidden');
+        // Lazily load category + brand terms once per session — the
+        // pickers re-use them. The endpoint is cheap (a couple of
+        // get_terms calls) and the result rarely changes.
+        if (! HSync.state.taxonomy) {
+            try {
+                HSync.state.taxonomy = await HSync.ajax('taxonomy_terms', {});
+            } catch (e) {
+                HSync.state.taxonomy = { categories: [], brands: [] };
+            }
+        }
         HSync.renderRuleEditor();
+    };
+
+    /**
+     * Split the selection.filter conditions list into:
+     *   - categoryIds: term ids for `type=category, operator=in`
+     *   - brandIds:    term ids for `type=brand, operator=in`
+     *   - extras:      everything else (kept as raw JSON for advanced use)
+     * Round-trips losslessly: rebuildFilter(splitFilter(x)) === x for
+     * filters this UI knows how to express.
+     */
+    HSync.splitRuleFilter = function (filter) {
+        const arr = Array.isArray(filter) ? filter : [];
+        const categoryIds = [];
+        const brandIds    = [];
+        const extras      = [];
+        arr.forEach(c => {
+            if (! c || typeof c !== 'object') { extras.push(c); return; }
+            if (c.type === 'category' && c.operator === 'in' && Array.isArray(c.value)) {
+                categoryIds.push(...c.value.map(v => parseInt(v, 10)).filter(v => v > 0));
+            } else if (c.type === 'brand' && c.operator === 'in' && Array.isArray(c.value)) {
+                brandIds.push(...c.value.map(v => parseInt(v, 10)).filter(v => v > 0));
+            } else {
+                extras.push(c);
+            }
+        });
+        return { categoryIds, brandIds, extras };
+    };
+
+    HSync.buildRuleFilter = function (categoryIds, brandIds, extras) {
+        const out = [];
+        if (categoryIds.length) out.push({ type: 'category', operator: 'in', value: categoryIds });
+        if (brandIds.length)    out.push({ type: 'brand',    operator: 'in', value: brandIds });
+        (extras || []).forEach(e => out.push(e));
+        return out;
+    };
+
+    /**
+     * Read the current state of the filter pickers / ids textarea back
+     * into editingRule.selection. Called before any re-render so the
+     * user's in-progress edits survive mode flips.
+     */
+    HSync.captureRuleFilterState = function () {
+        const r = HSync.state.editingRule;
+        if (! r || ! r.selection) return;
+        const catSel   = $('[data-field="rule-sel-categories"]');
+        const brandSel = $('[data-field="rule-sel-brands"]');
+        const idsEl    = $('[data-field="rule-sel-ids"]');
+        const extrasEl = $('[data-field="rule-sel-extras"]');
+
+        if (catSel || brandSel || extrasEl) {
+            const categoryIds = catSel   ? Array.from(catSel.selectedOptions  ).map(o => parseInt(o.value, 10)) : [];
+            const brandIds    = brandSel ? Array.from(brandSel.selectedOptions).map(o => parseInt(o.value, 10)) : [];
+            let extras = [];
+            if (extrasEl) {
+                const raw = (extrasEl.value || '').trim();
+                if (raw && raw !== '[]') {
+                    try { const j = JSON.parse(raw); if (Array.isArray(j)) extras = j; } catch (e) { /* keep prior */ }
+                }
+            }
+            r.selection.filter = HSync.buildRuleFilter(categoryIds, brandIds, extras);
+        }
+        if (idsEl) {
+            r.selection.ids = (idsEl.value || '').split(/[,\s]+/).map(s => parseInt(s, 10)).filter(v => v > 0);
+        }
     };
 
     HSync.closeRuleEditor = function () {
@@ -613,7 +687,52 @@
         const opSteps = (r.operations || []).map((s, i) => HSync.renderRuleStep(s, i, 'op')).join('');
         const chkSteps = (r.checks || []).map((s, i) => HSync.renderRuleStep(s, i, 'chk')).join('');
         const selMode = (r.selection && r.selection.mode) || 'all';
-        const selFilter = JSON.stringify((r.selection && r.selection.filter) || {}, null, 2);
+        const filter = (r.selection && r.selection.filter) || [];
+
+        // Filter mode: split into picker-friendly parts. category/brand
+        // get UI controls; anything else stays in the "Avanzati" textarea.
+        // ids mode: show a numeric list textarea instead of category pickers.
+        const split = HSync.splitRuleFilter(filter);
+        const tax   = HSync.state.taxonomy || { categories: [], brands: [] };
+
+        const renderTermPicker = (terms, selectedIds, dataField) => {
+            if (! terms.length) {
+                return '<p class="hsync-muted" style="margin:4px 0;font-size:12px;">Nessun termine trovato. Importa prima qualche prodotto.</p>';
+            }
+            const sel = new Set(selectedIds.map(i => parseInt(i, 10)));
+            const opts = terms.map(t => {
+                const indent = (t.parent ? '— ' : '');
+                const label  = indent + t.name + ' (' + t.count + ')';
+                return '<option value="' + t.id + '"' + (sel.has(t.id) ? ' selected' : '') + '>' + esc(label) + '</option>';
+            }).join('');
+            return '<select multiple data-field="' + dataField + '" size="6" style="width:100%;min-width:280px;">' + opts + '</select>';
+        };
+
+        const idsValue = (r.selection && Array.isArray(r.selection.ids)) ? r.selection.ids.join(', ') : '';
+
+        const filterBlock = ''
+            + '<div data-region="rule-filter-block" class="hsync-rule-filter">'
+            +   '<div class="hsync-rule-filter-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:8px;">'
+            +     '<label>Categorie <span class="hsync-muted" style="font-weight:normal;">(Ctrl/Cmd-clic per selezione multipla)</span>'
+            +       renderTermPicker(tax.categories || [], split.categoryIds, 'rule-sel-categories')
+            +     '</label>'
+            +     '<label>Brand'
+            +       renderTermPicker(tax.brands || [], split.brandIds, 'rule-sel-brands')
+            +     '</label>'
+            +   '</div>'
+            +   '<details style="margin-top:12px;">'
+            +     '<summary class="hsync-muted" style="cursor:pointer;font-size:12px;">Avanzati — condizioni extra (JSON, opzionale)</summary>'
+            +     '<textarea data-field="rule-sel-extras" rows="4" style="font-family:monospace;font-size:12px;width:100%;margin-top:6px;" placeholder=\'[{"type":"stock_status","operator":"is","value":"instock"}]\'>' + esc(JSON.stringify(split.extras, null, 2)) + '</textarea>'
+            +     '<p class="hsync-muted" style="font-size:11px;margin:4px 0 0;">Tipi supportati: stock_status, has_image, status, type, price_range, sku_pattern, ecc. Vedi <code>gh_get_condition_definitions()</code>.</p>'
+            +   '</details>'
+            + '</div>';
+
+        const idsBlock = ''
+            + '<div data-region="rule-ids-block">'
+            +   '<label>ID prodotti (separati da virgola o newline)'
+            +     '<textarea data-field="rule-sel-ids" rows="3" style="font-family:monospace;font-size:12px;">' + esc(idsValue) + '</textarea>'
+            +   '</label>'
+            + '</div>';
 
         root.innerHTML = ''
             + '<h2>' + (r.slug ? 'Modifica rule' : 'Nuova rule') + '</h2>'
@@ -623,13 +742,12 @@
             + '<label>Modalità selezione'
             +   '<select data-field="rule-sel-mode">'
             +     '<option value="all"'    + (selMode === 'all'    ? ' selected' : '') + '>Tutti i prodotti</option>'
-            +     '<option value="filter"' + (selMode === 'filter' ? ' selected' : '') + '>Filtro condizionale</option>'
+            +     '<option value="filter"' + (selMode === 'filter' ? ' selected' : '') + '>Filtro per categoria/brand</option>'
             +     '<option value="ids"'    + (selMode === 'ids'    ? ' selected' : '') + '>Lista ID (manuale)</option>'
             +   '</select>'
             + '</label>'
-            + '<label>Filtro / IDs (JSON)'
-            +   '<textarea data-field="rule-sel-payload" rows="4" style="font-family:monospace;font-size:12px;">' + esc(selFilter) + '</textarea>'
-            + '</label>'
+            + (selMode === 'filter' ? filterBlock : '')
+            + (selMode === 'ids'    ? idsBlock    : '')
             + '<h3>Operazioni (ordinate)</h3>'
             + '<div class="hsync-pipeline-steps">' + (opSteps || '<p class="hsync-muted">Nessuna operazione.</p>') + '</div>'
             + '<div class="hsync-actions">'
@@ -732,10 +850,33 @@
         r.name    = $('[data-field="rule-name"]').value;
         r.enabled = $('[data-field="rule-enabled"]').checked;
         const mode = $('[data-field="rule-sel-mode"]').value;
-        let payload = {};
-        try { payload = JSON.parse($('[data-field="rule-sel-payload"]').value || '{}'); }
-        catch (e) { alert('JSON selezione non valido: ' + e.message); return; }
-        r.selection = { mode: mode, filter: mode === 'filter' ? payload : {}, ids: mode === 'ids' ? (payload.ids || []) : [] };
+
+        let filter = [];
+        let ids    = [];
+
+        if (mode === 'filter') {
+            const catSel   = $('[data-field="rule-sel-categories"]');
+            const brandSel = $('[data-field="rule-sel-brands"]');
+            const categoryIds = catSel   ? Array.from(catSel.selectedOptions  ).map(o => parseInt(o.value, 10)).filter(v => v > 0) : [];
+            const brandIds    = brandSel ? Array.from(brandSel.selectedOptions).map(o => parseInt(o.value, 10)).filter(v => v > 0) : [];
+            let extras = [];
+            const extrasEl = $('[data-field="rule-sel-extras"]');
+            const extrasRaw = (extrasEl && extrasEl.value || '').trim();
+            if (extrasRaw !== '' && extrasRaw !== '[]') {
+                try { extras = JSON.parse(extrasRaw); }
+                catch (e) { alert('Avanzati: JSON non valido — ' + e.message); return; }
+                if (! Array.isArray(extras)) { alert('Avanzati: deve essere un array di condizioni.'); return; }
+            }
+            filter = HSync.buildRuleFilter(categoryIds, brandIds, extras);
+            if (filter.length === 0) {
+                if (! confirm('Nessuna condizione selezionata: la regola si applicherà a TUTTI i prodotti. Continuare?')) return;
+            }
+        } else if (mode === 'ids') {
+            const raw = ($('[data-field="rule-sel-ids"]') || {}).value || '';
+            ids = raw.split(/[,\s]+/).map(s => parseInt(s, 10)).filter(v => v > 0);
+        }
+
+        r.selection = { mode, filter, ids };
         if (!r.name) { alert('Nome richiesto.'); return; }
         try {
             await HSync.ajax('rule_save', {
@@ -2572,6 +2713,14 @@
     document.addEventListener('change', function (e) {
         if (e.target.matches('[data-control="mappings-filter"]')) HSync.loadMappings();
         if (e.target.matches('[data-field="run-source"]'))        HSync.populateRunMappings();
+        if (e.target.matches('[data-field="rule-sel-mode"]')) {
+            // Capture current picker state into editingRule before
+            // re-rendering so a user who picks categories then flips
+            // to "ids" doesn't lose the work on flip-back.
+            HSync.captureRuleFilterState();
+            HSync.state.editingRule.selection.mode = e.target.value;
+            HSync.renderRuleEditor();
+        }
         if (e.target.matches('[data-field="job-type"]'))          { HSync.state.editingJob.runnable_type = e.target.value; HSync.renderJobEditor(); }
         if (e.target.matches('[data-field="job-ref"]'))           { HSync.state.editingJob.runnable_ref  = e.target.value; if (HSync.state.editingJob.runnable_type === 'source.import') HSync.loadSourceConfigs(e.target.value).then(() => HSync.renderJobEditor()); }
         if (e.target.matches('[data-action="media-toggle"]'))     HSync.toggleMediaSelection(parseInt(e.target.dataset.id, 10));

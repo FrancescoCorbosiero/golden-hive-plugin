@@ -403,6 +403,58 @@ add_action( 'wp_ajax_hsync_ajax_rule_delete', function () {
     wp_send_json_success( [ 'deleted' => $repo->delete( $slug ) ] );
 } );
 
+/**
+ * List taxonomy terms for the Rule-editor filter pickers (category +
+ * brand). Returns slim rows ({id, name, count, parent}) so the UI can
+ * render a multi-select without a per-term roundtrip.
+ *
+ * Always serves both `product_cat` and `product_brand` in one call —
+ * cheap (a couple of `get_terms` queries, hide_empty=false so
+ * just-imported drafts are visible). The Rule's filter executes via
+ * `gh_filter_product_ids` which already supports both taxonomies, so
+ * this endpoint is purely a UI convenience.
+ *
+ * Stays standalone-safe: if `product_brand` isn't registered (Woo
+ * Brands plugin not active), the brands array is empty rather than
+ * an error — UI hides the picker accordingly.
+ */
+add_action( 'wp_ajax_hsync_ajax_taxonomy_terms', function () {
+    hsync_ajax_guard();
+
+    $slim = static function ( array $terms ): array {
+        $out = [];
+        foreach ( $terms as $t ) {
+            $out[] = [
+                'id'     => (int) $t->term_id,
+                'name'   => (string) $t->name,
+                'slug'   => (string) $t->slug,
+                'count'  => (int) $t->count,
+                'parent' => (int) $t->parent,
+            ];
+        }
+        return $out;
+    };
+
+    $args = [
+        'hide_empty' => false,
+        'orderby'    => 'name',
+        'order'      => 'ASC',
+        'number'     => 0,
+    ];
+
+    $cats = taxonomy_exists( 'product_cat' )
+        ? get_terms( array_merge( $args, [ 'taxonomy' => 'product_cat' ] ) )
+        : [];
+    $brands = taxonomy_exists( 'product_brand' )
+        ? get_terms( array_merge( $args, [ 'taxonomy' => 'product_brand' ] ) )
+        : [];
+
+    wp_send_json_success( [
+        'categories' => is_wp_error( $cats   ) ? [] : $slim( $cats   ),
+        'brands'     => is_wp_error( $brands ) ? [] : $slim( $brands ),
+    ] );
+} );
+
 // ─── Run ───────────────────────────────────────────────────────────
 
 add_action( 'wp_ajax_hsync_ajax_run_now', function () {

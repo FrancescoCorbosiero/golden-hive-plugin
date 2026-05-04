@@ -98,6 +98,12 @@ final class JsonSource extends AbstractSource
                 'default' => 'publish',
                 'description' => 'Imposta "Bozza" se vuoi importare in staging e poi attivare i prodotti a gruppi (per categoria/brand) tramite una Regola periodica nel tab Regole. Si applica solo ai NUOVI prodotti — quelli esistenti mantengono il loro stato.',
             ],
+            'markup_percent' => [
+                'type'    => 'int',
+                'label'   => 'Markup percentuale sul prezzo del feed',
+                'default' => 0,
+                'description' => 'Es. 20 = +20%, -10 = -10% (sconto). Applicato al prezzo letto dal feed in OGNI sync (nuovi, refresh-stock, re-update). Idempotente — il prezzo Woo finale è sempre `prezzo_feed × (1+pct/100)`, non si accumula tra esecuzioni.',
+            ],
         ];
     }
 
@@ -166,9 +172,16 @@ final class JsonSource extends AbstractSource
             $importStatus = 'publish';
         }
 
+        // Markup is multiplied into the feed price IN-source so every
+        // downstream path (new / update / fast-stock-patch) sees the
+        // same final price. Idempotent: input is always raw feed,
+        // output is always feed*(1+pct), no compounding across runs.
+        $markupPct = (float) ($cfg['markup_percent'] ?? 0);
+        $multiplier = 1.0 + ($markupPct / 100.0);
+
         $items = $flavor === self::FLAVOR_GS
-            ? self::aggregateFlatRows($rawRows, $importStatus)
-            : self::wrapRows($rawRows, $importStatus);
+            ? self::aggregateFlatRows($rawRows, $importStatus, $multiplier)
+            : self::wrapRows($rawRows, $importStatus, $multiplier);
 
         // Apply the user's mapping (if any) AFTER fetch. OVERLAY
         // semantics: mapped output is merged ON TOP so source-native
@@ -205,7 +218,7 @@ final class JsonSource extends AbstractSource
      * @param array<int, array<string, mixed>> $rows
      * @return FeedItem[]
      */
-    private static function wrapRows(array $rows, string $importStatus = 'publish'): array
+    private static function wrapRows(array $rows, string $importStatus = 'publish', float $multiplier = 1.0): array
     {
         $out = [];
         foreach ($rows as $r) {
@@ -217,6 +230,16 @@ final class JsonSource extends AbstractSource
             // staying in control of per-item overrides.
             if (! isset($r['status']) || $r['status'] === '') {
                 $r['status'] = $importStatus;
+            }
+            // Apply source-config markup to feed price fields. Skipped
+            // when multiplier=1.0 (the default). Read input as float so
+            // string-encoded prices like "120.00" still work.
+            if ($multiplier !== 1.0) {
+                foreach (['regular_price', 'sale_price', 'price'] as $field) {
+                    if (isset($r[$field]) && is_numeric($r[$field])) {
+                        $r[$field] = (string) round((float) $r[$field] * $multiplier, 2);
+                    }
+                }
             }
             $out[] = new FeedItem(sku: $sku, data: $r, raw: $r);
         }
@@ -233,7 +256,7 @@ final class JsonSource extends AbstractSource
      * @param array<int, array<string, mixed>> $rows
      * @return FeedItem[]
      */
-    private static function aggregateFlatRows(array $rows, string $importStatus = 'publish'): array
+    private static function aggregateFlatRows(array $rows, string $importStatus = 'publish', float $multiplier = 1.0): array
     {
         $bySku = [];
         foreach ($rows as $r) {
@@ -281,7 +304,7 @@ final class JsonSource extends AbstractSource
                 'image_name' => $bundle['image_name'],
                 'sizes'      => $bundle['sizes'],
             ];
-            $woo = self::transformToWoo($bridgeProduct, $importStatus);
+            $woo = self::transformToWoo($bridgeProduct, $importStatus, $multiplier);
 
             // Surface the API-native field names back on top so the
             // mapping editor's "Anteprima sorgente" probe shows them.
@@ -310,7 +333,7 @@ final class JsonSource extends AbstractSource
      * @param array<string, mixed> $product
      * @return array<string, mixed>
      */
-    private static function transformToWoo(array $product, string $importStatus = 'publish'): array
+    private static function transformToWoo(array $product, string $importStatus = 'publish', float $multiplier = 1.0): array
     {
         $sizes    = (array) ($product['sizes'] ?? []);
         $allEu    = array_column($sizes, 'size_eu');
@@ -348,7 +371,7 @@ final class JsonSource extends AbstractSource
 
         if ($type === 'simple') {
             $base = (float) ($sizes[0]['presented_price'] ?? 0);
-            $woo['regular_price'] = (string) round($base);
+            $woo['regular_price'] = (string) round($base * $multiplier);
             $woo['sale_price']    = '';
             $qty                  = (int) ($sizes[0]['available_quantity'] ?? 0);
             $woo['manage_stock']   = true;
@@ -379,7 +402,7 @@ final class JsonSource extends AbstractSource
                 // half-state; flipping the parent later (via a Rule)
                 // also flips children when we re-save.
                 'status'         => $importStatus,
-                'regular_price'  => (string) round($pp),
+                'regular_price'  => (string) round($pp * $multiplier),
                 'sale_price'     => '',
             ];
         }

@@ -678,9 +678,13 @@
     HSync.renderRuleEditor = function () {
         const r = HSync.state.editingRule;
         const root = $('[data-region="rule-editor"]');
-        const opts = HSync.state.registry.operations.map(o =>
-            '<option value="' + esc(o.id) + '">' + esc(o.label) + '</option>'
-        ).join('');
+        // Rules operate on EXISTING products — ImportRule operations
+        // mutate import drafts and refuse to run on a product_id, so
+        // they'd 100%-fail every product if picked here. Hide them.
+        const opts = HSync.state.registry.operations
+            .filter(o => ! o.is_import_rule)
+            .map(o => '<option value="' + esc(o.id) + '">' + esc(o.label) + '</option>')
+            .join('');
         const chkOpts = HSync.state.registry.checks.map(c =>
             '<option value="' + esc(c.id) + '">' + esc(c.label) + '</option>'
         ).join('');

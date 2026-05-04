@@ -20,6 +20,7 @@ add_action( 'hive_sync/core_booted', function () {
     // Operations (post-import)
     \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Status\SetStatus() );
     \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Pricing\AdjustPrice() );
+    \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Pricing\AdjustPricePercent() );
     \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Stock\SetStockStatus() );
     \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Stock\SetStockQuantity() );
 

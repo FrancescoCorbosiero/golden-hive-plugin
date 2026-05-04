@@ -234,10 +234,13 @@ final class JobRunner
             'status'  => $result->completed ? 'done' : 'continue',
             'run_id'  => $runId,
             'summary' => [
-                'processed' => $result->processedCount,
-                'changed'   => $result->changedCount,
-                'failed'    => $result->failedCount,
-                'blocking'  => count( $result->blockingFailures ),
+                'processed'     => $result->processedCount,
+                'changed'       => $result->changedCount,
+                'failed'        => $result->failedCount,
+                'blocking'      => count( $result->blockingFailures ),
+                // Sample errors so the operator sees WHY a Rule mass-
+                // failed without having to dig into per-product traces.
+                'error_samples' => $result->errorSamples,
             ],
         ];
     }

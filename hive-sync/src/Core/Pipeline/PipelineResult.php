@@ -25,6 +25,11 @@ final class PipelineResult
         public readonly array $blockingFailures,
         public readonly bool $completed,
         public readonly ?array $cursor = null,
+        // Up to 5 sample errors `[ {ref, product_id, error} ]` collected
+        // during execution. Surfaced in the run summary so the operator
+        // can diagnose "all 19 failed — why?" without digging into
+        // perProduct traces.
+        public readonly array $errorSamples = [],
     ) {}
 
     /**
@@ -35,11 +40,12 @@ final class PipelineResult
     public function toJobEnvelope(): array
     {
         $summary = [
-            'processed' => $this->processedCount,
-            'changed'   => $this->changedCount,
-            'failed'    => $this->failedCount,
-            'blocking'  => count($this->blockingFailures),
-            'per_step'  => $this->perStep,
+            'processed'     => $this->processedCount,
+            'changed'       => $this->changedCount,
+            'failed'        => $this->failedCount,
+            'blocking'      => count($this->blockingFailures),
+            'per_step'      => $this->perStep,
+            'error_samples' => $this->errorSamples,
         ];
 
         if (! $this->completed) {

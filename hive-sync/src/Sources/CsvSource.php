@@ -125,6 +125,17 @@ final class CsvSource extends AbstractSource
                 'max'     => 16,
                 'description' => 'Esempi: "3.5" se moltiplicatore (cost × 3.5), "250" se percentuale (+250%, equivalente). Decimali con virgola o punto (3,5 o 3.5).',
             ],
+            'import_status' => [
+                'type'    => 'enum',
+                'label'   => 'Stato iniziale dei prodotti importati',
+                'options' => [ 'publish', 'draft' ],
+                'option_labels' => [
+                    'publish' => 'Pubblicato — visibile sul sito appena importato',
+                    'draft'   => 'Bozza — invisibile finché non lo pubblichi (serve una Regola)',
+                ],
+                'default' => 'publish',
+                'description' => 'Imposta "Bozza" se vuoi importare in staging e poi attivare i prodotti a gruppi (per categoria/brand) tramite una Regola periodica nel tab Regole. Si applica solo ai NUOVI prodotti — quelli esistenti mantengono il loro stato.',
+            ],
         ];
     }
 
@@ -184,13 +195,20 @@ final class CsvSource extends AbstractSource
         // the CSV format is two-record-types (PRODUCT + MODEL) and the
         // grouping by SKU + variant assembly is handled inline. Then
         // the normal mapping (if any) runs as an overlay on top.
+        // Honor the import_status knob — same semantics as JsonSource:
+        // applied on CREATE only (existing products keep their state).
+        $importStatus = (string) ($cfg['import_status'] ?? 'publish');
+        if (! in_array($importStatus, ['publish', 'draft'], true)) {
+            $importStatus = 'publish';
+        }
+
         if ($flavor === self::FLAVOR_SF) {
             $assocRows = [];
             foreach ($rows as $row) {
                 $assocRows[] = $header !== null ? self::associate($header, $row) : $row;
             }
             $multiplier = self::resolveSfMarkup($cfg);
-            $items = self::sfNormalizeAndTransform($assocRows, $multiplier);
+            $items = self::sfNormalizeAndTransform($assocRows, $multiplier, $importStatus);
             $items = self::applySfCategoryFilter($items, $request->options['category_filter'] ?? null);
             if ($mapping) {
                 $remapped = [];
@@ -249,6 +267,12 @@ final class CsvSource extends AbstractSource
             if ($catFilter !== [] && ! self::rowMatchesCategoryFilter($mapped, $assoc, $catFilter)) {
                 $skippedByFilter++;
                 continue;
+            }
+            // Generic flavor: stamp the import_status default so the
+            // bridge picks it up on create. Mapped configs that
+            // explicitly set `status` win.
+            if (! isset($mapped['status']) || $mapped['status'] === '') {
+                $mapped['status'] = $importStatus;
             }
             $items[] = new FeedItem(sku: $sku, data: $mapped, raw: $assoc);
         }
@@ -521,7 +545,7 @@ final class CsvSource extends AbstractSource
      * @param array<int, array<string, mixed>> $assocRows
      * @return FeedItem[]
      */
-    private static function sfNormalizeAndTransform(array $assocRows, float $multiplier): array
+    private static function sfNormalizeAndTransform(array $assocRows, float $multiplier, string $importStatus = 'publish'): array
     {
         $products = [];
         foreach ($assocRows as $row) {
@@ -582,7 +606,7 @@ final class CsvSource extends AbstractSource
         foreach ($products as $sku => $p) {
             $rawRows = $p['_raw_rows'];
             unset($p['_raw_rows']);
-            $woo = self::sfTransformToWoo($p, $multiplier);
+            $woo = self::sfTransformToWoo($p, $multiplier, $importStatus);
             $woo['_hsync_flavor'] = self::FLAVOR_SF;
             $items[] = new FeedItem(sku: (string) $sku, data: $woo, raw: $rawRows);
         }
@@ -597,7 +621,7 @@ final class CsvSource extends AbstractSource
      * @param array<string, mixed> $product
      * @return array<string, mixed>
      */
-    private static function sfTransformToWoo(array $product, float $multiplier): array
+    private static function sfTransformToWoo(array $product, float $multiplier, string $importStatus = 'publish'): array
     {
         $sizes    = $product['sizes'] ?? [];
         $hasSizes = count($sizes) > 0;
@@ -616,7 +640,7 @@ final class CsvSource extends AbstractSource
             'name'              => $name,
             'sku'               => $product['sku'],
             'type'              => $type,
-            'status'             => 'publish',
+            'status'             => $importStatus,
             'description'       => $product['description'] ?? '',
             'weight'            => ($product['weight'] ?? 0) > 0 ? (string) $product['weight'] : '',
             // SF-specific meta read by the legacy bridge for taxonomy +
@@ -690,7 +714,8 @@ final class CsvSource extends AbstractSource
                 'manage_stock'   => true,
                 'stock_quantity' => $qty,
                 'stock_status'   => $qty > 0 ? 'instock' : 'outofstock',
-                'status'         => 'publish',
+                // Variations follow the parent's status (see JsonSource).
+                'status'         => $importStatus,
             ];
         }
         $woo['variations']     = $variations;

@@ -9,6 +9,7 @@ use HiveSync\Core\Pipeline\PipelineStep;
 use HiveSync\Core\Pipeline\PipelineStepKind;
 use HiveSync\Core\Repo\JobRepository;
 use HiveSync\Core\Repo\MappingRepository;
+use HiveSync\Core\Repo\RuleRepository;
 
 /**
  * Idempotent installer for default Mappings + Pipelines so a fresh
@@ -29,6 +30,7 @@ final class Defaults
         private readonly MappingRepository $mappings,
         private readonly PipelineRepository $pipelines,
         private readonly ?JobRepository $jobs = null,
+        private readonly ?RuleRepository $rules = null,
     ) {}
 
     /**
@@ -45,6 +47,7 @@ final class Defaults
             'mappings'  => $this->seedMappings( $force ),
             'pipelines' => $this->seedPipelines( $force ),
             'jobs'      => $this->jobs ? $this->seedJobs( $force ) : 0,
+            'rules'     => $this->rules ? $this->seedRules( $force ) : 0,
         ];
     }
 
@@ -526,6 +529,78 @@ final class Defaults
                         'buckets'       => [ 'update' ],
                     ],
                 ],
+            ],
+
+            // ── Staged-publish workflow ───────────────────────────
+            //
+            // Runs the seeded `publish-batch` Rule on a schedule.
+            // Pairs with `import_status = 'draft'` on the source-config:
+            // products land as drafts, the operator opens this Rule,
+            // picks which categories/brands should go live, enables the
+            // job, and the cron flips them to publish on a schedule.
+            //
+            // Disabled by default + the Rule ships with empty selection
+            // so a forgotten "Aggiorna default" can never silently
+            // mass-publish drafts.
+            [
+                '_seed_id'      => 'publish-batch',
+                'label'         => 'Pubblica draft (per categoria/brand)',
+                'runnable_type' => 'rule',
+                'runnable_ref'  => 'publish-batch',
+                'cron'          => '0 * * * *',  // hourly — operator can tighten/loosen
+                'config'        => [],
+            ],
+        ];
+    }
+
+    // ─── Rules ────────────────────────────────────────────────────
+
+    /**
+     * Seed the staged-publish Rule template. Ships with EMPTY
+     * selection.filter — running it as-is would hit zero products,
+     * which is the safe default. The operator opens it, picks
+     * categories/brands, then enables it.
+     *
+     * Operations: set status=publish + set stock_status=instock.
+     * Markup is intentionally NOT in this seed — pricing changes
+     * are too easy to fat-finger across a whole catalog. Operator
+     * adds `pricing.markup_percent` if they want it.
+     */
+    private function seedRules( bool $force ): int
+    {
+        if ( ! $this->rules ) return 0;
+        $touched = 0;
+        foreach ( self::defaultRules() as $r ) {
+            $exists = $this->rules->find( (string) $r['slug'] ) !== null;
+            if ( $exists && ! $force ) continue;
+            $this->rules->save( $r );
+            $touched++;
+        }
+        return $touched;
+    }
+
+    /**
+     * @return array<int, array{slug:string, name:string, selection:array, operations:array, checks:array, enabled:bool}>
+     */
+    public static function defaultRules(): array
+    {
+        return [
+            [
+                'slug'      => 'publish-batch',
+                'name'      => 'Pubblica draft a gruppi (categoria/brand)',
+                // Filter mode but EMPTY conditions array — operator
+                // picks categories/brands in the UI before enabling.
+                'selection' => [
+                    'mode'   => 'filter',
+                    'filter' => [],
+                    'ids'    => [],
+                ],
+                'operations' => [
+                    [ 'ref_id' => 'status.set',          'params' => [ 'status' => 'publish'  ] ],
+                    [ 'ref_id' => 'stock.set_status',    'params' => [ 'stock_status' => 'instock' ] ],
+                ],
+                'checks'    => [],
+                'enabled'   => false,
             ],
         ];
     }

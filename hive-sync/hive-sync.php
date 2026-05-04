@@ -58,6 +58,7 @@ function hsync_install_defaults( bool $force = false ): array {
         new \HiveSync\Core\Repo\MappingRepository(),
         new \HiveSync\Core\Pipeline\PipelineRepository(),
         new \HiveSync\Core\Repo\JobRepository(),
+        new \HiveSync\Core\Repo\RuleRepository(),
     );
     return $seeder->install( $force );
 }

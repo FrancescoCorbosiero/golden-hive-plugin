@@ -44,6 +44,54 @@ function hsync_post_bool( string $key ): bool {
     return in_array( $v, [ '1', 'true', 'on', 'yes' ], true );
 }
 
+/**
+ * Arms a shutdown handler that converts PHP fatals into a JSON envelope
+ * so the JS client always sees `{success:false, data:{message,...}}`
+ * instead of HTML. Without this, a fatal during an AJAX tick leaks
+ * WordPress's HTML error page and crashes the JS JSON parser
+ * ("Unexpected token '<'") — the user reported this on tick 134 of a
+ * 15k-product import.
+ *
+ * Idempotent — safe to call from each handler that needs the guard.
+ */
+function hsync_arm_fatal_guard(): void {
+    static $armed = false;
+    if ( $armed ) return;
+    $armed = true;
+
+    register_shutdown_function( static function (): void {
+        $err = error_get_last();
+        if ( ! $err ) return;
+        $fatalTypes = E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR | E_USER_ERROR | E_RECOVERABLE_ERROR;
+        if ( ! ( $err['type'] & $fatalTypes ) ) return;
+
+        // If the buffer already holds HTML (PHP error page), drop it so
+        // the client gets ONLY our JSON envelope.
+        while ( ob_get_level() > 0 ) {
+            @ob_end_clean();
+        }
+
+        if ( ! headers_sent() ) {
+            status_header( 500 );
+            header( 'Content-Type: application/json; charset=utf-8' );
+        }
+
+        $payload = [
+            'success' => false,
+            'data'    => [
+                'message' => sprintf(
+                    'PHP fatal: %s @ %s:%d',
+                    (string) $err['message'],
+                    basename( (string) $err['file'] ),
+                    (int) $err['line']
+                ),
+                'fatal'   => true,
+            ],
+        ];
+        echo wp_json_encode( $payload );
+    } );
+}
+
 // ─── Sources ───────────────────────────────────────────────────────
 
 add_action( 'wp_ajax_hsync_ajax_sources_list', function () {
@@ -359,6 +407,8 @@ add_action( 'wp_ajax_hsync_ajax_rule_delete', function () {
 
 add_action( 'wp_ajax_hsync_ajax_run_now', function () {
     hsync_ajax_guard();
+    hsync_arm_fatal_guard();
+
     $sourceId   = hsync_post_text( 'source_id' );
     $configSlug = hsync_post_text( 'config_slug' );
     $config     = hsync_resolve_source_config( hsync_post_json( 'config' ), $configSlug );
@@ -376,16 +426,28 @@ add_action( 'wp_ajax_hsync_ajax_run_now', function () {
 
     $deadline = time() + 25; // soft cap so AJAX doesn't blow Apache's php-cgi limit
     $runner   = new \HiveSync\Workflow\Run\ImportRunner( new \HiveSync\Core\Repo\RunRepository() );
-    $envelope = $runner->run(
-        source: $src,
-        config: $config,
-        options: $options,
-        meta: [ 'trigger' => 'adhoc' ],
-        dryRun: $dryRun,
-        deadline: $deadline,
-        cursor: $cursor ?: null,
-    );
-    wp_send_json_success( $envelope );
+
+    try {
+        $envelope = $runner->run(
+            source: $src,
+            config: $config,
+            options: $options,
+            meta: [ 'trigger' => 'adhoc' ],
+            dryRun: $dryRun,
+            deadline: $deadline,
+            cursor: $cursor ?: null,
+        );
+        wp_send_json_success( $envelope );
+    } catch ( \Throwable $e ) {
+        // Preserve cursor so the client can retry/resume from where it
+        // crashed instead of restarting the run from scratch.
+        wp_send_json_error( [
+            'message'  => 'Tick fallito: ' . $e->getMessage(),
+            'cursor'   => $cursor ?: null,
+            'recoverable' => true,
+            'where'    => basename( $e->getFile() ) . ':' . $e->getLine(),
+        ] );
+    }
 } );
 
 // ─── Runs ──────────────────────────────────────────────────────────

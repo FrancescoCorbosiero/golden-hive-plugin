@@ -16,9 +16,15 @@ function gh_create_simple_product( array $data ): int {
 
     $product = new WC_Product_Simple();
     gh_apply_product_fields( $product, $data );
+
+    if ( ! empty( $data['attributes'] ) ) {
+        $product->set_attributes( gh_build_wc_attributes( $data['attributes'] ) );
+    }
+
     $product_id = $product->save();
 
     gh_apply_product_meta( $product_id, $data );
+    gh_attach_attribute_terms( $product_id, $data['attributes'] ?? [] );
 
     return $product_id;
 }
@@ -40,6 +46,7 @@ function gh_create_variable_product( array $data ): int {
 
     $product_id = $product->save();
     gh_apply_product_meta( $product_id, $data );
+    gh_attach_attribute_terms( $product_id, $data['attributes'] ?? [] );
 
     // Crea varianti
     foreach ( $data['variations'] ?? [] as $var_data ) {
@@ -233,6 +240,74 @@ function gh_build_wc_attributes( array $attrs_json ): array {
     }
 
     return $wc_attrs;
+}
+
+/**
+ * Attach term assignments to the product for every taxonomy attribute
+ * declared in $attrs_json. Belt-and-suspenders alongside WC's data
+ * store: when a taxonomy is registered in the same request as the
+ * product save, WC's `WC_Product_Attribute::get_terms()` lookup can
+ * return an empty array (term/taxonomy cache is stale), which makes
+ * WC's `wp_set_object_terms` call no-op and the attribute appears
+ * "empty" on the product even though the option_labels are stored.
+ *
+ * Symptom this fixes: imported products show only `pa_taglia` (which
+ * also gets attached via the variation create loop) while other
+ * attributes (`pa_brand`, `pa_marchio`, ...) are silently empty —
+ * breaking advanced front-end filters that depend on
+ * `wp_get_object_terms( $pid, 'pa_brand' )`.
+ *
+ * Idempotent: safe to re-run on update. Uses `append=false` semantics
+ * so re-imports converge to whatever the source currently declares.
+ *
+ * @param int   $product_id
+ * @param array $attrs_json { "pa_brand": { "options": [...], ... } }
+ */
+function gh_attach_attribute_terms( int $product_id, array $attrs_json ): void {
+    if ( $product_id <= 0 || empty( $attrs_json ) ) return;
+
+    foreach ( $attrs_json as $tax_name => $config ) {
+        if ( ! is_string( $tax_name ) || ! str_starts_with( $tax_name, 'pa_' ) ) continue;
+
+        // Variation-defining attributes (pa_taglia for sneakers) get
+        // their terms attached implicitly via the variation create
+        // loop — skipping here would leave them in place. We still
+        // run the assignment so the parent product carries the full
+        // term set even when a variation step is missing/skipped.
+        $options = $config['options'] ?? [];
+        if ( ! is_array( $options ) || empty( $options ) ) continue;
+
+        if ( ! taxonomy_exists( $tax_name ) ) continue;
+
+        // Resolve each option (string or term-ID) to an existing
+        // term ID. Insert if missing so we don't lose data on a
+        // freshly-registered taxonomy.
+        $term_ids = [];
+        foreach ( $options as $opt ) {
+            if ( is_int( $opt ) || ctype_digit( (string) $opt ) ) {
+                $term_ids[] = (int) $opt;
+                continue;
+            }
+            $name = trim( (string) $opt );
+            if ( $name === '' ) continue;
+
+            $term = get_term_by( 'name', $name, $tax_name );
+            if ( ! $term ) {
+                $term = get_term_by( 'slug', sanitize_title( $name ), $tax_name );
+            }
+            if ( ! $term ) {
+                $inserted = wp_insert_term( $name, $tax_name );
+                if ( is_wp_error( $inserted ) ) continue;
+                $term_ids[] = (int) $inserted['term_id'];
+            } else {
+                $term_ids[] = (int) $term->term_id;
+            }
+        }
+
+        if ( ! empty( $term_ids ) ) {
+            wp_set_object_terms( $product_id, $term_ids, $tax_name, false );
+        }
+    }
 }
 
 /**

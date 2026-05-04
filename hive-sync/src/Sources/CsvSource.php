@@ -643,6 +643,12 @@ final class CsvSource extends AbstractSource
             // is empty). Default to 0 — adjust manually if needed.
             $woo['stock_quantity'] = 0;
             $woo['stock_status']   = 'outofstock';
+            $brand = (string) ($product['brand'] ?? '');
+            if ($brand !== '') {
+                $woo['attributes'] = [
+                    'pa_brand' => ['options' => [$brand], 'visible' => true, 'variation' => false],
+                ];
+            }
             return $woo;
         }
 
@@ -654,6 +660,19 @@ final class CsvSource extends AbstractSource
                 'variation' => true,
             ],
         ];
+        // Brand as a non-variation taxonomy attribute so the front-end
+        // attribute filter can target it (Woo's product_brand alone
+        // covers Woo Brands plugin filters; pa_brand covers the
+        // built-in attribute filter widget). Mirrors JsonSource's
+        // approach so SF and GS imports look identical in admin.
+        $brand = (string) ($product['brand'] ?? '');
+        if ($brand !== '') {
+            $woo['attributes']['pa_brand'] = [
+                'options'   => [$brand],
+                'visible'   => true,
+                'variation' => false,
+            ];
+        }
 
         $variations = [];
         $totalQty   = 0;

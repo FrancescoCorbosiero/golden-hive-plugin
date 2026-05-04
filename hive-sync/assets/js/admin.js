@@ -1238,15 +1238,26 @@
         $$('input, select, textarea', form).forEach(el => {
             if (!el.name) return;
             if (Object.prototype.hasOwnProperty.call(cfg.config || {}, el.name)) {
-                if (el.type === 'checkbox') el.checked = !!cfg.config[el.name];
-                else if (el.type === 'password' && /^•+/.test(String(cfg.config[el.name]))) {
+                const val = cfg.config[el.name];
+                if (el.type === 'checkbox') el.checked = !!val;
+                else if (el.type === 'password' && /^•+/.test(String(val))) {
                     // Server returned a redacted secret: keep value empty and
                     // hint via placeholder. Empty submit = "unchanged" (server
                     // hydrates from stored value).
-                    el.placeholder = String(cfg.config[el.name]);
+                    el.placeholder = String(val);
                     el.value = '';
+                } else if (el.name === 'markup_rules') {
+                    // Hidden carrier holds the JSON; we ALSO need to
+                    // repaint the visible rows with the saved values.
+                    const list = Array.isArray(val) ? val : [];
+                    el.value = JSON.stringify(list);
+                    const region = el.closest('[data-markup-region]');
+                    const rowsEl = region && region.querySelector('[data-markup-rows]');
+                    if (rowsEl) {
+                        rowsEl.innerHTML = list.map((r, i) => HSync.renderMarkupRuleRow(r, i)).join('');
+                    }
                 } else {
-                    el.value = String(cfg.config[el.name] ?? '');
+                    el.value = String(val ?? '');
                 }
             }
         });
@@ -1317,6 +1328,11 @@
                 input = '<input type="password" id="' + esc(id) + '" name="' + esc(field) + '" autocomplete="new-password" spellcheck="false">';
             } else if (type === 'url') {
                 input = '<input type="url" id="' + esc(id) + '" name="' + esc(field) + '" placeholder="https://…">';
+            } else if (type === 'markup_rules') {
+                // Repeater UI for per-feed-field markup rules. The
+                // hidden <input name="markup_rules"> carries the full
+                // JSON; row inputs sync into it on every change.
+                input = HSync.renderMarkupRulesField(id, field, spec.default || []);
             } else {
                 input = '<input type="text" id="' + esc(id) + '" name="' + esc(field) + '" value="' + esc(spec.default || '') + '">';
             }
@@ -1330,12 +1346,83 @@
         }).join('');
     };
 
+    HSync.MARKUP_OPS = [
+        ['equals',      'è uguale a'],
+        ['not_equals',  'è diverso da'],
+        ['in',          'è uno di (lista, separati da virgola)'],
+        ['not_in',      'non è uno di (lista)'],
+        ['contains',    'contiene'],
+        ['starts_with', 'inizia con'],
+    ];
+
+    HSync.renderMarkupRulesField = function (id, field, initial) {
+        const list = Array.isArray(initial) ? initial : [];
+        const rows = list.map((r, i) => HSync.renderMarkupRuleRow(r, i)).join('');
+        return ''
+          + '<div class="hsync-markup-rules" id="' + esc(id) + '" data-markup-region>'
+          +   '<div data-markup-rows>' + rows + '</div>'
+          +   '<button type="button" class="button" data-action="markup-rule-add" style="margin-top:6px;">+ Aggiungi regola</button>'
+          // Hidden carrier — collectConfig reads it like any other named input,
+          // markup_rules special-case in collectConfig parses the JSON.
+          +   '<input type="hidden" name="' + esc(field) + '" value="' + esc(JSON.stringify(list)) + '">'
+          + '</div>';
+    };
+
+    HSync.renderMarkupRuleRow = function (rule, idx) {
+        rule = rule || {};
+        const opOpts = HSync.MARKUP_OPS.map(([v, label]) =>
+            '<option value="' + v + '"' + (rule.operator === v ? ' selected' : '') + '>' + esc(label) + '</option>'
+        ).join('');
+        const valStr = Array.isArray(rule.value) ? rule.value.join(', ') : (rule.value != null ? String(rule.value) : '');
+        return ''
+          + '<div class="hsync-markup-rule" data-markup-rule-idx="' + idx + '" style="display:flex;gap:6px;align-items:center;margin-bottom:4px;flex-wrap:wrap;">'
+          +   '<input type="text"   data-rule-field="field"    placeholder="campo (es. _gs_brand)" value="' + esc(rule.field || '') + '" style="min-width:14em;flex:1;">'
+          +   '<select               data-rule-field="operator" style="min-width:11em;">' + opOpts + '</select>'
+          +   '<input type="text"   data-rule-field="value"    placeholder="valore"               value="' + esc(valStr) + '" style="min-width:10em;flex:1;">'
+          +   '<input type="number" data-rule-field="percent"  placeholder="%" step="1"          value="' + esc(rule.percent != null ? rule.percent : '') + '" style="width:6em;">'
+          +   '<button type="button" class="button" data-action="markup-rule-remove">✕</button>'
+          + '</div>';
+    };
+
+    /**
+     * Sync the in-memory rows back into the hidden input. Called on
+     * every change in the repeater so collectConfig sees fresh data
+     * even if the user never blurs out of the last input.
+     */
+    HSync.syncMarkupRules = function (region) {
+        const rows = $$('[data-markup-rule-idx]', region);
+        const list = rows.map(row => {
+            const get = (f) => {
+                const el = $('[data-rule-field="' + f + '"]', row);
+                return el ? el.value : '';
+            };
+            return {
+                field:    get('field').trim(),
+                operator: get('operator') || 'equals',
+                value:    get('value'),
+                percent:  parseFloat(get('percent') || '0'),
+            };
+        }).filter(r => r.field !== '');
+        const hidden = $('input[type="hidden"][name]', region);
+        if (hidden) hidden.value = JSON.stringify(list);
+    };
+
     HSync.collectConfig = function (formEl) {
         const out = {};
         $$('input, select, textarea', formEl).forEach(el => {
             if (!el.name) return;
-            if (el.type === 'checkbox') out[el.name] = el.checked;
-            else if (el.value !== '')   out[el.name] = el.value;
+            if (el.type === 'checkbox') {
+                out[el.name] = el.checked;
+            } else if (el.value !== '') {
+                // markup_rules carries a JSON-stringified array — parse so
+                // the upstream JSON.stringify doesn't double-encode it.
+                if (el.name === 'markup_rules') {
+                    try { out[el.name] = JSON.parse(el.value); }
+                    catch (e) { out[el.name] = []; }
+                } else {
+                    out[el.name] = el.value;
+                }
+            }
         });
         return out;
     };
@@ -2617,6 +2704,24 @@
         if (t.matches('[data-action="install-defaults-force"]')) return HSync.installDefaults(true);
         if (t.matches('[data-action="run-now"]'))        return HSync.runNow();
         if (t.matches('[data-action="run-resume"]'))     return HSync.resumeFailedRun();
+
+        // Markup-rules repeater (lives inside the source-config form)
+        if (t.matches('[data-action="markup-rule-add"]')) {
+            const region = t.closest('[data-markup-region]');
+            if (! region) return;
+            const rowsEl = region.querySelector('[data-markup-rows]');
+            const idx = region.querySelectorAll('[data-markup-rule-idx]').length;
+            rowsEl.insertAdjacentHTML('beforeend', HSync.renderMarkupRuleRow({}, idx));
+            HSync.syncMarkupRules(region);
+            return;
+        }
+        if (t.matches('[data-action="markup-rule-remove"]')) {
+            const row = t.closest('[data-markup-rule-idx]');
+            const region = t.closest('[data-markup-region]');
+            if (row) row.remove();
+            if (region) HSync.syncMarkupRules(region);
+            return;
+        }
         if (t.matches('[data-action="run-test-fetch"]')) return HSync.testFetchFromRun();
         if (t.matches('[data-action="run-save-config"]'))return HSync.saveCurrentConfig();
         if (t.matches('[data-action="run-save-job"]'))   return HSync.saveCurrentAsJob();
@@ -2734,6 +2839,13 @@
             const idx = parseInt(sel.value, 10);
             sel.value = '';
             if (!Number.isNaN(idx)) HSync.insertMappingSnippet(idx);
+        }
+        // Keep markup-rules' hidden JSON synced as the operator types
+        // / picks operators. Listening on `change` (covers selects +
+        // blur for inputs) is enough — collectConfig also runs at save.
+        if (e.target.matches('[data-rule-field]')) {
+            const region = e.target.closest('[data-markup-region]');
+            if (region) HSync.syncMarkupRules(region);
         }
 
         // Custom row key rename fires on commit (blur), not on every keystroke

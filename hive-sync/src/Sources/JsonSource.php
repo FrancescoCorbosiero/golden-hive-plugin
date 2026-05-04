@@ -100,9 +100,15 @@ final class JsonSource extends AbstractSource
             ],
             'markup_percent' => [
                 'type'    => 'int',
-                'label'   => 'Markup percentuale sul prezzo del feed',
+                'label'   => 'Markup percentuale di fallback',
                 'default' => 0,
-                'description' => 'Es. 20 = +20%, -10 = -10% (sconto). Applicato al prezzo letto dal feed in OGNI sync (nuovi, refresh-stock, re-update). Idempotente — il prezzo Woo finale è sempre `prezzo_feed × (1+pct/100)`, non si accumula tra esecuzioni.',
+                'description' => 'Es. 20 = +20%, -10 = -10% (sconto). Applicato a TUTTI i prodotti che non matchano una regola in "Markup per categoria/brand". Idempotente — il prezzo Woo finale è sempre `prezzo_feed × (1+pct/100)`, non si accumula.',
+            ],
+            'markup_rules' => [
+                'type'    => 'markup_rules',
+                'label'   => 'Markup per categoria/brand/etc.',
+                'default' => [],
+                'description' => 'Sovrascrivi il markup di fallback per sottoinsiemi del catalogo. Esempio: brand "Nike" → 40%, categoria "abbigliamento" → 20%. Le regole sono valutate dall\'alto verso il basso, prima match vince. Campi tipici: per GS `_gs_brand` / `_gs_category`, per SF `_sf_brand` / `_sf_category` / `_sf_subcategory`. Idempotente come il fallback.',
             ],
         ];
     }
@@ -172,16 +178,18 @@ final class JsonSource extends AbstractSource
             $importStatus = 'publish';
         }
 
-        // Markup is multiplied into the feed price IN-source so every
-        // downstream path (new / update / fast-stock-patch) sees the
-        // same final price. Idempotent: input is always raw feed,
-        // output is always feed*(1+pct), no compounding across runs.
-        $markupPct = (float) ($cfg['markup_percent'] ?? 0);
-        $multiplier = 1.0 + ($markupPct / 100.0);
+        // Markup: per-rule lookup against feed fields, falling back to
+        // a flat `markup_percent`. Multiplied into the feed price
+        // IN-source so every downstream path (new / update /
+        // fast-stock-patch) sees the same final price. Idempotent
+        // because input is always raw feed → output is always
+        // feed*(1+pct), no compounding across runs.
+        $markupFallbackPct = (float) ($cfg['markup_percent'] ?? 0);
+        $markupRules       = MarkupResolver::normalize($cfg['markup_rules'] ?? []);
 
         $items = $flavor === self::FLAVOR_GS
-            ? self::aggregateFlatRows($rawRows, $importStatus, $multiplier)
-            : self::wrapRows($rawRows, $importStatus, $multiplier);
+            ? self::aggregateFlatRows($rawRows, $importStatus, $markupRules, $markupFallbackPct)
+            : self::wrapRows($rawRows, $importStatus, $markupRules, $markupFallbackPct);
 
         // Apply the user's mapping (if any) AFTER fetch. OVERLAY
         // semantics: mapped output is merged ON TOP so source-native
@@ -218,7 +226,7 @@ final class JsonSource extends AbstractSource
      * @param array<int, array<string, mixed>> $rows
      * @return FeedItem[]
      */
-    private static function wrapRows(array $rows, string $importStatus = 'publish', float $multiplier = 1.0): array
+    private static function wrapRows(array $rows, string $importStatus = 'publish', array $markupRules = [], float $markupFallbackPct = 0.0): array
     {
         $out = [];
         foreach ($rows as $r) {
@@ -231,9 +239,10 @@ final class JsonSource extends AbstractSource
             if (! isset($r['status']) || $r['status'] === '') {
                 $r['status'] = $importStatus;
             }
-            // Apply source-config markup to feed price fields. Skipped
-            // when multiplier=1.0 (the default). Read input as float so
-            // string-encoded prices like "120.00" still work.
+            // Resolve markup against rules (first match wins, fallback
+            // otherwise) using the row's own data. Skipped when
+            // multiplier collapses to 1.0 (no-op).
+            $multiplier = MarkupResolver::multiplierFor($r, $markupRules, $markupFallbackPct);
             if ($multiplier !== 1.0) {
                 foreach (['regular_price', 'sale_price', 'price'] as $field) {
                     if (isset($r[$field]) && is_numeric($r[$field])) {
@@ -256,7 +265,7 @@ final class JsonSource extends AbstractSource
      * @param array<int, array<string, mixed>> $rows
      * @return FeedItem[]
      */
-    private static function aggregateFlatRows(array $rows, string $importStatus = 'publish', float $multiplier = 1.0): array
+    private static function aggregateFlatRows(array $rows, string $importStatus = 'publish', array $markupRules = [], float $markupFallbackPct = 0.0): array
     {
         $bySku = [];
         foreach ($rows as $r) {
@@ -304,6 +313,10 @@ final class JsonSource extends AbstractSource
                 'image_name' => $bundle['image_name'],
                 'sizes'      => $bundle['sizes'],
             ];
+            // Resolve markup against the bridgeProduct (carries
+            // _gs_brand, _gs_category, ...) so rules can target GS
+            // taxonomy without tunneling. Per-product, evaluated once.
+            $multiplier = MarkupResolver::multiplierFor($bridgeProduct, $markupRules, $markupFallbackPct);
             $woo = self::transformToWoo($bridgeProduct, $importStatus, $multiplier);
 
             // Surface the API-native field names back on top so the

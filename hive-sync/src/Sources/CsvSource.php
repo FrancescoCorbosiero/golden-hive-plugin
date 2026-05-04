@@ -138,9 +138,15 @@ final class CsvSource extends AbstractSource
             ],
             'markup_percent' => [
                 'type'    => 'int',
-                'label'   => 'Markup percentuale sul prezzo del feed (solo flavor "generic")',
+                'label'   => 'Markup percentuale di fallback (solo flavor "generic")',
                 'default' => 0,
-                'description' => 'Es. 20 = +20%, -10 = -10%. Applicato in OGNI sync (idempotente — il prezzo Woo finale è sempre `prezzo_feed × (1+pct/100)`). Il flavor StockFirmati ha la sua formula dedicata sopra (sf_markup_mode + sf_markup_value).',
+                'description' => 'Applicato a TUTTI i prodotti che non matchano una regola in "Markup per categoria/brand". Il flavor StockFirmati ha la sua formula dedicata sopra.',
+            ],
+            'markup_rules' => [
+                'type'    => 'markup_rules',
+                'label'   => 'Markup per categoria/brand/etc. (solo flavor "generic")',
+                'default' => [],
+                'description' => 'Sovrascrivi il markup di fallback per sottoinsiemi. Esempio: brand "Nike" → 40%, categoria "abbigliamento" → 20%. Prima regola che matcha vince. Per generic CSV i campi tipici sono `brand`, `category`, o qualsiasi colonna del CSV.',
             ],
         ];
     }
@@ -210,10 +216,10 @@ final class CsvSource extends AbstractSource
 
         // Generic-flavor markup (SF flavor uses its own dedicated
         // sf_markup_mode / sf_markup_value formula above and ignores
-        // markup_percent). Idempotent across runs because input is
-        // always the raw feed price.
-        $genericMarkupPct = (float) ($cfg['markup_percent'] ?? 0);
-        $genericMultiplier = 1.0 + ($genericMarkupPct / 100.0);
+        // markup_percent + markup_rules). Idempotent across runs
+        // because input is always the raw feed price.
+        $genericMarkupFallbackPct = (float) ($cfg['markup_percent'] ?? 0);
+        $genericMarkupRules       = MarkupResolver::normalize($cfg['markup_rules'] ?? []);
 
         if ($flavor === self::FLAVOR_SF) {
             $assocRows = [];
@@ -287,9 +293,9 @@ final class CsvSource extends AbstractSource
             if (! isset($mapped['status']) || $mapped['status'] === '') {
                 $mapped['status'] = $importStatus;
             }
-            // Apply source-config markup to feed prices. Idempotent
-            // because input is always the raw feed value, not the
-            // existing Woo price — re-running won't compound.
+            // Per-rule markup against the row's data, fallback to flat
+            // percent. Same idempotency story as above.
+            $genericMultiplier = MarkupResolver::multiplierFor($mapped, $genericMarkupRules, $genericMarkupFallbackPct);
             if ($genericMultiplier !== 1.0) {
                 foreach (['regular_price', 'sale_price', 'price'] as $field) {
                     if (isset($mapped[$field]) && is_numeric($mapped[$field])) {

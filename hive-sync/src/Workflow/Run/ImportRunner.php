@@ -127,6 +127,18 @@ final class ImportRunner
         if ( in_array( 'new', $allowedBuckets, true ) ) {
             foreach ( $diff->new as $item ) $process[] = [ 'new', $item ];
         }
+
+        // `options.limit` caps the processing pool to the first N items
+        // (after bucket ordering: stock-patch → update → new). Useful for
+        // testing on big feeds without touching the full catalog. 0 (or
+        // unset) means no cap. Applied AFTER bucket filtering so the
+        // user sees an honest count: with limit=50 + buckets=[new], you
+        // get the first 50 NEW items, never 50 mixed.
+        $limit = (int) ( $options['limit'] ?? 0 );
+        if ( $limit > 0 && count( $process ) > $limit ) {
+            $process = array_slice( $process, 0, $limit );
+            $summary['limited_to'] = $limit;
+        }
         $total = count( $process );
 
         $rows = [];

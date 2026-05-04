@@ -302,6 +302,10 @@ function hsync_render_admin_page(): void {
                     <label class="hsync-dryrun">
                         <input type="checkbox" data-field="run-dry-run" checked> Solo prova
                     </label>
+                    <label class="hsync-limit" title="Limita il numero di prodotti processati in questo run (0 = nessun limite). Utile per testare su un feed grande senza importare tutto.">
+                        Max prodotti
+                        <input type="number" data-field="run-limit" min="0" step="1" value="0" style="width:6em;">
+                    </label>
                     <button class="button button-primary" data-action="run-now">Importa adesso</button>
                 </div>
             </div>

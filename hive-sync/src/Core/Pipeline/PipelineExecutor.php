@@ -59,6 +59,10 @@ final class PipelineExecutor
         $perStep = [];
         $perProduct = [];
         $blocking = [];
+        // Collect a small sample of errors so callers can diagnose
+        // mass-failures without trawling through perProduct.
+        $errorSamples = [];
+        $errorSampleCap = 5;
 
         for ($i = $startAt; $i < $total; $i++) {
             // Cooperative yield BEFORE starting a new product so partially-
@@ -73,6 +77,7 @@ final class PipelineExecutor
                     blockingFailures: $blocking,
                     completed: false,
                     cursor: ['index' => $i],
+                    errorSamples: $errorSamples,
                 );
             }
 
@@ -85,6 +90,13 @@ final class PipelineExecutor
                     $trace['ops'][] = ['ref' => $step->refId, 'error' => 'unknown_op'];
                     $perStep[$idx]['failed'] = ($perStep[$idx]['failed'] ?? 0) + 1;
                     $stats['failed']++;
+                    if (count($errorSamples) < $errorSampleCap) {
+                        $errorSamples[] = [
+                            'ref'        => $step->refId,
+                            'product_id' => $pid,
+                            'error'      => 'unknown_op',
+                        ];
+                    }
                     continue;
                 }
 
@@ -111,6 +123,13 @@ final class PipelineExecutor
                 if ($res->error !== null) {
                     $stats['failed']++;
                     $perStep[$idx]['failed'] = ($perStep[$idx]['failed'] ?? 0) + 1;
+                    if (count($errorSamples) < $errorSampleCap) {
+                        $errorSamples[] = [
+                            'ref'        => $step->refId,
+                            'product_id' => $pid,
+                            'error'      => $res->error,
+                        ];
+                    }
                 } else {
                     $perStep[$idx]['ok'] = ($perStep[$idx]['ok'] ?? 0) + 1;
                 }
@@ -154,6 +173,7 @@ final class PipelineExecutor
             perProduct: $perProduct,
             blockingFailures: $blocking,
             completed: true,
+            errorSamples: $errorSamples,
         );
     }
 

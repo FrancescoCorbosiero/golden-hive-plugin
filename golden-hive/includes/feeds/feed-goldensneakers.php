@@ -519,6 +519,13 @@ function rp_rc_gs_update_product( array $data ): array {
             return [ 'action' => 'error', 'sku' => $data['sku'] ?? '', 'name' => $data['name'] ?? '', 'reason' => 'Prodotto non trovato' ];
         }
 
+        // Re-attach attribute terms on update so historical products
+        // (created before the attribute-attach fix) get pa_brand
+        // backfilled on next sync without needing a separate migration.
+        if ( ! empty( $data['attributes'] ) && function_exists( 'gh_attach_attribute_terms' ) ) {
+            gh_attach_attribute_terms( $product_id, $data['attributes'] );
+        }
+
         // Aggiorna prezzo parent (simple)
         if ( $product->is_type( 'simple' ) ) {
             if ( isset( $data['regular_price'] ) ) $product->set_regular_price( $data['regular_price'] );

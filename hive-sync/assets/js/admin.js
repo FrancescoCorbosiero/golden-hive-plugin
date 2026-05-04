@@ -40,16 +40,40 @@
             if (v === undefined || v === null) return;
             body.set(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
         });
-        const resp = await fetch(HSyncBoot.ajaxUrl, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: body.toString(),
-        });
-        const json = await resp.json();
+        let resp;
+        try {
+            resp = await fetch(HSyncBoot.ajaxUrl, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body.toString(),
+            });
+        } catch (netErr) {
+            // Network blip (offline, idle Chrome tab killed connection,
+            // gateway timeout). Mark transient so the tick loop retries.
+            const err = new Error('Rete: ' + (netErr.message || 'connessione interrotta'));
+            err.transient = true;
+            throw err;
+        }
+        // Read raw text first so we can give a useful error when the
+        // server leaks an HTML error page instead of JSON (PHP fatal,
+        // 502 from a reverse proxy, opcache reload mid-request).
+        const raw = await resp.text();
+        let json;
+        try {
+            json = JSON.parse(raw);
+        } catch (e) {
+            const snippet = raw.replace(/\s+/g, ' ').slice(0, 80);
+            const err = new Error('HTTP ' + resp.status + ' risposta non-JSON: ' + snippet);
+            err.transient = (resp.status === 0 || resp.status >= 500 || resp.status === 408);
+            throw err;
+        }
         if (!json.success) {
             const msg = (json.data && json.data.message) || 'AJAX error';
-            throw new Error(msg);
+            const err = new Error(msg);
+            err.payload = json.data || {};
+            err.transient = !!(json.data && json.data.recoverable);
+            throw err;
         }
         return json.data;
     };
@@ -2082,8 +2106,20 @@
         if (mapping)        options.mapping = mapping.config;
         if (pipelineSlug)   options.pipeline_slug = pipelineSlug;
 
+        await HSync.runImportTicked(sourceId, configSlug, config, options, dryRun, null);
+    };
+
+    /**
+     * The reusable tick-loop body. Extracted from runNow so the
+     * "Riprendi da qui" button (after a transient tick failure) can
+     * re-enter the loop with a preserved cursor instead of restarting
+     * from scratch on a 15k-product import.
+     */
+    HSync.runImportTicked = async function (sourceId, configSlug, config, options, dryRun, startCursor) {
         const out = $('[data-region="run-output"]');
-        out.innerHTML = '<p class="hsync-loading">Tick 1: starting…</p>';
+        if (! startCursor) {
+            out.innerHTML = '<p class="hsync-loading">Tick 1: starting…</p>';
+        }
 
         // Two-bucket accumulator across ticks:
         //   - diffSnapshot: the source-diff numbers (fetched, new,
@@ -2104,21 +2140,45 @@
             diffSnapshot: null,
             totals: RESULT_KEYS.reduce((acc, k) => (acc[k] = 0, acc), {}),
         };
-        let cursor = null;
+        let cursor = startCursor || null;
         let tick = 0;
         const maxTicks = 200;  // hard cap — refuse to loop forever on a misbehaving source
+
+        // Retry-with-backoff for transient tick failures (PHP fatal,
+        // 502, idle-tab killed connection). Runs of 15k+ products
+        // can't tolerate a single bad tick aborting the whole loop.
+        const maxRetries  = 3;
+        const backoffMs   = [2000, 4000, 8000];
+        const sleep       = (ms) => new Promise(r => setTimeout(r, ms));
+
+        const fetchTick = async () => {
+            let lastErr = null;
+            for (let attempt = 0; attempt <= maxRetries; attempt++) {
+                try {
+                    return await HSync.ajax('run_now', {
+                        source_id:   sourceId,
+                        config_slug: configSlug,
+                        config:      config,
+                        options:     options,
+                        dry_run:     dryRun ? '1' : '0',
+                        cursor:      cursor || {},
+                    });
+                } catch (e) {
+                    lastErr = e;
+                    if (! e.transient || attempt === maxRetries) throw e;
+                    const wait = backoffMs[attempt] || 8000;
+                    out.insertAdjacentHTML('beforeend',
+                        '<div class="hsync-warning">Tick ' + tick + ' instabile (' + esc(e.message) + '). Ritento tra ' + (wait / 1000) + 's…</div>');
+                    await sleep(wait);
+                }
+            }
+            throw lastErr;
+        };
 
         try {
             while (tick < maxTicks) {
                 tick++;
-                const data = await HSync.ajax('run_now', {
-                    source_id:   sourceId,
-                    config_slug: configSlug,
-                    config:      config,
-                    options:     options,
-                    dry_run:     dryRun ? '1' : '0',
-                    cursor:      cursor || {},
-                });
+                const data = await fetchTick();
 
                 accumulated.runId    = data.run_id || accumulated.runId;
                 accumulated.warnings = data.warnings || accumulated.warnings;
@@ -2167,8 +2227,43 @@
                     '<div class="hsync-warning">Auto-resume cap raggiunto (' + maxTicks + ' tick). Run interrotto. Apri Runs per riprendere se necessario.</div>');
             }
         } catch (e) {
-            out.innerHTML = '<div class="hsync-error">Tick ' + tick + ' fallito: ' + esc(e.message) + '</div>';
+            // Persist the in-flight cursor so the operator can resume
+            // manually. Cursor was returned by the LAST successful tick
+            // and is what we'd send next — so it points at the item we
+            // were about to process when things broke.
+            const resumeCursor = cursor || (e.payload && e.payload.cursor) || null;
+            HSync.lastFailedRun = {
+                sourceId, configSlug, config, options, dryRun,
+                cursor: resumeCursor,
+                tick,
+                accumulated,
+            };
+            const resumeBtn = resumeCursor
+                ? '<button type="button" class="hsync-button" data-action="run-resume">Riprendi da qui</button>'
+                : '';
+            out.insertAdjacentHTML('beforeend',
+                '<div class="hsync-error">Tick ' + tick + ' fallito: ' + esc(e.message)
+                + (resumeCursor ? ' · cursor preservato' : '')
+                + ' ' + resumeBtn + '</div>');
         }
+    };
+
+    /**
+     * Resume the last failed run from its preserved cursor. Wired to
+     * the "Riprendi da qui" button shown when the tick loop blows up.
+     * Reuses runImportTicked but threads the saved cursor in so the
+     * server picks up where the crash left off.
+     */
+    HSync.resumeFailedRun = async function () {
+        const r = HSync.lastFailedRun;
+        if (! r || ! r.cursor) return;
+        const out = $('[data-region="run-output"]');
+        out.insertAdjacentHTML('beforeend',
+            '<div class="hsync-loading">Ripresa da tick ' + r.tick + '…</div>');
+        // Re-enter the tick loop with the saved cursor as the starting
+        // point. We rebuild a fresh accumulator so reconciliation
+        // numbers are clean for the resumed segment.
+        await HSync.runImportTicked(r.sourceId, r.configSlug, r.config, r.options, r.dryRun, r.cursor);
     };
 
     HSync.renderRunResult = function (data) {
@@ -2373,6 +2468,7 @@
         if (t.matches('[data-action="install-defaults"]'))       return HSync.installDefaults(false);
         if (t.matches('[data-action="install-defaults-force"]')) return HSync.installDefaults(true);
         if (t.matches('[data-action="run-now"]'))        return HSync.runNow();
+        if (t.matches('[data-action="run-resume"]'))     return HSync.resumeFailedRun();
         if (t.matches('[data-action="run-test-fetch"]')) return HSync.testFetchFromRun();
         if (t.matches('[data-action="run-save-config"]'))return HSync.saveCurrentConfig();
         if (t.matches('[data-action="run-save-job"]'))   return HSync.saveCurrentAsJob();

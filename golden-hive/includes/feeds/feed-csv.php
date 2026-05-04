@@ -403,6 +403,13 @@ function gh_csv_update_product( array $data ): array {
         }
 
         $product->save();
+
+        // Re-attach attribute terms on update so historical products
+        // get pa_brand backfilled on next sync without a separate
+        // migration pass. Same fix path as gh_create_*_product.
+        if ( ! empty( $data['attributes'] ) && function_exists( 'gh_attach_attribute_terms' ) ) {
+            gh_attach_attribute_terms( $product_id, $data['attributes'] );
+        }
         gh_apply_product_meta( $product_id, $data );
 
         return [

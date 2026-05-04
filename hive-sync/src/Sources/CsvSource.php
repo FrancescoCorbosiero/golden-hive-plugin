@@ -136,6 +136,12 @@ final class CsvSource extends AbstractSource
                 'default' => 'publish',
                 'description' => 'Imposta "Bozza" se vuoi importare in staging e poi attivare i prodotti a gruppi (per categoria/brand) tramite una Regola periodica nel tab Regole. Si applica solo ai NUOVI prodotti — quelli esistenti mantengono il loro stato.',
             ],
+            'markup_percent' => [
+                'type'    => 'int',
+                'label'   => 'Markup percentuale sul prezzo del feed (solo flavor "generic")',
+                'default' => 0,
+                'description' => 'Es. 20 = +20%, -10 = -10%. Applicato in OGNI sync (idempotente — il prezzo Woo finale è sempre `prezzo_feed × (1+pct/100)`). Il flavor StockFirmati ha la sua formula dedicata sopra (sf_markup_mode + sf_markup_value).',
+            ],
         ];
     }
 
@@ -201,6 +207,13 @@ final class CsvSource extends AbstractSource
         if (! in_array($importStatus, ['publish', 'draft'], true)) {
             $importStatus = 'publish';
         }
+
+        // Generic-flavor markup (SF flavor uses its own dedicated
+        // sf_markup_mode / sf_markup_value formula above and ignores
+        // markup_percent). Idempotent across runs because input is
+        // always the raw feed price.
+        $genericMarkupPct = (float) ($cfg['markup_percent'] ?? 0);
+        $genericMultiplier = 1.0 + ($genericMarkupPct / 100.0);
 
         if ($flavor === self::FLAVOR_SF) {
             $assocRows = [];
@@ -273,6 +286,16 @@ final class CsvSource extends AbstractSource
             // explicitly set `status` win.
             if (! isset($mapped['status']) || $mapped['status'] === '') {
                 $mapped['status'] = $importStatus;
+            }
+            // Apply source-config markup to feed prices. Idempotent
+            // because input is always the raw feed value, not the
+            // existing Woo price — re-running won't compound.
+            if ($genericMultiplier !== 1.0) {
+                foreach (['regular_price', 'sale_price', 'price'] as $field) {
+                    if (isset($mapped[$field]) && is_numeric($mapped[$field])) {
+                        $mapped[$field] = (string) round((float) $mapped[$field] * $genericMultiplier, 2);
+                    }
+                }
             }
             $items[] = new FeedItem(sku: $sku, data: $mapped, raw: $assoc);
         }

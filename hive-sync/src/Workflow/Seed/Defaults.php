@@ -530,41 +530,21 @@ final class Defaults
                     ],
                 ],
             ],
-
-            // ── Staged-publish workflow ───────────────────────────
-            //
-            // Runs the seeded `publish-batch` Rule on a schedule.
-            // Pairs with `import_status = 'draft'` on the source-config:
-            // products land as drafts, the operator opens this Rule,
-            // picks which categories/brands should go live, enables the
-            // job, and the cron flips them to publish on a schedule.
-            //
-            // Disabled by default + the Rule ships with empty selection
-            // so a forgotten "Aggiorna default" can never silently
-            // mass-publish drafts.
-            [
-                '_seed_id'      => 'publish-batch',
-                'label'         => 'Pubblica draft (per categoria/brand)',
-                'runnable_type' => 'rule',
-                'runnable_ref'  => 'publish-batch',
-                'cron'          => '0 * * * *',  // hourly — operator can tighten/loosen
-                'config'        => [],
-            ],
         ];
     }
 
     // ─── Rules ────────────────────────────────────────────────────
 
     /**
-     * Seed the staged-publish Rule template. Ships with EMPTY
-     * selection.filter — running it as-is would hit zero products,
-     * which is the safe default. The operator opens it, picks
-     * categories/brands, then enables it.
+     * Rules touch existing products. Currently no defaults — the
+     * seeded ones we tried (publish-batch) had compounding-pricing
+     * hazards or surprise-publishing footguns. Markup is configured
+     * on the source-config now (idempotent because it reads feed
+     * price as input), so a periodic Rule for re-pricing isn't
+     * needed for the common sync workflow.
      *
-     * Operations: set status=publish + set stock_status=instock.
-     * Markup is intentionally NOT in this seed — pricing changes
-     * are too easy to fat-finger across a whole catalog. Operator
-     * adds `pricing.markup_percent` if they want it.
+     * Operators compose Rules deliberately (e.g. "set status=draft
+     * for products with stock=0"). The repository ships empty.
      */
     private function seedRules( bool $force ): int
     {
@@ -579,29 +559,9 @@ final class Defaults
         return $touched;
     }
 
-    /**
-     * @return array<int, array{slug:string, name:string, selection:array, operations:array, checks:array, enabled:bool}>
-     */
+    /** @return array<int, array{slug:string, name:string, selection:array, operations:array, checks:array, enabled:bool}> */
     public static function defaultRules(): array
     {
-        return [
-            [
-                'slug'      => 'publish-batch',
-                'name'      => 'Pubblica draft a gruppi (categoria/brand)',
-                // Filter mode but EMPTY conditions array — operator
-                // picks categories/brands in the UI before enabling.
-                'selection' => [
-                    'mode'   => 'filter',
-                    'filter' => [],
-                    'ids'    => [],
-                ],
-                'operations' => [
-                    [ 'ref_id' => 'status.set',          'params' => [ 'status' => 'publish'  ] ],
-                    [ 'ref_id' => 'stock.set_status',    'params' => [ 'stock_status' => 'instock' ] ],
-                ],
-                'checks'    => [],
-                'enabled'   => false,
-            ],
-        ];
+        return [];
     }
 }

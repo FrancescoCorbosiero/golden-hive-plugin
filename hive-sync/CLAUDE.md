@@ -22,12 +22,16 @@ legacy che ha tutta la logica varianti + sideload media.
 Stato attuale (branch `claude/migrate-hive-sync-features-dkJLJ`):
 
 - ✅ Import GS end-to-end con varianti, stock per-size, media sideload
-- ✅ 3 job di mantenimento default (add-new / refresh-stocks / re-update)
+- ✅ 6 job di mantenimento default (GS + SF, add-new / refresh-stocks / re-update)
 - ✅ Source generico `JsonSource` con `flavor` knob
 - ✅ Mapping editor visuale spina-fissa Woo + sezione Avanzati + Custom
 - ✅ Cockpit dashboard header con tile live-status
 - ✅ Media management completo (browser, whitelist, safe cleanup)
 - ✅ Strumenti / Nuclear Cleanup con typed-confirmation gate
+- ✅ Markup per-rule sulla source-config (per categoria/brand/feed-field)
+- ✅ `import_status` knob (publish/draft) per il workflow staged
+- ✅ Resilienza tick-loop: retry-with-backoff + cursor-resume su errori transienti
+- ✅ Limite "Max prodotti" sul Run tab per testare su feed grandi
 
 ---
 
@@ -73,7 +77,8 @@ hive-sync/
 │   │   │                               'generic' = 1 row = 1 product
 │   │   │                               'goldensneakers' = group by SKU + transform
 │   │   ├── CsvSource.php             URL or local-file CSV w/ category_filter.
-│   │   └── StockOnlyClassifier.php   Splits update bucket → updateFull/updateStock.
+│   │   ├── StockOnlyClassifier.php   Splits update bucket → updateFull/updateStock.
+│   │   └── MarkupResolver.php        Per-rule markup evaluation (used by both sources).
 │   ├── Operations/
 │   │   ├── Status/SetStatus.php
 │   │   ├── Pricing/AdjustPrice.php  + MarkupPercent.php (ImportRule)
@@ -172,8 +177,10 @@ configSchema():
   - url             (required)
   - token           (Bearer, optional)
   - cookie          (optional)
-  - flavor          enum: 'generic' | 'goldensneakers'
-                    DEFAULT: 'generic'
+  - flavor          enum: 'generic' | 'goldensneakers'  DEFAULT: 'generic'
+  - import_status   enum: 'publish' | 'draft'           DEFAULT: 'publish'
+  - markup_percent  int (fallback %)                    DEFAULT: 0
+  - markup_rules    list[ {field, operator, value, percent} ]  DEFAULT: []
 ```
 
 Comportamento per flavor:
@@ -193,16 +200,85 @@ Migration `hsync_migrate_gs_to_json()` ha già spostato tutti i
 
 ---
 
-## Default jobs (3 jobs)
+## Markup — architettura idempotente
 
-Tutti seeded DISABLED. L'operatore configura `json/gs-prod`
-nel tab Connetti, poi accende i job in Automatizza.
+**Markup è una proprietà della source-config, non un'Operation
+periodica.** Decisione critica perché le Operation periodiche
+applicate a prodotti esistenti compongono il prezzo (1.20× → 1.44× →
+1.73× ...). Vedi sezione "Lessons learned".
+
+Schema sulla source-config:
+
+| Campo | Tipo | Comportamento |
+|---|---|---|
+| `markup_percent` | int | Fallback % applicato a tutti i prodotti che non matchano una regola |
+| `markup_rules` | list | Regole ordinate `{field, operator, value, percent}` |
+
+**Risoluzione** (`HiveSync\Sources\MarkupResolver`):
+
+```
+Per ogni FeedItem nel fetch():
+  multiplier = first_match_or_fallback(markup_rules, item.data, markup_percent)
+  item.data[regular_price] = feed_price × multiplier
+  item.data[sale_price]    = feed_sale  × multiplier  (se presente)
+```
+
+**Operatori supportati:** `equals`, `not_equals`, `in`, `not_in`,
+`contains`, `starts_with`. `field` supporta dot-path (`meta.brand`).
+Match contro feed-fields, NON contro tassonomie Woo (vedi sotto).
+
+**Perché feed-fields invece di tassonomie Woo:**
+
+- 10k prodotti × WP taxonomy lookup at fetch time = N+1 lento
+- Il feed è la source of truth per le tassonomie (mapping → product_cat /
+  product_brand). Matchare la stringa di partenza è equivalente.
+- Funziona per prodotti NEW che ancora non esistono in Woo.
+
+**Idempotenza per costruzione:**
+
+- `multiplier = f(feed_row)` — funzione pura della riga feed
+- `Woo_price emesso = feed_price × multiplier` — output deterministico
+- Re-run N volte produce lo stesso `Woo_price` di un run singolo
+- Nessun "skip if already marked-up" check, nessuna finestra di compounding
+
+**Comportamento attraverso i bucket:**
+
+- `new`: pipeline + create con `regular_price` già markato
+- `update`: pipeline + materialize stesso valore markato
+- `updateStock`: fast-patch usa `item.data['regular_price']` che è
+  già markato → idempotente
+- Cambio prezzo upstream: `feed=100 → marked=120 → Woo=120` →
+  `feed=110 → marked=132 → diff vs Woo=120 → updateStock → Woo=132`
+
+**SF flavor (CsvSource):** ignora `markup_percent` + `markup_rules` —
+ha la sua formula dedicata `sf_markup_mode` + `sf_markup_value`
+(moltiplicatore o percentuale sul cost wholesale). Stesso principio
+di idempotenza, formula diversa.
+
+**Config UI:** field type `markup_rules` rendera un repeater con
+`field` / `operator` / `value` / `%` per riga + `[+ Aggiungi regola]`.
+Hidden `<input>` carrier porta il JSON. Hydration in
+`loadSourceConfigEditor` re-renderizza le righe da array salvato.
+
+---
+
+## Default jobs (6 jobs)
+
+Tutti seeded DISABLED. L'operatore configura le source-config
+(`json/gs-prod`, `csv/sf-prod`) nel tab Connetti, poi accende i
+job in Automatizza.
 
 | Slug | Cron | Buckets | Scopo |
 |---|---|---|---|
 | `gs-add-new` | `*/30 * * * *` | `[new]` | Crea i nuovi SKU. Pipeline completa. |
 | `gs-refresh-stocks` | `*/15 * * * *` | `[updateStock]` | Fast-patch prezzo+stock. ~sub-second per prodotto. |
 | `gs-re-update` | `0 */6 * * *` | `[update]` | Re-import quando cambiano descrizioni / brand / etc. |
+| `sf-add-new` | `*/45 * * * *` | `[new]` | StockFirmati — feed più pesante, cron diluito. |
+| `sf-refresh-stocks` | `*/20 * * * *` | `[updateStock]` | SF fast-patch. |
+| `sf-re-update` | `0 */8 * * *` | `[update]` | SF re-update completo. |
+
+**Default Rules:** nessuna. La tabella `wp_hsync_rules` ships vuota —
+vedi sezione "Lessons learned" sul perché.
 
 `runnable_ref = 'json/<config_slug>'`. JobRunner risolve
 `options.mapping_slug` → mapping config a dispatch time.
@@ -370,10 +446,12 @@ overwrite (UI: "Aggiorna default" button in Mappa tab).
 
 1. Mappa → "Aggiorna default" — pulls latest seeded mappings/pipelines/jobs.
 2. Connetti → JSON card → compila URL+token, salva come `gs-prod`, premi "Test fetch".
-3. Importa → seleziona `json` source, `gs-prod` config, `gs-default` mapping, `import-default` pipeline → uncheck Solo prova → "Importa adesso".
-4. Verify: prodotti creati come `variable` con `pa_taglia` + variants per ogni size + stock per variant + media sideloaded.
-5. Storico → vedi run con `created: N / stock_patched: M` reconciliation.
-6. Automatizza → toggle on i 3 default jobs.
+3. (Opz.) Aggiungi `markup_percent: 25` + una regola `_gs_brand equals Nike → 35`.
+4. Importa → seleziona `json` source, `gs-prod` config, `gs-default` mapping, `import-default` pipeline → "Max prodotti: 5" → uncheck Solo prova → "Importa adesso".
+5. Verify: prodotti creati come `variable` con `pa_taglia` + variants per ogni size + stock per variant + media sideloaded. Prezzi = `feed × multiplier` per regola matchata.
+6. Storico → vedi run con `created: N / stock_patched: M` reconciliation.
+7. Re-run senza modificare il feed → tutti i prodotti finiscono in `unchanged` (idempotency check).
+8. Automatizza → toggle on `gs-refresh-stocks` → cron sincronizza price/stock senza compounding.
 
 ---
 
@@ -385,6 +463,12 @@ PR/merge passa per main attraverso review umano.
 
 Storico commits significativi (più recenti in cima):
 
+- `4141f79` — per-taxonomy markup rules sulla source-config (MarkupResolver)
+- `117bf67` — markup rifattorizzato: source-config field, non Rule periodica
+- `04c6f8e` — Rule editor filtra ImportRule ops + error_samples nei run
+- `51e9376` — staged-publish workflow (import_status + Rule pickers)
+- `d137432` — `options.limit` per cap dei run su feed grandi
+- `f20c3b6` — resilienza tick-loop: retry-with-backoff + cursor-resume
 - `932cb79` — cockpit header + sticky tabs + HUD stats
 - `a77470b` — generic JsonSource + cron-IT translator
 - `03d09cb` — JS sums result counters across ticks
@@ -400,6 +484,79 @@ log completo.
 
 ---
 
+## Lessons learned
+
+Decisioni di design che è facile rifare male senza memoria del perché.
+
+### Markup non è una Rule periodica
+
+**Tentazione:** "applica +20% periodicamente alla categoria X" come
+Rule schedulata. **Trappola:** Rules operano su prodotti esistenti
+moltiplicando il prezzo Woo corrente — esecuzioni ripetute compongono
+(`120 → 144 → 173 ...`).
+
+**Soluzione:** markup è proprietà della source-config, applicato
+durante `fetch()` al prezzo del FEED (non a quello Woo). Output
+deterministico dall'input grezzo → idempotente per costruzione.
+Vedi sezione "Markup — architettura idempotente".
+
+Operations come `pricing.adjust_price_percent` sono state cancellate
+per lo stesso motivo. La Operation `pricing.adjust_price` (valore
+assoluto, +5€) resta perché composta in modo diverso e ha use-case
+chirurgici legittimi.
+
+### ImportRule operations non vanno nel Rule editor
+
+`pricing.markup_percent`, `media.download`, `taxonomy.auto_categorize`,
+`taxonomy.resolve` implementano `ImportRule` — il loro `apply()` su un
+productId è uno stub che fallisce. Sono pensate per mutare il draft
+durante import, NON per girare su prodotti esistenti.
+
+Il Rule editor (admin.js) le filtra via `o.is_import_rule`. Il
+Pipeline editor ha un dropdown separato per loro. Non rimettere queste
+op nel Rule dropdown — fallirebbero al 100% per ogni prodotto.
+
+### Default Rules ships vuoto
+
+Tentammo di seedare un `publish-batch` Rule per il workflow
+"import-as-draft → pubblica a gruppi". Footgun: un "Aggiorna default"
+inavvertito su un install con products in produzione poteva mass-
+pubblicare draft. **Decisione:** `Defaults::defaultRules()` ritorna
+`[]`. L'operatore compone Rules deliberatamente.
+
+### Markup match: feed-field, non tassonomia Woo
+
+Le `markup_rules` matchano contro la riga feed (`_gs_brand`,
+`_sf_category`, ecc.), non contro le tassonomie Woo (`product_cat`,
+`product_brand`). Tre ragioni:
+
+1. **Performance:** 10k items × `wp_get_object_terms` a fetch time è N+1.
+2. **Source of truth:** la tassonomia Woo è derivata dal feed via
+   mapping. Matchare il feed è equivalente.
+3. **NEW products:** non esistono ancora in Woo al momento del fetch,
+   quindi una query Woo non li troverebbe.
+
+Tradeoff accettato: una categoria modificata manualmente in Woo non
+cambia il markup di quel prodotto — solo il feed lo fa. Per un
+catalog feed-driven è il comportamento corretto.
+
+### Resilienza tick-loop
+
+Run su 15k+ prodotti soffrono di errori transienti (PHP fatal mid-tick,
+502 reverse-proxy, Chrome che kills idle tab). Soluzione su due livelli:
+
+1. **PHP shutdown handler** (`hsync_arm_fatal_guard`) — wrappa fatal
+   in JSON envelope. Il client non riceve mai HTML in mezzo a JSON.
+2. **JS retry-with-backoff** (2/4/8s) sul tick loop. Dopo 3 retry
+   esaurite, surface un button "Riprendi da qui" che re-entra nel
+   loop con il cursor preservato. Il run riprende dall'item dove
+   crashava, non da zero.
+
+Errori sono classificati come `transient` (5xx / 0 / parse-failure /
+`recoverable: true` dal server) vs definitivi.
+
+---
+
 ## What NOT to add
 
 - Migrazione tab UI (rimossa — il plugin sostituisce GH, non coesiste).
@@ -410,3 +567,10 @@ log completo.
 - Multi-tenant / multi-site config (il plugin gira dentro UN sito
   brandizzato — same posture as golden-hive).
 - React/Vue (vanilla JS è sufficiente, build step è zero).
+- **Operation periodiche di pricing percentuale su prodotti esistenti**
+  — compongono. Vedi "Lessons learned / Markup non è una Rule periodica".
+- **Default Rules con effetti distruttivi/visibili** (mass-publish,
+  mass-status-change). Operatore compone deliberatamente.
+- **Match tassonomia Woo nelle markup_rules** — match feed-field è
+  più veloce, equivalente per catalog feed-driven, e funziona per
+  prodotti non ancora in Woo.

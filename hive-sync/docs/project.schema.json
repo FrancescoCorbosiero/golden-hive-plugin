@@ -1,0 +1,210 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hive-sync/project/v1",
+  "title": "Hive Sync — Project Configuration",
+  "description": "Single-document, declarative configuration for an entire Hive Sync install. Produced by /wp-admin AJAX hsync_ajax_project_export and consumed by hsync_ajax_project_apply. Round-trippable: export -> edit -> apply yields the same result as the original. Secrets are redacted on export (••••XXXX) and preserved by the applier when posted back as the same placeholder.",
+  "type": "object",
+  "required": ["$schema", "version"],
+  "properties": {
+    "$schema":     { "const": "hive-sync/project/v1" },
+    "version":     { "const": 1 },
+    "exported_at": { "type": "string", "format": "date-time" },
+    "site_url":    { "type": "string" },
+
+    "sources": {
+      "description": "Saved source configs (URL + credentials + per-feed knobs). Each entry corresponds to a row in wp_hsync_source_configs.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/source" }
+    },
+    "mappings": {
+      "description": "External-to-Woo field maps. Each entry is a row in wp_hsync_mappings.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/mapping" }
+    },
+    "pipelines": {
+      "description": "Composable lifecycle pipelines (pre_check + import_rule + check). Rows in wp_hsync_pipelines.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/pipeline" }
+    },
+    "rules": {
+      "description": "Scoped operations on existing products. Rows in wp_hsync_rules.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/rule" }
+    },
+    "jobs": {
+      "description": "Scheduled or ad-hoc Runnable references. Rows in wp_hsync_jobs.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/job" }
+    }
+  },
+
+  "$defs": {
+
+    "source": {
+      "type": "object",
+      "required": ["slug", "kind"],
+      "properties": {
+        "slug":   { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$",
+                    "description": "Stable identifier. Referenced by jobs.runnable_ref as '<kind>/<slug>'." },
+        "name":   { "type": "string" },
+        "kind":   { "enum": ["json", "csv"], "description": "Source class id (matches src/Sources/*.php::ID)." },
+        "config": {
+          "type": "object",
+          "description": "Free-form bag of fields validated by the Source's configSchema(). Common keys per kind:\n  - json: url, token, cookie, flavor (generic|goldensneakers), import_status (publish|draft), markup_percent, markup_rules\n  - csv:  url, file, delimiter, has_header, flavor (generic|stockfirmati), category_filter, sf_markup_mode, sf_markup_value, import_status, markup_percent, markup_rules\nSecrets (token/cookie/api_key/password) are redacted on export to '••••XXXX' and preserved server-side when posted back unchanged.",
+          "additionalProperties": true
+        }
+      }
+    },
+
+    "mapping": {
+      "type": "object",
+      "required": ["slug", "source_kind"],
+      "properties": {
+        "slug":        { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+        "name":        { "type": "string" },
+        "source_kind": { "enum": ["json", "csv"] },
+        "config": {
+          "type": "object",
+          "description": "Target-Woo-field -> source-spec map. Source-spec is one of:\n  - plain top-level key:    'sku', 'product_name'\n  - dot-path traversal:     'sizes.size_eu', 'meta.brand'\n  - templated string:       '{brand_name} {name}', '<p>{description}</p>'\nCanonical Woo target slots:\n  - Required:  sku, name, regular_price\n  - Standard:  description, image_url, categories, brand, stock_quantity, sale_price, stock_status, manage_stock, status, gallery_urls, tags, meta_title, meta_description, meta_keywords, short_description\n  - Attributes: pa_brand, pa_model, pa_gender, pa_color, pa_material, pa_taglia (variation). Any pa_<slug> is auto-promoted into Woo product attributes by AttributeMerger; the global taxonomy is auto-created by ResolveTaxonomy when missing.\n  - Custom: any other key the operator wants to pass through (used by SEO/meta plugins or downstream Operations).",
+          "additionalProperties": { "type": ["string", "number", "boolean", "null"] }
+        }
+      }
+    },
+
+    "pipeline": {
+      "type": "object",
+      "required": ["slug", "steps"],
+      "properties": {
+        "slug":  { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+        "name":  { "type": "string" },
+        "steps": {
+          "type":  "array",
+          "items": { "$ref": "#/$defs/pipelineStep" }
+        }
+      }
+    },
+
+    "pipelineStep": {
+      "type": "object",
+      "required": ["kind", "ref_id"],
+      "properties": {
+        "kind":   { "enum": ["pre_check", "import_rule", "operation", "check"],
+                    "description": "When the step runs:\n  - pre_check  : on FeedItem before materialize (severity=block can skip)\n  - import_rule: mutates the draft before materialize (only ImportRule ops)\n  - operation  : runs on a productId (post-create or for Rule editor)\n  - check      : on a productId after materialize (severity=warn|block)" },
+        "ref_id": { "type": "string",
+                    "description": "ID of the registered Operation/Check class. Common values:\n  - import.has_required_fields, import.has_media_url\n  - media.download, media.has_images\n  - taxonomy.auto_categorize, taxonomy.resolve, taxonomy.has_category\n  - pricing.markup_percent, pricing.adjust_price\n  - status.set, stock.set_stock_status, stock.set_stock_quantity" },
+        "params": { "type": "object", "additionalProperties": true,
+                    "description": "Per-step parameters consumed by the Op/Check::paramsSchema(). Free-form." },
+        "note":   { "type": ["string", "null"] }
+      }
+    },
+
+    "rule": {
+      "type": "object",
+      "required": ["slug"],
+      "properties": {
+        "slug":       { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+        "name":       { "type": "string" },
+        "enabled":    { "type": "boolean" },
+        "selection":  { "type": "object", "additionalProperties": true,
+                        "description": "How to pick target products: { mode: 'ids'|'filter'|'all', ... }" },
+        "operations": { "type": "array", "items": { "type": "object" },
+                        "description": "List of { ref_id, params } where ref_id is a registered Operation (NOT an ImportRule). Periodic pricing percent is forbidden by design — use markup_rules on the source-config instead." },
+        "checks":     { "type": "array", "items": { "type": "object" } }
+      }
+    },
+
+    "job": {
+      "type": "object",
+      "required": ["slug", "runnable_type", "runnable_ref"],
+      "properties": {
+        "slug":          { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$",
+                           "description": "Stable identity. Stored as config._seed_id since wp_hsync_jobs has no slug column. The exporter derives one from runnable_type+ref+cron when missing." },
+        "label":         { "type": "string" },
+        "runnable_type": { "enum": ["source.import", "pipeline", "rule", "operation", "check"] },
+        "runnable_ref":  { "type": "string",
+                           "description": "For source.import: '<kind>/<source-slug>' e.g. 'json/gs-prod', 'csv/sf-prod'. For pipeline/rule: the slug." },
+        "cron":          { "type": "string",
+                           "description": "5-field cron expression (m h dom mon dow). Empty/missing = ad-hoc only." },
+        "enabled":       { "type": "boolean" },
+        "options": {
+          "type": "object",
+          "description": "Per-job knobs. Common keys:\n  - mapping_slug:  pick a saved Mapping (resolved at dispatch)\n  - pipeline_slug: pick a saved Pipeline\n  - buckets: subset of ['new','update','updateStock'] — KEY perf control\n  - limit: cap the run (test-fetch on big feeds)\n  - category_filter: restrict the source fetch to a category subset",
+          "additionalProperties": true
+        }
+      }
+    }
+  },
+
+  "examples": [
+    {
+      "$schema": "hive-sync/project/v1",
+      "version": 1,
+      "sources": [
+        {
+          "slug": "gs-prod",
+          "name": "Golden Sneakers Production",
+          "kind": "json",
+          "config": {
+            "url": "https://api.example.com/feed",
+            "token": "••••AAAA",
+            "flavor": "goldensneakers",
+            "import_status": "publish",
+            "markup_percent": 25,
+            "markup_rules": [
+              { "field": "_gs_brand", "operator": "equals", "value": "Nike", "percent": 35 }
+            ]
+          }
+        }
+      ],
+      "mappings": [
+        {
+          "slug": "gs-default",
+          "name": "Golden Sneakers — default",
+          "source_kind": "json",
+          "config": {
+            "sku": "sku",
+            "name": "product_name",
+            "regular_price": "presented_price",
+            "sale_price": "offer_price",
+            "image_url": "image_full_url",
+            "brand": "brand_name",
+            "pa_brand": "brand_name",
+            "pa_model": "product_name",
+            "pa_taglia": "sizes.size_eu",
+            "stock_quantity": "summary_qty",
+            "stock_status": "stock_status"
+          }
+        }
+      ],
+      "pipelines": [
+        {
+          "slug": "import-default",
+          "name": "Import — pre-check + media + taxonomy",
+          "steps": [
+            { "kind": "pre_check",   "ref_id": "import.has_required_fields", "params": { "fields": "sku,name", "severity": "block" } },
+            { "kind": "import_rule", "ref_id": "media.download",             "params": { "concurrency": 10, "skip_if_set": true } },
+            { "kind": "import_rule", "ref_id": "taxonomy.auto_categorize",   "params": { "override": false } },
+            { "kind": "import_rule", "ref_id": "taxonomy.resolve",           "params": { "create_missing": true } },
+            { "kind": "check",       "ref_id": "media.has_images",           "params": { "min": 1, "severity": "warn" } }
+          ]
+        }
+      ],
+      "rules": [],
+      "jobs": [
+        {
+          "slug": "gs-add-new",
+          "label": "GS — Aggiungi nuovi prodotti",
+          "runnable_type": "source.import",
+          "runnable_ref": "json/gs-prod",
+          "cron": "*/30 * * * *",
+          "enabled": false,
+          "options": {
+            "mapping_slug":  "gs-default",
+            "pipeline_slug": "import-default",
+            "buckets":       ["new"]
+          }
+        }
+      ]
+    }
+  ]
+}

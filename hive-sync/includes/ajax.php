@@ -1180,3 +1180,69 @@ add_action( 'wp_ajax_hsync_ajax_source_configs_duplicate', function () {
 
     wp_send_json_success( [ 'slug' => $newSlug, 'name' => $copyName ] );
 } );
+
+// ─── Project config-as-code ──────────────────────────────────────
+//
+// Three endpoints back the Configurazione tab and any LLM-driven
+// "paste a JSON to reshape the install" flow:
+//
+//   project_export    → dump every persisted entity to a single JSON
+//                        document (secrets redacted to ••••XXXX)
+//   project_validate  → structural + referential checks; returns
+//                        { ok, errors, diff } so the operator can
+//                        preview the planned changes
+//   project_apply     → execute the diff. Optional `prune` flag
+//                        deletes entities the document doesn't list
+//                        ("declarative" mode); default is additive.
+
+function hsync_project_repos(): array {
+    return [
+        new \HiveSync\Core\Repo\SourceConfigRepository(),
+        new \HiveSync\Core\Repo\MappingRepository(),
+        new \HiveSync\Core\Pipeline\PipelineRepository(),
+        new \HiveSync\Core\Repo\RuleRepository(),
+        new \HiveSync\Core\Repo\JobRepository(),
+    ];
+}
+
+add_action( 'wp_ajax_hsync_ajax_project_export', function () {
+    hsync_ajax_guard();
+    [ $sc, $m, $p, $r, $j ] = hsync_project_repos();
+    $exporter = new \HiveSync\Workflow\Config\ProjectExporter( $sc, $m, $p, $r, $j );
+    wp_send_json_success( [ 'project' => $exporter->export() ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_project_validate', function () {
+    hsync_ajax_guard();
+    $project = hsync_post_json( 'project' );
+    if ( ! $project ) wp_send_json_error( [ 'message' => 'project JSON mancante o non parsabile.' ] );
+
+    [ $sc, $m, $p, $r, $j ] = hsync_project_repos();
+    $applier = new \HiveSync\Workflow\Config\ProjectApplier( $sc, $m, $p, $r, $j );
+    $validation = $applier->validate( $project );
+    $diff       = $validation['ok'] ? $applier->diff( $project ) : [];
+    wp_send_json_success( [
+        'ok'     => $validation['ok'],
+        'errors' => $validation['errors'],
+        'diff'   => $diff,
+    ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_project_apply', function () {
+    hsync_ajax_guard();
+    $project = hsync_post_json( 'project' );
+    if ( ! $project ) wp_send_json_error( [ 'message' => 'project JSON mancante o non parsabile.' ] );
+    $prune = hsync_post_bool( 'prune' );
+
+    [ $sc, $m, $p, $r, $j ] = hsync_project_repos();
+    $applier = new \HiveSync\Workflow\Config\ProjectApplier( $sc, $m, $p, $r, $j );
+    $result  = $applier->apply( $project, [ 'prune' => $prune ] );
+
+    if ( ! $result['ok'] ) {
+        wp_send_json_error( [
+            'message' => 'Validazione fallita.',
+            'errors'  => $result['errors'],
+        ], 422 );
+    }
+    wp_send_json_success( $result );
+} );

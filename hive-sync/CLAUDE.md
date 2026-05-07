@@ -27,6 +27,7 @@ Stato attuale (branch `claude/stabilize-hive-sync-plugin-FZjmQ`):
 - ✅ Mapping editor visuale spina-fissa Woo + sezione Attributi + Avanzati + Custom
 - ✅ Attributi globali (pa_brand, pa_model, pa_gender, pa_color, pa_material) mappabili
 - ✅ Auto-create delle tassonomie `pa_*` mancanti (ResolveTaxonomy + wc_create_attribute)
+- ✅ **Configurazione come codice** — un solo `project.json` esportabile/applicabile (sources + mappings + pipelines + rules + jobs), schema documentato per LLM
 - ✅ Cockpit dashboard header con tile live-status
 - ✅ Media management completo (browser, whitelist, safe cleanup)
 - ✅ Strumenti / Nuclear Cleanup con typed-confirmation gate
@@ -110,6 +111,8 @@ hive-sync/
 │       ├── Mapping/Template.php            {placeholder} substitution.
 │       ├── Migration/LegacyImporter.php    Dormant — Migrazione tab removed.
 │       ├── Export/Exporter.php             Inventory CSV/JSON + catalog-by-taxonomy.
+│       ├── Config/ProjectExporter.php      ★ Dumps DB → project.json (secrets redacted).
+│       ├── Config/ProjectApplier.php       ★ Validate/diff/apply project.json (atomic, prune-optional).
 │       └── Seed/Defaults.php               ★ Seeds 2 mappings + 7 pipelines + 3 default jobs.
 └── assets/
     ├── css/admin.css                       Cockpit styling, sticky tabs, HUD stats.
@@ -200,6 +203,78 @@ e l'utente mappa i campi liberamente.
 Migration `hsync_migrate_gs_to_json()` ha già spostato tutti i
 `source_kind='goldensneakers'` esistenti a `'json'` con
 `config.flavor='goldensneakers'`. Idempotente, runs once.
+
+---
+
+## Configurazione come codice — `project.json`
+
+Tutto lo stato persistente del plugin (source-configs, mappings,
+pipelines, rules, jobs) è esportabile come **un solo documento JSON
+versionato** (`hive-sync/project/v1`) e ri-applicabile incollandolo
+nel tab **Config**. Pensato per:
+
+- generare/modificare configurazioni con un LLM (paste-edit-paste)
+- versionare la config in git separatamente dal DB
+- replicare un'installazione da un cliente all'altro
+- ridurre la dipendenza dal mapping editor visuale
+
+### Schema
+
+Il contratto è in `docs/project.schema.json` (JSON Schema 2020-12).
+LLM-friendly: descrizioni inline per ogni campo, esempi end-to-end,
+enum dichiarati per kind / pipeline-step / runnable-type.
+
+```
+project.v1 = {
+  $schema:   "hive-sync/project/v1",
+  version:   1,
+  sources:   [{ slug, name, kind, config:{...} }],
+  mappings:  [{ slug, name, source_kind, config:{ <woo>: <feed-path>|<template> } }],
+  pipelines: [{ slug, name, steps:[{ kind, ref_id, params, note }] }],
+  rules:     [{ slug, name, enabled, selection, operations, checks }],
+  jobs:      [{ slug, runnable_type, runnable_ref, cron, enabled, options:{...} }],
+}
+```
+
+### AJAX endpoints
+
+| Action | Verb | Effetto |
+|---|---|---|
+| `hsync_ajax_project_export` | GET-style | Dump dello stato corrente. Secrets redatti `••••XXXX`. |
+| `hsync_ajax_project_validate` | POST `project=<json>` | Valida + ritorna `{ ok, errors[], diff{} }`. |
+| `hsync_ajax_project_apply` | POST `project=<json>&prune=0|1` | Esegue il diff. Atomic per-entità (ogni save() è già una upsert). |
+
+### Strategia secrets
+
+L'export sostituisce token/cookie/api_key con `••••XXXX` (last-4 form
+gestita da `SourceConfigRepository::redact`). L'applier (vedi
+`ProjectApplier::stripRedactedSecrets`) **droppa silenziosamente**
+ogni valore secret che inizia con `•`. La save() del repo riceve
+`$existingConfig` e ri-pesca il valore stored. Risultato: **paste del
+JSON esportato → token preservato senza re-typing**.
+
+### Stable identity per i job
+
+`wp_hsync_jobs` non ha colonna `slug`. Il convention shipped dal
+seeder è `config._seed_id`. L'exporter:
+1. Usa `_seed_id` quando presente.
+2. Fallback: deriva slug da `lower(runnable_type-runnable_ref)` +
+   hash 6-char di `(type|ref|cron)`. Stabile across export.
+
+L'applier upserta per slug e re-stamp `_seed_id` sul row salvato.
+
+### Modalità prune
+
+Default = additive. `prune=true` cancella le entità presenti nel DB
+ma assenti dal documento — modalità "fonte di verità". Confermata
+con `confirm()` lato JS perché distruttiva.
+
+### Limiti noti
+
+- Le `wp_hsync_runs` (audit log) NON sono nel project doc — sono dati
+  operativi, non config.
+- L'auto-incremento `wp_hsync_jobs.id` non è preservato across export
+  (l'applier ricicla l'id esistente quando trova il match per slug).
 
 ---
 

@@ -82,6 +82,8 @@ class ComposerStaticInit8ec97cf8e32aa119124e2c238cc20b92
         'HiveSync\\Sources\\MarkupResolver' => __DIR__ . '/../..' . '/src/Sources/MarkupResolver.php',
         'HiveSync\\Sources\\StockOnlyClassifier' => __DIR__ . '/../..' . '/src/Sources/StockOnlyClassifier.php',
         'HiveSync\\Tools\\NuclearCleanup' => __DIR__ . '/../..' . '/src/Tools/NuclearCleanup.php',
+        'HiveSync\\Workflow\\Config\\ProjectApplier' => __DIR__ . '/../..' . '/src/Workflow/Config/ProjectApplier.php',
+        'HiveSync\\Workflow\\Config\\ProjectExporter' => __DIR__ . '/../..' . '/src/Workflow/Config/ProjectExporter.php',
         'HiveSync\\Workflow\\Export\\Exporter' => __DIR__ . '/../..' . '/src/Workflow/Export/Exporter.php',
         'HiveSync\\Workflow\\Mapping\\PathResolver' => __DIR__ . '/../..' . '/src/Workflow/Mapping/PathResolver.php',
         'HiveSync\\Workflow\\Mapping\\Template' => __DIR__ . '/../..' . '/src/Workflow/Mapping/Template.php',

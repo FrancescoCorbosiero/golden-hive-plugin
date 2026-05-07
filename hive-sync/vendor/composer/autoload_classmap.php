@@ -67,6 +67,8 @@ return array(
     'HiveSync\\Sources\\MarkupResolver' => $baseDir . '/src/Sources/MarkupResolver.php',
     'HiveSync\\Sources\\StockOnlyClassifier' => $baseDir . '/src/Sources/StockOnlyClassifier.php',
     'HiveSync\\Tools\\NuclearCleanup' => $baseDir . '/src/Tools/NuclearCleanup.php',
+    'HiveSync\\Workflow\\Config\\ProjectApplier' => $baseDir . '/src/Workflow/Config/ProjectApplier.php',
+    'HiveSync\\Workflow\\Config\\ProjectExporter' => $baseDir . '/src/Workflow/Config/ProjectExporter.php',
     'HiveSync\\Workflow\\Export\\Exporter' => $baseDir . '/src/Workflow/Export/Exporter.php',
     'HiveSync\\Workflow\\Mapping\\PathResolver' => $baseDir . '/src/Workflow/Mapping/PathResolver.php',
     'HiveSync\\Workflow\\Mapping\\Template' => $baseDir . '/src/Workflow/Mapping/Template.php',

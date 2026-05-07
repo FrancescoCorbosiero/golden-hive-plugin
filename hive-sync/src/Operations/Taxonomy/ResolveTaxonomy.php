@@ -95,26 +95,92 @@ final class ResolveTaxonomy implements ImportRule
             }
         }
 
-        // Attribute taxonomies (pa_*).
+        // Attribute taxonomies (pa_*). Two sources of pa_* candidates:
+        //  - top-level scalars (e.g. `pa_brand`, `pa_model`, `pa_gender`)
+        //  - the attributes block ($draft['attributes'][pa_*]['options'])
+        //    populated by AttributeMerger and the source transforms.
+        // We union both so the user sees consistent term resolution
+        // regardless of where the value entered the draft.
         $attributeTerms = (array) ( $draft['attribute_terms'] ?? [] );
+        $candidates = [];
         foreach ( $draft as $key => $value ) {
             if ( ! is_string( $key ) || ! str_starts_with( $key, 'pa_' ) ) continue;
-            $names = self::asNameList( $value );
+            $candidates[ $key ] = self::asNameList( $value );
+        }
+        foreach ( (array) ( $draft['attributes'] ?? [] ) as $taxKey => $attrConfig ) {
+            if ( ! is_string( $taxKey ) || ! str_starts_with( $taxKey, 'pa_' ) ) continue;
+            if ( ! is_array( $attrConfig ) ) continue;
+            $opts = self::asNameList( $attrConfig['options'] ?? [] );
+            if ( ! $opts ) continue;
+            $candidates[ $taxKey ] = array_values( array_unique( array_merge( $candidates[ $taxKey ] ?? [], $opts ) ) );
+        }
+
+        $createMissing = (bool) ( $params['create_missing'] ?? true );
+        foreach ( $candidates as $taxKey => $names ) {
             if ( ! $names ) continue;
+            // Ensure the global attribute taxonomy exists in Woo before
+            // resolving terms — without this, brand-new pa_* taxonomies
+            // declared by a mapping would silently drop their terms.
+            if ( $createMissing ) {
+                self::ensureGlobalAttribute( $taxKey );
+            }
 
             $ids = [];
             foreach ( $names as $name ) {
-                $tid = \hsync_resolve_taxonomy( $key, $name, $context );
+                $tid = \hsync_resolve_taxonomy( $taxKey, $name, $context );
                 if ( $tid !== null && $tid > 0 ) $ids[] = $tid;
             }
             if ( $ids ) {
-                $existing = (array) ( $attributeTerms[ $key ] ?? [] );
-                $attributeTerms[ $key ] = array_values( array_unique( array_merge( $existing, $ids ) ) );
+                $existing = (array) ( $attributeTerms[ $taxKey ] ?? [] );
+                $attributeTerms[ $taxKey ] = array_values( array_unique( array_merge( $existing, $ids ) ) );
             }
         }
         if ( $attributeTerms ) {
             $draft['attribute_terms'] = $attributeTerms;
         }
+    }
+
+    /**
+     * Make sure the global Woo attribute taxonomy `pa_<slug>` exists.
+     * Idempotent: a no-op when the taxonomy is already registered.
+     * When Woo creates a fresh attribute the term insert/lookup that
+     * follows would fail with "invalid taxonomy" until the next
+     * request, so we also call register_taxonomy() inline.
+     */
+    private static function ensureGlobalAttribute( string $taxonomy ): void
+    {
+        static $created = [];
+        if ( isset( $created[ $taxonomy ] ) ) return;
+        if ( ! str_starts_with( $taxonomy, 'pa_' ) ) return;
+        if ( function_exists( 'taxonomy_exists' ) && \taxonomy_exists( $taxonomy ) ) {
+            $created[ $taxonomy ] = true;
+            return;
+        }
+        if ( ! function_exists( 'wc_create_attribute' ) ) return;
+
+        $slug = substr( $taxonomy, 3 );
+        $label = ucwords( str_replace( [ '_', '-' ], ' ', $slug ) );
+        $result = \wc_create_attribute( [
+            'name'         => $label,
+            'slug'         => $slug,
+            'type'         => 'select',
+            'order_by'     => 'menu_order',
+            'has_archives' => false,
+        ] );
+        if ( is_wp_error( $result ) ) return;
+
+        // Woo registers the taxonomy on the next 'init', but the
+        // import is happening mid-request — register it now so the
+        // very next term_exists() / wp_insert_term() call works.
+        if ( function_exists( 'register_taxonomy' ) && ! \taxonomy_exists( $taxonomy ) ) {
+            \register_taxonomy( $taxonomy, [ 'product' ], [
+                'hierarchical' => false,
+                'label'        => $label,
+                'public'       => true,
+                'rewrite'      => false,
+            ] );
+        }
+        $created[ $taxonomy ] = true;
     }
 
     /**

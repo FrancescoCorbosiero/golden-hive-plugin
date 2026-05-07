@@ -202,6 +202,11 @@ final class JsonSource extends AbstractSource
                 $mappedFields = CsvSource::applyMapping($item->data, $mapping);
                 $newData = $mappedFields + $item->data;
                 $newData['sku'] = $item->sku;
+                // Mapped `pa_*` keys (brand/model/gender/color/material/...)
+                // are promoted into $data['attributes'] so the bridge
+                // wires them as Woo product attributes instead of leaving
+                // them as orphan top-level scalars.
+                AttributeMerger::promoteFromDraft($newData);
                 $remapped[] = new FeedItem(
                     sku:  $item->sku,
                     data: $newData,
@@ -209,6 +214,19 @@ final class JsonSource extends AbstractSource
                 );
             }
             $items = $remapped;
+        } else {
+            // Even without an operator-supplied mapping, the GS/SF
+            // transforms may surface pa_* keys via the bundled product
+            // shape — promote them so attributes stay in sync.
+            $promoted = [];
+            foreach ($items as $item) {
+                $data = $item->data;
+                AttributeMerger::promoteFromDraft($data);
+                $promoted[] = $data === $item->data
+                    ? $item
+                    : new FeedItem(sku: $item->sku, data: $data, raw: $item->raw);
+            }
+            $items = $promoted;
         }
 
         return new FetchResult(

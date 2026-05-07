@@ -1530,6 +1530,17 @@
         { key: 'brand',             label: 'Brand',                group: 'minimal' },
         { key: 'stock_quantity',    label: 'Quantità a stock',     group: 'minimal' },
 
+        // ── Attributi globali (pa_*) ───────────────────────────
+        // Promossi automaticamente in $woo['attributes'] dal merger
+        // post-mapping. La tassonomia globale `pa_<slug>` viene
+        // creata da ResolveTaxonomy se manca.
+        { key: 'pa_brand',          label: 'Attributo brand',      group: 'attributes', hint: 'Tassonomia pa_brand. Mostrata come filtro frontend.' },
+        { key: 'pa_model',          label: 'Attributo modello',    group: 'attributes', hint: 'Tassonomia pa_model.' },
+        { key: 'pa_gender',         label: 'Attributo genere',     group: 'attributes', hint: 'Tassonomia pa_gender (uomo/donna/unisex/bambino).' },
+        { key: 'pa_color',          label: 'Attributo colore',     group: 'attributes', hint: 'Tassonomia pa_color.' },
+        { key: 'pa_material',       label: 'Attributo materiale',  group: 'attributes', hint: 'Tassonomia pa_material.' },
+        { key: 'pa_taglia',         label: 'Attributo taglia (variazione)', group: 'attributes', hint: 'pa_taglia genera le varianti. Usa una path multi-valore (es. sizes.size_eu).' },
+
         // ── Advanced — collapsed by default ────────────────────
         { key: 'short_description', label: 'Descrizione breve',    group: 'advanced' },
         { key: 'sale_price',        label: 'Prezzo scontato',      group: 'advanced' },
@@ -1723,14 +1734,18 @@
                 + '</div>';
         };
 
-        const minimalRows  = HSync.WOO_SCHEMA.filter(f => f.group === 'minimal').map(renderSpineRow).join('');
-        const advancedRows = HSync.WOO_SCHEMA.filter(f => f.group === 'advanced').map(renderSpineRow).join('');
-        const customRows   = HSync.state.mappingCustomKeys.map(renderCustomRow).join('');
-        const showAdv      = !!HSync.state.mappingShowAdvanced;
-        const advCount     = HSync.WOO_SCHEMA.filter(f =>
+        const minimalRows   = HSync.WOO_SCHEMA.filter(f => f.group === 'minimal').map(renderSpineRow).join('');
+        const attributeRows = HSync.WOO_SCHEMA.filter(f => f.group === 'attributes').map(renderSpineRow).join('');
+        const advancedRows  = HSync.WOO_SCHEMA.filter(f => f.group === 'advanced').map(renderSpineRow).join('');
+        const customRows    = HSync.state.mappingCustomKeys.map(renderCustomRow).join('');
+        const showAdv       = !!HSync.state.mappingShowAdvanced;
+        const advCount      = HSync.WOO_SCHEMA.filter(f =>
             f.group === 'advanced' && String(HSync.state.mappingValues[f.key] || '').trim() !== '',
         ).length;
-        const customCount  = HSync.state.mappingCustomKeys.length;
+        const attrCount     = HSync.WOO_SCHEMA.filter(f =>
+            f.group === 'attributes' && String(HSync.state.mappingValues[f.key] || '').trim() !== '',
+        ).length;
+        const customCount   = HSync.state.mappingCustomKeys.length;
 
         // Required-fields summary banner — counts what's still missing
         // out of the Woo-mandatory triplet (sku/name/regular_price).
@@ -1754,6 +1769,15 @@
             +   '</h3>'
             +   '<p class="hsync-muted">Quelli con <span class="hsync-required-marker">*</span> sono indispensabili per creare un prodotto.</p>'
             +   minimalRows
+            + '</section>'
+            + '<section class="hsync-mapping-section">'
+            +   '<h3 class="hsync-mapping-section-h">'
+            +     '<span class="hsync-section-badge">Attributi</span>'
+            +     'Attributi globali Woo (pa_*)'
+            +     ' <small class="hsync-muted">(' + attrCount + ' compilati)</small>'
+            +   '</h3>'
+            +   '<p class="hsync-muted">Diventano filtri nella vetrina e ricerche. Le tassonomie <code>pa_*</code> mancanti vengono create automaticamente al primo import.</p>'
+            +   attributeRows
             + '</section>'
             + '<section class="hsync-mapping-section">'
             +   '<button class="hsync-mapping-toggle" data-action="mapping-toggle-advanced">'

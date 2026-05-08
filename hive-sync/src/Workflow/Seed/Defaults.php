@@ -446,29 +446,41 @@ final class Defaults
     }
 
     /**
-     * Default job lineup — TWO per source, by design:
+     * Default job lineup — ONE per source. Each job is fully
+     * idempotent and self-rebalancing:
      *
-     *   - <src>-import   (ad-hoc, no cron)         — buckets=[new].
-     *                    First-time onboarding. Operator triggers from
-     *                    the cockpit when the source-config is wired
-     *                    and credentials are tested. Re-trigger any
-     *                    time the supplier adds new SKUs.
+     *   - The source's bucket diff is computed fresh every tick.
+     *     First run on an empty catalog → everything in `new`.
+     *     Subsequent runs → mostly noop, some `updateStock` (price
+     *     or stock moved), occasional `update` (image swap, brand
+     *     rename, new attribute). Same job, same code path —
+     *     different shape based on state.
      *
-     *   - <src>-maintain (cron='0 *​/2 * * *')      — buckets=[updateStock,update].
-     *                    Keeps the previously-imported catalog fresh:
-     *                    fast-stock-patch path picks up price+stock
-     *                    deltas in ~10ms/product, full pipeline picks
-     *                    up non-stock changes (image swaps, renames,
-     *                    new attributes). Markup is preserved because
-     *                    JsonSource/CsvSource bake markup_percent +
-     *                    markup_rules in at materialize time, BEFORE
-     *                    the bucket diff runs — neither path strips
-     *                    or re-applies markup downstream.
+     *   - The pipeline (`import-default`) is idempotent by design:
+     *     media.download has skip_if_set=true, taxonomy.auto_categorize
+     *     has override=false, taxonomy.resolve uses create_missing.
+     *     Re-running on a settled SKU is a near-noop.
      *
-     * Why no separate add-new cron? Adding products is a deliberate
-     * editorial decision (new SKUs may need category/attribute curation).
-     * Operator runs *-import on demand; *-maintain handles everything
-     * else automatically.
+     *   - Markup is preserved automatically: JsonSource/CsvSource bake
+     *     markup_percent + markup_rules in at materialize time, BEFORE
+     *     the bucket diff. Neither the fast-stock-patch path nor the
+     *     full pipeline strips or re-applies it downstream.
+     *
+     *   - Long first-runs are safe: ImportRunner's cooperative 25s
+     *     deadline + cursor resume let Action Scheduler chunk a
+     *     thousand-SKU first-import across multiple ticks until it
+     *     settles into steady-state (then ticks become near-instant).
+     *
+     * Why one job not two: an ad-hoc "first-time import" + cron
+     * "maintenance" split misses NEW SKUs added by the supplier
+     * between manual triggers, and forces the operator to remember
+     * a manual step. Editorial control over new products is solved
+     * by `import_status: draft` on the source-config — products land
+     * as drafts and the operator publishes on their schedule.
+     *
+     * Operator can still run on-demand via "Esegui adesso" on the
+     * job panel (e.g. to test after wiring credentials). Cron just
+     * automates what the manual button does.
      *
      * runnable_ref points at a saved source-config the operator wires
      * up in the Connetti tab. Jobs ship DISABLED so missing configs
@@ -478,59 +490,29 @@ final class Defaults
      */
     public static function defaultJobs(): array
     {
-        $gsRef = 'json/gs-prod';
-        $sfRef = 'csv/sf-prod';
-
-        $importOptions = static fn( string $mapping ): array => [
+        // No `buckets` option → ImportRunner defaults to processing
+        // all three (`new`, `update`, `updateStock`) every tick.
+        $syncOptions = static fn( string $mapping ): array => [
             'mapping_slug'  => $mapping,
             'pipeline_slug' => 'import-default',
-            'buckets'       => [ 'new' ],
-        ];
-        $maintainOptions = static fn( string $mapping ): array => [
-            'mapping_slug'  => $mapping,
-            'pipeline_slug' => 'import-default',
-            // updateStock first → fast-patch ~10ms/product. update
-            // second → full pipeline only for the SKUs that need it.
-            // Markup stays untouched: applied at materialize, never
-            // re-applied or zeroed by either path.
-            'buckets'       => [ 'updateStock', 'update' ],
         ];
 
         return [
-            // ── Golden Sneakers (JSON) ─────────────────────────────
             [
-                '_seed_id'      => 'gs-import',
-                'label'         => 'GS — Importa nuovi prodotti (manuale)',
+                '_seed_id'      => 'gs-sync',
+                'label'         => 'GS — Sync catalogo (idempotente, ogni 2h)',
                 'runnable_type' => 'source.import',
-                'runnable_ref'  => $gsRef,
-                'cron'          => '',  // ad-hoc only
-                'config'        => [ 'options' => $importOptions( 'gs-default' ) ],
-            ],
-            [
-                '_seed_id'      => 'gs-maintain',
-                'label'         => 'GS — Mantieni catalogo (stock + prezzi, ogni 2h)',
-                'runnable_type' => 'source.import',
-                'runnable_ref'  => $gsRef,
+                'runnable_ref'  => 'json/gs-prod',
                 'cron'          => '0 */2 * * *',
-                'config'        => [ 'options' => $maintainOptions( 'gs-default' ) ],
-            ],
-
-            // ── StockFirmati (CSV with PRODUCT+MODEL records) ─────
-            [
-                '_seed_id'      => 'sf-import',
-                'label'         => 'SF — Importa nuovi prodotti (manuale)',
-                'runnable_type' => 'source.import',
-                'runnable_ref'  => $sfRef,
-                'cron'          => '',  // ad-hoc only
-                'config'        => [ 'options' => $importOptions( 'sf-default' ) ],
+                'config'        => [ 'options' => $syncOptions( 'gs-default' ) ],
             ],
             [
-                '_seed_id'      => 'sf-maintain',
-                'label'         => 'SF — Mantieni catalogo (stock + prezzi, ogni 2h)',
+                '_seed_id'      => 'sf-sync',
+                'label'         => 'SF — Sync catalogo (idempotente, ogni 2h)',
                 'runnable_type' => 'source.import',
-                'runnable_ref'  => $sfRef,
+                'runnable_ref'  => 'csv/sf-prod',
                 'cron'          => '0 */2 * * *',
-                'config'        => [ 'options' => $maintainOptions( 'sf-default' ) ],
+                'config'        => [ 'options' => $syncOptions( 'sf-default' ) ],
             ],
         ];
     }

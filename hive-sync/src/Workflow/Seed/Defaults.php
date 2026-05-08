@@ -62,6 +62,14 @@ final class Defaults
             $this->mappings->save( $m );
             $touched++;
         }
+        if ( $force ) {
+            foreach ( self::obsoleteSeedSlugs()['mappings'] as $slug ) {
+                if ( $this->mappings->find( $slug ) !== null ) {
+                    $this->mappings->delete( $slug );
+                    $touched++;
+                }
+            }
+        }
         return $touched;
     }
 
@@ -113,19 +121,6 @@ final class Defaults
                     // them.
                     'pa_brand'       => 'brand_name',
                     'pa_model'       => 'product_name',
-                ],
-            ],
-            [
-                'slug'        => 'csv-minimal',
-                'name'        => 'CSV — minimal (sku/name/price/stock)',
-                'source_kind' => 'csv',
-                'config'      => [
-                    'sku'            => 'sku',
-                    'name'           => 'name',
-                    'regular_price'  => 'regular_price',
-                    'sale_price'     => 'sale_price',
-                    'stock_quantity' => 'stock_quantity',
-                    'stock_status'   => 'stock_status',
                 ],
             ],
             [
@@ -214,7 +209,42 @@ final class Defaults
             ) );
             $touched++;
         }
+        if ( $force ) {
+            foreach ( self::obsoleteSeedSlugs()['pipelines'] as $slug ) {
+                if ( $this->pipelines->find( $slug ) !== null ) {
+                    $this->pipelines->delete( $slug );
+                    $touched++;
+                }
+            }
+        }
         return $touched;
+    }
+
+    /**
+     * Hard-coded list of slugs that USED to ship as defaults but no
+     * longer do. Pruned on force=true so an operator clicking
+     * "Reinstalla (sovrascrivi)" gets a clean install. Slugs added
+     * here must match the historical default slug exactly — they're
+     * matched by literal find() lookup, so a user's mapping with the
+     * same slug WOULD be deleted (which is the trade-off of using
+     * slug-as-identity for the seeded set).
+     *
+     * Why not auto-derive: mappings/pipelines have no _seed_id marker
+     * (unlike jobs) so the seeder can't distinguish a stale default
+     * from a user clone. Explicit list is the safest knob.
+     *
+     * @return array{mappings: array<int, string>, pipelines: array<int, string>}
+     */
+    public static function obsoleteSeedSlugs(): array
+    {
+        return [
+            'mappings'  => [
+                'csv-minimal',           // collapsed: sf-default covers CSV needs
+            ],
+            'pipelines' => [
+                'import-sf-with-markup', // double-applied markup; markup now lives on source-config
+            ],
+        ];
     }
 
     /**
@@ -345,49 +375,6 @@ final class Defaults
                     ],
                 ],
             ],
-            [
-                'slug'  => 'import-sf-with-markup',
-                'name'  => 'Import SF — con markup (parametrizzato)',
-                'steps' => [
-                    [
-                        'kind'   => 'pre_check',
-                        'ref_id' => 'import.has_required_fields',
-                        'params' => [ 'fields' => 'sku,name', 'severity' => 'block' ],
-                    ],
-                    [
-                        'kind'   => 'import_rule',
-                        'ref_id' => 'pricing.markup_percent',
-                        'params' => [ 'percent' => 30, 'target' => 'both', 'rounding' => '99', 'floor' => 10 ],
-                        'note'   => 'Override percent per ogni subset/job (es. 25 / 30 / 40 / 50)',
-                    ],
-                    [
-                        'kind'   => 'import_rule',
-                        'ref_id' => 'media.download',
-                        'params' => [ 'concurrency' => 8, 'skip_if_set' => true ],
-                    ],
-                    [
-                        'kind'   => 'import_rule',
-                        'ref_id' => 'taxonomy.auto_categorize',
-                        'params' => [ 'override' => false ],
-                        'note'   => 'Fallback se SF non porta categoria',
-                    ],
-                    [
-                        'kind'   => 'import_rule',
-                        'ref_id' => 'taxonomy.resolve',
-                        'params' => [ 'create_missing' => true ],
-                    ],
-                    [
-                        'kind'   => 'check',
-                        'ref_id' => 'media.has_images',
-                        'params' => [ 'min' => 1, 'severity' => 'warn' ],
-                    ],
-                    [
-                        'kind'   => 'check',
-                        'ref_id' => 'taxonomy.has_category',
-                        'params' => [ 'taxonomy' => 'product_cat', 'min' => 1, 'severity' => 'warn' ],
-                    ],
-                ],
-            ],
         ];
     }
 
@@ -396,8 +383,12 @@ final class Defaults
     // Jobs are addressed by integer id, not slug. To make seeding
     // idempotent we tag each seeded job with `config._seed_id` and
     // skip on re-seed when a row already carries that marker. With
-    // force=true existing seeded jobs are updated in place; user
-    // jobs (no marker) are never touched.
+    // force=true existing seeded jobs are updated in place AND any
+    // seeded job whose _seed_id is no longer in the canonical
+    // defaultJobs() lineup is DELETED — that's how the operator
+    // transitions from an old lineup to a new one with one click on
+    // "Reinstalla (sovrascrivi)". User jobs (no _seed_id marker) are
+    // never touched.
 
     private function seedJobs( bool $force ): int
     {
@@ -409,8 +400,11 @@ final class Defaults
             if ( $sid !== '' ) $existingBySeed[ $sid ] = (int) $row['id'];
         }
 
+        $defaults = self::defaultJobs();
+        $defaultSeedIds = array_map( static fn( array $d ): string => (string) $d['_seed_id'], $defaults );
+
         $touched = 0;
-        foreach ( self::defaultJobs() as $def ) {
+        foreach ( $defaults as $def ) {
             $seedId = (string) $def['_seed_id'];
             $isExisting = isset( $existingBySeed[ $seedId ] );
             if ( $isExisting && ! $force ) continue;
@@ -422,7 +416,8 @@ final class Defaults
             $payload = [
                 'runnable_type' => (string) $def['runnable_type'],
                 'runnable_ref'  => (string) $def['runnable_ref'],
-                'cron_expr'     => (string) $def['cron'],
+                // Empty cron → null (ad-hoc only, dispatcher won't tick).
+                'cron_expr'     => isset( $def['cron'] ) ? (string) $def['cron'] : '',
                 // Seeded jobs ship DISABLED — the operator wires up
                 // credentials and turns them on intentionally.
                 'enabled'       => false,
@@ -434,125 +429,90 @@ final class Defaults
             $this->jobs->save( $payload );
             $touched++;
         }
+
+        // Force-mode prune: delete seeded jobs whose _seed_id is no
+        // longer in the canonical lineup. Without this, switching from
+        // a 6-job lineup to a 4-job lineup would leave 2 zombies in
+        // the cockpit. User-created jobs (no _seed_id) stay intact.
+        if ( $force ) {
+            foreach ( $existingBySeed as $seedId => $jobId ) {
+                if ( ! in_array( $seedId, $defaultSeedIds, true ) ) {
+                    $this->jobs->delete( $jobId );
+                    $touched++;
+                }
+            }
+        }
         return $touched;
     }
 
     /**
-     * Default job lineup — three buckets, one job each. Together they
-     * keep a JSON feed in sync with the local catalog:
+     * Default job lineup — ONE per source. Each job is fully
+     * idempotent and self-rebalancing:
      *
-     *   - add-new       (every 30m) — process only `new` bucket; full
-     *                                 pipeline (media + categorize +
-     *                                 taxonomy + checks)
-     *   - refresh-stocks (every 15m) — process only `updateStock`; uses
-     *                                 ImportRunner's fast-stock-patch
-     *                                 path (no media, no taxonomy,
-     *                                 sub-second per product)
-     *   - re-update      (every 6h)  — process only `update` (full,
-     *                                 non-stock changes); full pipeline
+     *   - The source's bucket diff is computed fresh every tick.
+     *     First run on an empty catalog → everything in `new`.
+     *     Subsequent runs → mostly noop, some `updateStock` (price
+     *     or stock moved), occasional `update` (image swap, brand
+     *     rename, new attribute). Same job, same code path —
+     *     different shape based on state.
+     *
+     *   - The pipeline (`import-default`) is idempotent by design:
+     *     media.download has skip_if_set=true, taxonomy.auto_categorize
+     *     has override=false, taxonomy.resolve uses create_missing.
+     *     Re-running on a settled SKU is a near-noop.
+     *
+     *   - Markup is preserved automatically: JsonSource/CsvSource bake
+     *     markup_percent + markup_rules in at materialize time, BEFORE
+     *     the bucket diff. Neither the fast-stock-patch path nor the
+     *     full pipeline strips or re-applies it downstream.
+     *
+     *   - Long first-runs are safe: ImportRunner's cooperative 25s
+     *     deadline + cursor resume let Action Scheduler chunk a
+     *     thousand-SKU first-import across multiple ticks until it
+     *     settles into steady-state (then ticks become near-instant).
+     *
+     * Why one job not two: an ad-hoc "first-time import" + cron
+     * "maintenance" split misses NEW SKUs added by the supplier
+     * between manual triggers, and forces the operator to remember
+     * a manual step. Editorial control over new products is solved
+     * by `import_status: draft` on the source-config — products land
+     * as drafts and the operator publishes on their schedule.
+     *
+     * Operator can still run on-demand via "Esegui adesso" on the
+     * job panel (e.g. to test after wiring credentials). Cron just
+     * automates what the manual button does.
      *
      * runnable_ref points at a saved source-config the operator wires
      * up in the Connetti tab. Jobs ship DISABLED so missing configs
      * aren't a runtime hazard until the operator turns them on.
      *
-     * For other feeds (StockFirmati, etc.) the operator clones one of
-     * these jobs and points runnable_ref at their own source-config
-     * + tweaks the buckets / cron as needed.
-     *
      * @return array<int, array{_seed_id:string, label:string, runnable_type:string, runnable_ref:string, cron:string, config:array}>
      */
     public static function defaultJobs(): array
     {
-        $gsRef = 'json/gs-prod';
-        $sfRef = 'csv/sf-prod';
+        // No `buckets` option → ImportRunner defaults to processing
+        // all three (`new`, `update`, `updateStock`) every tick.
+        $syncOptions = static fn( string $mapping ): array => [
+            'mapping_slug'  => $mapping,
+            'pipeline_slug' => 'import-default',
+        ];
 
         return [
-            // ── Golden Sneakers (JSON) ─────────────────────────────
             [
-                '_seed_id'      => 'gs-add-new',
-                'label'         => 'GS — Aggiungi nuovi prodotti',
+                '_seed_id'      => 'gs-sync',
+                'label'         => 'GS — Sync catalogo (idempotente, ogni 2h)',
                 'runnable_type' => 'source.import',
-                'runnable_ref'  => $gsRef,
-                'cron'          => '*/30 * * * *',
-                'config'        => [
-                    'options' => [
-                        'mapping_slug'  => 'gs-default',
-                        'pipeline_slug' => 'import-default',
-                        'buckets'       => [ 'new' ],
-                    ],
-                ],
+                'runnable_ref'  => 'json/gs-prod',
+                'cron'          => '0 */2 * * *',
+                'config'        => [ 'options' => $syncOptions( 'gs-default' ) ],
             ],
             [
-                '_seed_id'      => 'gs-refresh-stocks',
-                'label'         => 'GS — Refresh prezzi e stock',
+                '_seed_id'      => 'sf-sync',
+                'label'         => 'SF — Sync catalogo (idempotente, ogni 2h)',
                 'runnable_type' => 'source.import',
-                'runnable_ref'  => $gsRef,
-                'cron'          => '*/15 * * * *',
-                'config'        => [
-                    'options' => [
-                        'mapping_slug' => 'gs-default',
-                        'buckets'      => [ 'updateStock' ],
-                    ],
-                ],
-            ],
-            [
-                '_seed_id'      => 'gs-re-update',
-                'label'         => 'GS — Re-update completo (campi non-stock)',
-                'runnable_type' => 'source.import',
-                'runnable_ref'  => $gsRef,
-                'cron'          => '0 */6 * * *',
-                'config'        => [
-                    'options' => [
-                        'mapping_slug'  => 'gs-default',
-                        'pipeline_slug' => 'import-default',
-                        'buckets'       => [ 'update' ],
-                    ],
-                ],
-            ],
-
-            // ── StockFirmati (CSV with PRODUCT+MODEL records) ─────
-            [
-                '_seed_id'      => 'sf-add-new',
-                'label'         => 'SF — Aggiungi nuovi prodotti',
-                'runnable_type' => 'source.import',
-                'runnable_ref'  => $sfRef,
-                // 45 minutes — SF feed is heavier than GS (more rows
-                // per product), so we don't hammer it as often.
-                'cron'          => '*/45 * * * *',
-                'config'        => [
-                    'options' => [
-                        'mapping_slug'  => 'sf-default',
-                        'pipeline_slug' => 'import-default',
-                        'buckets'       => [ 'new' ],
-                    ],
-                ],
-            ],
-            [
-                '_seed_id'      => 'sf-refresh-stocks',
-                'label'         => 'SF — Refresh prezzi e stock',
-                'runnable_type' => 'source.import',
-                'runnable_ref'  => $sfRef,
-                'cron'          => '*/20 * * * *',
-                'config'        => [
-                    'options' => [
-                        'mapping_slug' => 'sf-default',
-                        'buckets'      => [ 'updateStock' ],
-                    ],
-                ],
-            ],
-            [
-                '_seed_id'      => 'sf-re-update',
-                'label'         => 'SF — Re-update completo (campi non-stock)',
-                'runnable_type' => 'source.import',
-                'runnable_ref'  => $sfRef,
-                'cron'          => '0 */8 * * *',
-                'config'        => [
-                    'options' => [
-                        'mapping_slug'  => 'sf-default',
-                        'pipeline_slug' => 'import-default',
-                        'buckets'       => [ 'update' ],
-                    ],
-                ],
+                'runnable_ref'  => 'csv/sf-prod',
+                'cron'          => '0 */2 * * *',
+                'config'        => [ 'options' => $syncOptions( 'sf-default' ) ],
             ],
         ];
     }

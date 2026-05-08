@@ -22,7 +22,7 @@ legacy che ha tutta la logica varianti + sideload media.
 Stato attuale (branch `claude/stabilize-hive-sync-plugin-FZjmQ`):
 
 - ✅ Import GS end-to-end con varianti, stock per-size, media sideload
-- ✅ 6 job di mantenimento default (GS + SF, add-new / refresh-stocks / re-update)
+- ✅ 2 job default (uno per source) idempotenti — un solo cron ogni 2h gestisce import iniziale + mantenimento, markup preservato
 - ✅ Source generico `JsonSource` con `flavor` knob
 - ✅ Mapping editor visuale spina-fissa Woo + sezione Attributi + Avanzati + Custom
 - ✅ Attributi globali (pa_brand, pa_model, pa_gender, pa_color, pa_material) mappabili
@@ -113,7 +113,7 @@ hive-sync/
 │       ├── Export/Exporter.php             Inventory CSV/JSON + catalog-by-taxonomy.
 │       ├── Config/ProjectExporter.php      ★ Dumps DB → project.json (secrets redacted).
 │       ├── Config/ProjectApplier.php       ★ Validate/diff/apply project.json (atomic, prune-optional).
-│       └── Seed/Defaults.php               ★ Seeds 2 mappings + 7 pipelines + 3 default jobs.
+│       └── Seed/Defaults.php               ★ Seeds 2 mappings + 6 pipelines + 2 default jobs.
 └── assets/
     ├── css/admin.css                       Cockpit styling, sticky tabs, HUD stats.
     └── js/admin.js                         Single HSync namespace, no jQuery, ~2700 LOC.
@@ -391,7 +391,7 @@ Hidden `<input>` carrier porta il JSON. Hydration in
 
 ---
 
-## Default jobs (6 jobs)
+## Default jobs (2 jobs — uno per source, idempotente)
 
 Tutti seeded DISABLED. L'operatore configura le source-config
 (`json/gs-prod`, `csv/sf-prod`) nel tab Connetti, poi accende i
@@ -399,21 +399,68 @@ job in Automatizza.
 
 | Slug | Cron | Buckets | Scopo |
 |---|---|---|---|
-| `gs-add-new` | `*/30 * * * *` | `[new]` | Crea i nuovi SKU. Pipeline completa. |
-| `gs-refresh-stocks` | `*/15 * * * *` | `[updateStock]` | Fast-patch prezzo+stock. ~sub-second per prodotto. |
-| `gs-re-update` | `0 */6 * * *` | `[update]` | Re-import quando cambiano descrizioni / brand / etc. |
-| `sf-add-new` | `*/45 * * * *` | `[new]` | StockFirmati — feed più pesante, cron diluito. |
-| `sf-refresh-stocks` | `*/20 * * * *` | `[updateStock]` | SF fast-patch. |
-| `sf-re-update` | `0 */8 * * *` | `[update]` | SF re-update completo. |
+| `gs-sync` | `0 */2 * * *` | tutti (default) | Importa + mantiene il catalogo GS. Self-rebalancing. |
+| `sf-sync` | `0 */2 * * *` | tutti (default) | Stesso modello per StockFirmati. |
 
 **Default Rules:** nessuna. La tabella `wp_hsync_rules` ships vuota —
 vedi sezione "Lessons learned" sul perché.
 
-`runnable_ref = 'json/<config_slug>'`. JobRunner risolve
+`runnable_ref = '<kind>/<config_slug>'`. JobRunner risolve
 `options.mapping_slug` → mapping config a dispatch time.
 
-Per altri feed (SF, custom JSON), l'operatore clona uno di questi
-in UI e cambia `runnable_ref` + `options.buckets`. Stesso modello.
+### Perché un solo job per source (non 2, non 6)
+
+- **Il diff è idempotente.** ImportRunner ricomputa `new`/`update`/
+  `updateStock` ad ogni tick. Prima esecuzione su catalogo vuoto →
+  tutto in `new`. Esecuzioni successive → quasi tutto noop, qualche
+  `updateStock`, occasionale `update`. Stesso job, stesso codice,
+  shape diversa in base allo stato. Nessuna ragione architetturale
+  per separare il "first-time" dal "maintenance".
+- **La pipeline è idempotente by design.** `media.download` ha
+  `skip_if_set: true`, `taxonomy.auto_categorize` ha `override:
+  false`, `taxonomy.resolve` usa `create_missing`. Re-eseguire su
+  uno SKU "settled" è quasi un noop.
+- **Markup preservato.** Nessuno step `pricing.markup_percent` nella
+  pipeline. Il markup è applicato a monte da `JsonSource::fetch` /
+  `CsvSource::fetch` via `markup_percent` + `markup_rules` della
+  source-config — il prezzo che arriva alle scritture è già
+  post-markup. Né fast-stock-patch né full pipeline lo toccano.
+- **First-run lunghi sono safe.** ImportRunner ha cooperative
+  deadline 25s + cursor resume. Action Scheduler ri-attiva il job
+  finché il cursor non si esaurisce — un primo import da N migliaia
+  di SKU si distribuisce su molti tick senza timeout. Una volta a
+  regime, ogni tick è quasi istantaneo.
+- **Splittare è MENO corretto.** Se un job ad-hoc gestisce solo
+  `[new]` e un cron gestisce `[update,updateStock]`, gli SKU nuovi
+  che il fornitore aggiunge tra trigger manuali NON entrano fino al
+  prossimo trigger manuale. Combinare i bucket nello stesso job
+  cattura tutto in modo deterministico.
+- **Controllo editoriale sui nuovi prodotti.** Risolto da
+  `import_status: draft` sulla source-config — i nuovi entrano come
+  bozze, l'operatore pubblica quando vuole. Non serve un secondo
+  job per "trattenere" i nuovi.
+
+L'operatore può comunque eseguire on-demand via "Esegui adesso" sul
+pannello del job (es. per testare dopo aver wired le credenziali).
+Il cron automatizza esattamente quello che fa il bottone manuale.
+
+### Reseed pulito (force=true)
+
+Il bottone "Aggiorna default" (Mappa tab) chiama
+`Defaults::install( force=true )`. In questa modalità il seeder:
+
+1. Upserta i mapping/pipeline/job correnti (slug match).
+2. **Cancella i job seeded il cui `_seed_id` non è più nella lineup
+   canonica** — auto-derivato da `defaultJobs()`.
+3. **Cancella mapping/pipeline il cui slug è in
+   `obsoleteSeedSlugs()`** — lista hard-coded perché
+   mapping/pipeline non hanno marker `_seed_id` (la lookup è per
+   slug nudo). Trade-off: un user mapping che si chiama come uno
+   storicamente seeded VERREBBE eliminato. Per evitarlo, mai
+   chiamare un proprio mapping come `csv-minimal` o un proprio
+   pipeline come `import-sf-with-markup`.
+
+Job creati a mano (no `_seed_id`) sono sempre intoccati.
 
 ---
 

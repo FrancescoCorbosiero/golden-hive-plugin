@@ -103,6 +103,16 @@ final class Defaults
                     // variations automatically.
                     'pa_taglia'      => 'sizes.size_eu',
                     'size_mapper'    => 'size_mapper_name',
+                    // Global attribute taxonomies — AttributeMerger
+                    // promotes these into $woo['attributes'][pa_*],
+                    // ResolveTaxonomy creates the term + the global
+                    // attribute on first import. GS exposes brand /
+                    // product name; gender / color / material are
+                    // not in the GS payload, so we leave them blank
+                    // for the operator to wire up if upstream adds
+                    // them.
+                    'pa_brand'       => 'brand_name',
+                    'pa_model'       => 'product_name',
                 ],
             ],
             [
@@ -150,6 +160,20 @@ final class Defaults
                     'brand'            => '_sf_brand',
                     'categories'       => '_sf_category',
                     'gallery_urls'     => '_sf_images',
+
+                    // ── Global product attributes (pa_*) ────────
+                    // Promoted by AttributeMerger into
+                    // $woo['attributes'][pa_*] post-mapping, then
+                    // resolved into terms (with auto-create of the
+                    // global attribute taxonomy itself) by
+                    // taxonomy.resolve. SF exposes a richer set
+                    // than GS — sex/color/material/subcategory all
+                    // come through the PRODUCT row.
+                    'pa_brand'         => '_sf_brand',
+                    'pa_model'         => 'name',
+                    'pa_gender'        => '_sf_sex',
+                    'pa_color'         => '_sf_color',
+                    'pa_material'      => '_sf_material',
 
                     // ── SEO / description templates ─────────────
                     // Tweak per-deployment in the mapping editor.

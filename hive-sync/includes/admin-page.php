@@ -73,6 +73,7 @@ function hsync_render_admin_page(): void {
             <button class="hsync-tab" data-tab="exports" role="tab" aria-selected="false" title="Scarica il catalogo"><span class="hsync-tab-icon dashicons dashicons-download" aria-hidden="true"></span> Esporta</button>
             <button class="hsync-tab" data-tab="runs"    role="tab" aria-selected="false" title="Storico import"><span class="hsync-tab-icon dashicons dashicons-list-view" aria-hidden="true"></span> Storico</button>
             <button class="hsync-tab" data-tab="tools"   role="tab" aria-selected="false" title="Pulizia avanzata"><span class="hsync-tab-icon dashicons dashicons-warning" aria-hidden="true"></span> Strumenti</button>
+            <button class="hsync-tab" data-tab="config"  role="tab" aria-selected="false" title="Configurazione come codice — esporta / incolla / applica"><span class="hsync-tab-icon dashicons dashicons-media-code" aria-hidden="true"></span> Config</button>
         </nav>
 
         <section class="hsync-panel is-active" data-panel="sources">
@@ -380,6 +381,50 @@ function hsync_render_admin_page(): void {
                 <button class="button is-danger" data-action="tools-source-delete">Elimina tutti</button>
             </div>
             <div data-region="tools-source-output"></div>
+        </section>
+
+        <section class="hsync-panel" data-panel="config">
+            <div class="hsync-tab-intro">
+                <strong>📋 Configurazione come codice.</strong>
+                Tutta la configurazione del plugin (source, mapping, pipeline, regole, job)
+                è esportabile come <strong>un solo JSON</strong> e ri-applicabile incollandolo
+                qui. Pensato per &mdash; documentare un'installazione, replicarla altrove,
+                farsi generare una mappa da un LLM, gestire la config in git.
+                Le credenziali sono <strong>redatte</strong> nell'export
+                (<code>••••XXXX</code>) e vengono preservate dalle righe esistenti
+                quando applichi.
+            </div>
+
+            <h2>Esporta</h2>
+            <p class="hsync-muted">Scarica lo stato corrente come <code>project.json</code>.</p>
+            <div class="hsync-actions">
+                <button class="button button-primary" data-action="config-export">📥 Esporta progetto</button>
+                <button class="button" data-action="config-copy">📋 Copia negli appunti</button>
+                <a class="button" href="<?php echo esc_url( plugins_url( 'docs/project.schema.json', dirname( __FILE__ ) ) ); ?>" target="_blank" rel="noopener">📐 Schema JSON (per LLM)</a>
+            </div>
+            <div data-region="config-export-output" class="is-hidden">
+                <textarea data-field="config-export-json" rows="14" spellcheck="false" readonly></textarea>
+            </div>
+
+            <hr>
+
+            <h2>Applica</h2>
+            <p class="hsync-muted">
+                Incolla un <code>project.json</code>. Premi <em>Valida</em> per vedere il diff
+                prima di scrivere su DB. <em>Applica</em> esegue il diff (additivo).
+                Spunta <em>Prune</em> per cancellare anche le entità che non sono nel JSON
+                (modalità "fonte di verità").
+            </p>
+            <textarea data-field="config-apply-json" rows="18" spellcheck="false" placeholder='Incolla qui un project.json — esempio:&#10;{&#10;  "$schema": "hive-sync/project/v1",&#10;  "version": 1,&#10;  "sources":   [],&#10;  "mappings":  [],&#10;  "pipelines": [],&#10;  "rules":     [],&#10;  "jobs":      []&#10;}'></textarea>
+            <div class="hsync-actions">
+                <button class="button" data-action="config-validate">✓ Valida + diff</button>
+                <label style="margin-left:auto;display:inline-flex;align-items:center;gap:6px">
+                    <input type="checkbox" data-field="config-prune">
+                    <span>Prune (elimina entità non presenti nel JSON)</span>
+                </label>
+                <button class="button button-primary" data-action="config-apply" disabled>⚡ Applica</button>
+            </div>
+            <div data-region="config-apply-output"></div>
         </section>
     </div>
     <?php

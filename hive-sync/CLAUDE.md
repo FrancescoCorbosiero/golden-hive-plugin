@@ -19,12 +19,15 @@ che riduce drasticamente i tempi di sync. Standalone — funziona senza
 Golden Hive — ma quando GH è attivo delega `materialize` al bridge
 legacy che ha tutta la logica varianti + sideload media.
 
-Stato attuale (branch `claude/migrate-hive-sync-features-dkJLJ`):
+Stato attuale (branch `claude/stabilize-hive-sync-plugin-FZjmQ`):
 
 - ✅ Import GS end-to-end con varianti, stock per-size, media sideload
 - ✅ 6 job di mantenimento default (GS + SF, add-new / refresh-stocks / re-update)
 - ✅ Source generico `JsonSource` con `flavor` knob
-- ✅ Mapping editor visuale spina-fissa Woo + sezione Avanzati + Custom
+- ✅ Mapping editor visuale spina-fissa Woo + sezione Attributi + Avanzati + Custom
+- ✅ Attributi globali (pa_brand, pa_model, pa_gender, pa_color, pa_material) mappabili
+- ✅ Auto-create delle tassonomie `pa_*` mancanti (ResolveTaxonomy + wc_create_attribute)
+- ✅ **Configurazione come codice** — un solo `project.json` esportabile/applicabile (sources + mappings + pipelines + rules + jobs), schema documentato per LLM
 - ✅ Cockpit dashboard header con tile live-status
 - ✅ Media management completo (browser, whitelist, safe cleanup)
 - ✅ Strumenti / Nuclear Cleanup con typed-confirmation gate
@@ -78,6 +81,7 @@ hive-sync/
 │   │   │                               'goldensneakers' = group by SKU + transform
 │   │   ├── CsvSource.php             URL or local-file CSV w/ category_filter.
 │   │   ├── StockOnlyClassifier.php   Splits update bucket → updateFull/updateStock.
+│   │   ├── AttributeMerger.php       Promotes mapped pa_* keys into $data['attributes'].
 │   │   └── MarkupResolver.php        Per-rule markup evaluation (used by both sources).
 │   ├── Operations/
 │   │   ├── Status/SetStatus.php
@@ -107,6 +111,8 @@ hive-sync/
 │       ├── Mapping/Template.php            {placeholder} substitution.
 │       ├── Migration/LegacyImporter.php    Dormant — Migrazione tab removed.
 │       ├── Export/Exporter.php             Inventory CSV/JSON + catalog-by-taxonomy.
+│       ├── Config/ProjectExporter.php      ★ Dumps DB → project.json (secrets redacted).
+│       ├── Config/ProjectApplier.php       ★ Validate/diff/apply project.json (atomic, prune-optional).
 │       └── Seed/Defaults.php               ★ Seeds 2 mappings + 7 pipelines + 3 default jobs.
 └── assets/
     ├── css/admin.css                       Cockpit styling, sticky tabs, HUD stats.
@@ -197,6 +203,129 @@ e l'utente mappa i campi liberamente.
 Migration `hsync_migrate_gs_to_json()` ha già spostato tutti i
 `source_kind='goldensneakers'` esistenti a `'json'` con
 `config.flavor='goldensneakers'`. Idempotente, runs once.
+
+---
+
+## Configurazione come codice — `project.json`
+
+Tutto lo stato persistente del plugin (source-configs, mappings,
+pipelines, rules, jobs) è esportabile come **un solo documento JSON
+versionato** (`hive-sync/project/v1`) e ri-applicabile incollandolo
+nel tab **Config**. Pensato per:
+
+- generare/modificare configurazioni con un LLM (paste-edit-paste)
+- versionare la config in git separatamente dal DB
+- replicare un'installazione da un cliente all'altro
+- ridurre la dipendenza dal mapping editor visuale
+
+### Schema
+
+Il contratto è in `docs/project.schema.json` (JSON Schema 2020-12).
+LLM-friendly: descrizioni inline per ogni campo, esempi end-to-end,
+enum dichiarati per kind / pipeline-step / runnable-type.
+
+```
+project.v1 = {
+  $schema:   "hive-sync/project/v1",
+  version:   1,
+  sources:   [{ slug, name, kind, config:{...} }],
+  mappings:  [{ slug, name, source_kind, config:{ <woo>: <feed-path>|<template> } }],
+  pipelines: [{ slug, name, steps:[{ kind, ref_id, params, note }] }],
+  rules:     [{ slug, name, enabled, selection, operations, checks }],
+  jobs:      [{ slug, runnable_type, runnable_ref, cron, enabled, options:{...} }],
+}
+```
+
+### AJAX endpoints
+
+| Action | Verb | Effetto |
+|---|---|---|
+| `hsync_ajax_project_export` | GET-style | Dump dello stato corrente. Secrets redatti `••••XXXX`. |
+| `hsync_ajax_project_validate` | POST `project=<json>` | Valida + ritorna `{ ok, errors[], diff{} }`. |
+| `hsync_ajax_project_apply` | POST `project=<json>&prune=0|1` | Esegue il diff. Atomic per-entità (ogni save() è già una upsert). |
+
+### Strategia secrets
+
+L'export sostituisce token/cookie/api_key con `••••XXXX` (last-4 form
+gestita da `SourceConfigRepository::redact`). L'applier (vedi
+`ProjectApplier::stripRedactedSecrets`) **droppa silenziosamente**
+ogni valore secret che inizia con `•`. La save() del repo riceve
+`$existingConfig` e ri-pesca il valore stored. Risultato: **paste del
+JSON esportato → token preservato senza re-typing**.
+
+### Stable identity per i job
+
+`wp_hsync_jobs` non ha colonna `slug`. Il convention shipped dal
+seeder è `config._seed_id`. L'exporter:
+1. Usa `_seed_id` quando presente.
+2. Fallback: deriva slug da `lower(runnable_type-runnable_ref)` +
+   hash 6-char di `(type|ref|cron)`. Stabile across export.
+
+L'applier upserta per slug e re-stamp `_seed_id` sul row salvato.
+
+### Modalità prune
+
+Default = additive. `prune=true` cancella le entità presenti nel DB
+ma assenti dal documento — modalità "fonte di verità". Confermata
+con `confirm()` lato JS perché distruttiva.
+
+### Limiti noti
+
+- Le `wp_hsync_runs` (audit log) NON sono nel project doc — sono dati
+  operativi, non config.
+- L'auto-incremento `wp_hsync_jobs.id` non è preservato across export
+  (l'applier ricicla l'id esistente quando trova il match per slug).
+
+---
+
+## Attributi globali (pa_*) — promozione dal mapping
+
+Il mapping editor espone una sezione **Attributi** con cinque slot
+canonici (`pa_brand`, `pa_model`, `pa_gender`, `pa_color`, `pa_material`)
++ `pa_taglia` (variazione, già usato per le size). Ogni slot accetta
+o un campo del feed (`brand_name`, `_sf_color`, ...) o un template
+`{placeholder}`. L'operatore può dichiarare ulteriori `pa_*` nella
+sezione Personalizzati — il pipeline li tratta esattamente come quelli
+canonici.
+
+Pipeline di propagazione:
+
+```
+fetch():
+  source-transform crea $woo['attributes'][pa_taglia|pa_brand]   (legacy)
+  + il mapping overlay aggiunge $data['pa_<slug>'] = '<valore>'   (post-fetch)
+AttributeMerger::promoteFromDraft($data):
+  per ogni pa_* in $data:
+    se $data['attributes'][pa_*] esiste → unione options
+    altrimenti → nuovo slot {options:[v], visible:true, variation:false}
+materialize:
+  bridge legge $data['attributes'] e wira gli attributi Woo
+ResolveTaxonomy::applyDuringImport():
+  per ogni pa_* (top-level OR dentro attributes.options):
+    if ! taxonomy_exists(pa_<slug>) AND create_missing: wc_create_attribute()
+    risolve / crea termini → $data['attribute_terms'][pa_<slug>] = int[]
+```
+
+**Idempotenza:** il merger è una funzione pura della draft input, e
+`wc_create_attribute()` è no-op quando la tassonomia esiste già
+(memoizzato in static cache per request).
+
+**Solo `pa_taglia` resta variation=true** — generato dal source
+transform su `sizes[]`. Tutti gli altri attributi mappati sono
+facet-only (visible=true, variation=false) by design: il modello
+varianti è flat `pa_taglia` per non rompere il bridge legacy.
+
+**Default mappings:**
+
+| Slug | Attributi forniti dal seeder |
+|---|---|
+| `gs-default` | `pa_brand` ← `brand_name`, `pa_model` ← `product_name`, `pa_taglia` ← `sizes.size_eu` |
+| `sf-default` | `pa_brand` ← `_sf_brand`, `pa_model` ← `name`, `pa_gender` ← `_sf_sex`, `pa_color` ← `_sf_color`, `pa_material` ← `_sf_material` |
+
+GS espone meno campi (no gender/color/material): l'operatore può
+arricchire il mapping a mano se l'upstream aggiunge quelle colonne.
+Il riferimento canonico per il "complete product" rimane il
+normalizer KicksDB in `golden-hive/includes/feeds/kicksdb/normalizer.php`.
 
 ---
 

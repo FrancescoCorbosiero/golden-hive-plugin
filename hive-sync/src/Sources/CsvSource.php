@@ -235,9 +235,22 @@ final class CsvSource extends AbstractSource
                     $mappedFields = self::applyMapping($item->data, $mapping);
                     $newData = $mappedFields + $item->data;
                     $newData['sku'] = $item->sku;
+                    AttributeMerger::promoteFromDraft($newData);
                     $remapped[] = new FeedItem(sku: $item->sku, data: $newData, raw: $item->raw);
                 }
                 $items = $remapped;
+            } else {
+                // Promote any pa_* keys the SF transform surfaced even
+                // without an operator mapping (mirrors JsonSource).
+                $promoted = [];
+                foreach ($items as $item) {
+                    $data = $item->data;
+                    AttributeMerger::promoteFromDraft($data);
+                    $promoted[] = $data === $item->data
+                        ? $item
+                        : new FeedItem(sku: $item->sku, data: $data, raw: $item->raw);
+                }
+                $items = $promoted;
             }
 
             // SF-specific diagnostics: count PRODUCT vs MODEL records
@@ -303,6 +316,9 @@ final class CsvSource extends AbstractSource
                     }
                 }
             }
+            // Promote mapped pa_* (brand/model/gender/color/...) into
+            // the canonical attributes block consumed by the bridge.
+            AttributeMerger::promoteFromDraft($mapped);
             $items[] = new FeedItem(sku: $sku, data: $mapped, raw: $assoc);
         }
 

@@ -1530,6 +1530,17 @@
         { key: 'brand',             label: 'Brand',                group: 'minimal' },
         { key: 'stock_quantity',    label: 'Quantità a stock',     group: 'minimal' },
 
+        // ── Attributi globali (pa_*) ───────────────────────────
+        // Promossi automaticamente in $woo['attributes'] dal merger
+        // post-mapping. La tassonomia globale `pa_<slug>` viene
+        // creata da ResolveTaxonomy se manca.
+        { key: 'pa_brand',          label: 'Attributo brand',      group: 'attributes', hint: 'Tassonomia pa_brand. Mostrata come filtro frontend.' },
+        { key: 'pa_model',          label: 'Attributo modello',    group: 'attributes', hint: 'Tassonomia pa_model.' },
+        { key: 'pa_gender',         label: 'Attributo genere',     group: 'attributes', hint: 'Tassonomia pa_gender (uomo/donna/unisex/bambino).' },
+        { key: 'pa_color',          label: 'Attributo colore',     group: 'attributes', hint: 'Tassonomia pa_color.' },
+        { key: 'pa_material',       label: 'Attributo materiale',  group: 'attributes', hint: 'Tassonomia pa_material.' },
+        { key: 'pa_taglia',         label: 'Attributo taglia (variazione)', group: 'attributes', hint: 'pa_taglia genera le varianti. Usa una path multi-valore (es. sizes.size_eu).' },
+
         // ── Advanced — collapsed by default ────────────────────
         { key: 'short_description', label: 'Descrizione breve',    group: 'advanced' },
         { key: 'sale_price',        label: 'Prezzo scontato',      group: 'advanced' },
@@ -1583,9 +1594,12 @@
         $('[data-field="map-name"]').value   = mapping ? mapping.name : '';
         $('[data-field="map-source"]').value = mapping ? mapping.source_kind : '';
         $('[data-field="map-config"]').value = mapping ? JSON.stringify(mapping.config || {}, null, 2) : '';
-        $('[data-region="mapping-json-view"]').classList.add('is-hidden');
+        // JSON-first: the textarea is the durable contract (LLM-friendly,
+        // copy/paste-friendly). The visual builder stays available as a
+        // helper but the JSON view opens by default.
+        $('[data-region="mapping-json-view"]').classList.remove('is-hidden');
         const toggle = $('[data-action="mapping-toggle-json"]');
-        if (toggle) toggle.checked = false;
+        if (toggle) toggle.checked = true;
         $('[data-region="mapping-probe-output"]').classList.add('is-hidden');
         HSync.renderMappingRows();
     };
@@ -1723,14 +1737,18 @@
                 + '</div>';
         };
 
-        const minimalRows  = HSync.WOO_SCHEMA.filter(f => f.group === 'minimal').map(renderSpineRow).join('');
-        const advancedRows = HSync.WOO_SCHEMA.filter(f => f.group === 'advanced').map(renderSpineRow).join('');
-        const customRows   = HSync.state.mappingCustomKeys.map(renderCustomRow).join('');
-        const showAdv      = !!HSync.state.mappingShowAdvanced;
-        const advCount     = HSync.WOO_SCHEMA.filter(f =>
+        const minimalRows   = HSync.WOO_SCHEMA.filter(f => f.group === 'minimal').map(renderSpineRow).join('');
+        const attributeRows = HSync.WOO_SCHEMA.filter(f => f.group === 'attributes').map(renderSpineRow).join('');
+        const advancedRows  = HSync.WOO_SCHEMA.filter(f => f.group === 'advanced').map(renderSpineRow).join('');
+        const customRows    = HSync.state.mappingCustomKeys.map(renderCustomRow).join('');
+        const showAdv       = !!HSync.state.mappingShowAdvanced;
+        const advCount      = HSync.WOO_SCHEMA.filter(f =>
             f.group === 'advanced' && String(HSync.state.mappingValues[f.key] || '').trim() !== '',
         ).length;
-        const customCount  = HSync.state.mappingCustomKeys.length;
+        const attrCount     = HSync.WOO_SCHEMA.filter(f =>
+            f.group === 'attributes' && String(HSync.state.mappingValues[f.key] || '').trim() !== '',
+        ).length;
+        const customCount   = HSync.state.mappingCustomKeys.length;
 
         // Required-fields summary banner — counts what's still missing
         // out of the Woo-mandatory triplet (sku/name/regular_price).
@@ -1754,6 +1772,15 @@
             +   '</h3>'
             +   '<p class="hsync-muted">Quelli con <span class="hsync-required-marker">*</span> sono indispensabili per creare un prodotto.</p>'
             +   minimalRows
+            + '</section>'
+            + '<section class="hsync-mapping-section">'
+            +   '<h3 class="hsync-mapping-section-h">'
+            +     '<span class="hsync-section-badge">Attributi</span>'
+            +     'Attributi globali Woo (pa_*)'
+            +     ' <small class="hsync-muted">(' + attrCount + ' compilati)</small>'
+            +   '</h3>'
+            +   '<p class="hsync-muted">Diventano filtri nella vetrina e ricerche. Le tassonomie <code>pa_*</code> mancanti vengono create automaticamente al primo import.</p>'
+            +   attributeRows
             + '</section>'
             + '<section class="hsync-mapping-section">'
             +   '<button class="hsync-mapping-toggle" data-action="mapping-toggle-advanced">'
@@ -2809,6 +2836,12 @@
         if (t.matches('[data-action="tools-source-count"]'))  return HSync.toolsSourceCount();
         if (t.matches('[data-action="tools-source-delete"]')) return HSync.toolsSourceDelete();
 
+        // Config-as-code
+        if (t.matches('[data-action="config-export"]'))       return HSync.configExport();
+        if (t.matches('[data-action="config-copy"]'))         return HSync.configCopy();
+        if (t.matches('[data-action="config-validate"]'))     return HSync.configValidate();
+        if (t.matches('[data-action="config-apply"]'))        return HSync.configApply();
+
         // Media
         if (t.matches('[data-action="media-search"]'))             return HSync.loadMedia(1);
         if (t.matches('[data-action="media-rebuild-index"]'))      return HSync.rebuildMediaIndex();
@@ -3176,6 +3209,130 @@
             const data = await HSync.ajax('nuclear_delete_by_source', { source: source, confirm: '1' });
             out.innerHTML = '<p>Eliminati <strong>' + data.deleted + '</strong> parent + <strong>'
                 + data.variations + '</strong> varianti.</p>';
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+        }
+    };
+
+    // ─── Config-as-code (project export / validate / apply) ──────
+
+    HSync.state.lastValidatedProject = null;
+
+    HSync.configExport = async function () {
+        const region = $('[data-region="config-export-output"]');
+        const ta     = $('[data-field="config-export-json"]');
+        try {
+            const data = await HSync.ajax('project_export', {});
+            const json = JSON.stringify(data.project || {}, null, 2);
+            ta.value = json;
+            region.classList.remove('is-hidden');
+        } catch (e) {
+            alert('Errore export: ' + e.message);
+        }
+    };
+
+    HSync.configCopy = async function () {
+        const ta = $('[data-field="config-export-json"]');
+        if (!ta || !ta.value) {
+            // Force an export first if the textarea is empty.
+            await HSync.configExport();
+        }
+        try {
+            await navigator.clipboard.writeText(ta.value);
+            alert('Copiato negli appunti.');
+        } catch (e) {
+            ta.select();
+            document.execCommand('copy');
+            alert('Copiato (fallback).');
+        }
+    };
+
+    HSync.configValidate = async function () {
+        const out  = $('[data-region="config-apply-output"]');
+        const ta   = $('[data-field="config-apply-json"]');
+        const apply = $('[data-action="config-apply"]');
+        const raw  = (ta.value || '').trim();
+        if (raw === '') {
+            out.innerHTML = '<div class="hsync-warning">Incolla un JSON prima di validare.</div>';
+            return;
+        }
+        let parsed;
+        try {
+            parsed = JSON.parse(raw);
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">JSON non parsabile: ' + esc(e.message) + '</div>';
+            HSync.state.lastValidatedProject = null;
+            apply.disabled = true;
+            return;
+        }
+        out.innerHTML = '<p class="hsync-loading">Validazione…</p>';
+        try {
+            const data = await HSync.ajax('project_validate', { project: parsed });
+            if (!data.ok) {
+                out.innerHTML = '<div class="hsync-error"><strong>'
+                    + (data.errors || []).length + ' errore/i</strong><ul>'
+                    + (data.errors || []).map(e => '<li><code>' + esc(e) + '</code></li>').join('')
+                    + '</ul></div>';
+                HSync.state.lastValidatedProject = null;
+                apply.disabled = true;
+                return;
+            }
+            HSync.state.lastValidatedProject = parsed;
+            apply.disabled = false;
+            const diffSections = data.diff || {};
+            const sectionRows = Object.entries(diffSections).map(([section, entries]) => {
+                const rows = Object.entries(entries || {}).map(([slug, info]) =>
+                    '<tr><td><code>' + esc(slug) + '</code></td>'
+                    + '<td><span class="hsync-status hsync-status--' + (info.op === 'create' ? 'ok' : 'info') + '">'
+                    + esc(info.op) + '</span></td>'
+                    + '<td><small class="hsync-muted">' + esc(JSON.stringify(info)) + '</small></td></tr>',
+                ).join('');
+                return rows
+                    ? '<h3>' + esc(section) + ' <small class="hsync-muted">(' + Object.keys(entries).length + ')</small></h3>'
+                      + '<table class="hsync-table"><thead><tr><th>slug</th><th>op</th><th>info</th></tr></thead><tbody>'
+                      + rows + '</tbody></table>'
+                    : '';
+            }).filter(Boolean).join('');
+            out.innerHTML = '<div class="hsync-summary-foot">JSON valido — pronto per applicare.</div>'
+                + (sectionRows || '<p class="hsync-muted">Nessuna entità nel documento.</p>');
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+            HSync.state.lastValidatedProject = null;
+            apply.disabled = true;
+        }
+    };
+
+    HSync.configApply = async function () {
+        const out   = $('[data-region="config-apply-output"]');
+        const prune = !!($('[data-field="config-prune"]') || {}).checked;
+        const project = HSync.state.lastValidatedProject;
+        if (!project) {
+            out.innerHTML = '<div class="hsync-warning">Esegui prima Valida.</div>';
+            return;
+        }
+        const confirmMsg = prune
+            ? 'Modalità PRUNE attiva — le entità non presenti nel JSON verranno ELIMINATE. Continuare?'
+            : 'Applicare il JSON al database? Le entità non presenti vengono lasciate intatte.';
+        if (! confirm(confirmMsg)) return;
+
+        out.innerHTML = '<p class="hsync-loading">Applicazione…</p>';
+        try {
+            const data = await HSync.ajax('project_apply', {
+                project: project,
+                prune:   prune ? '1' : '',
+            });
+            const counts = data.counts || {};
+            const rows = Object.entries(counts).map(([section, c]) =>
+                '<tr><td><strong>' + esc(section) + '</strong></td>'
+                + '<td>' + (c.created || 0) + '</td>'
+                + '<td>' + (c.updated || 0) + '</td>'
+                + '<td>' + (c.deleted || 0) + '</td></tr>',
+            ).join('');
+            out.innerHTML = '<div class="hsync-summary-foot">Applicato ✓</div>'
+                + '<table class="hsync-table"><thead><tr><th>Sezione</th><th>Creati</th><th>Aggiornati</th><th>Eliminati</th></tr></thead>'
+                + '<tbody>' + rows + '</tbody></table>';
+            // Refresh cockpit + stato per riflettere le entità nuove.
+            HSync.refreshCockpit();
         } catch (e) {
             out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
         }

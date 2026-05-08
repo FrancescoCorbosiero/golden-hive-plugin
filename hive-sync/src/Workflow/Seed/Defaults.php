@@ -287,13 +287,25 @@ final class Defaults
                             'apparel_label'  => 'Abbigliamento',
                             'override'       => false,
                         ],
-                        'note'   => 'Fill categories from size shape when feed lacks taxonomy',
+                        // No-op when the feed mapping already populates
+                        // `categories` (SF maps _sf_category → categories,
+                        // so this only fires for GS where the feed is
+                        // category-less). Heuristic: alpha sizes → apparel,
+                        // numeric sizes → sneakers, keyword fallback on
+                        // product name. Drop this step from the pipeline
+                        // entirely if you import only feeds that ship
+                        // category data.
+                        'note'   => 'Fallback GS: classifica Sneakers/Abbigliamento. Salta automaticamente se il feed ha già categories (es. SF).',
                     ],
                     [
                         'kind'   => 'import_rule',
                         'ref_id' => 'taxonomy.resolve',
                         'params' => [ 'create_missing' => true ],
-                        'note'   => 'Resolve categories/brands/tags + pa_* attributes (creates Sneakers/Abbigliamento if missing)',
+                        // Universal step: reads the draft's `categories`
+                        // / `brand` / `tags` / `pa_*` and creates the
+                        // missing terms (and global attribute
+                        // taxonomies, when needed). Fires for every feed.
+                        'note'   => 'Universale: risolve categorie / brand / pa_* in term IDs e crea i mancanti. Sempre attivo.',
                     ],
                     [
                         'kind'   => 'check',

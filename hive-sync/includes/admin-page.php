@@ -85,6 +85,9 @@ function hsync_render_admin_page(): void {
                 Premi <strong>Test fetch</strong> per verificare che funzionino
                 <em>prima</em> di salvarle.
             </div>
+            <div class="hsync-toolbar">
+                <button class="button" data-action="json-paste" data-section="sources" title="Incolla una source-config in formato JSON (sezione sources di project.json)">📋 Importa JSON</button>
+            </div>
             <div class="hsync-sources-list" data-region="sources-list">
                 <p class="hsync-loading">Caricamento…</p>
             </div>
@@ -105,6 +108,7 @@ function hsync_render_admin_page(): void {
                     <option value="">Tutte le sorgenti</option>
                 </select>
                 <button class="button button-primary" data-action="mapping-new">+ Nuova mappatura</button>
+                <button class="button" data-action="json-paste" data-section="mappings" title="Incolla un mapping in formato JSON (sezione mappings di project.json)">📋 Importa JSON</button>
                 <button class="button" data-action="install-defaults">Installa default</button>
                 <button class="button" data-action="install-defaults-force" title="Sovrascrive le mappature/flussi default per tirare dentro le ultime modifiche del codice (es. la categorizzazione automatica). I tuoi dati rimangono.">Aggiorna default</button>
             </div>
@@ -173,6 +177,7 @@ function hsync_render_admin_page(): void {
             </div>
             <div class="hsync-toolbar">
                 <button class="button button-primary" data-action="pipeline-new">+ Nuovo flusso</button>
+                <button class="button" data-action="json-paste" data-section="pipelines" title="Incolla una pipeline in formato JSON">📋 Importa JSON</button>
             </div>
             <div data-region="pipelines-list"><p class="hsync-loading">Caricamento…</p></div>
             <div class="hsync-pipeline-editor is-hidden" data-region="pipeline-editor"></div>
@@ -189,6 +194,7 @@ function hsync_render_admin_page(): void {
             </div>
             <div class="hsync-toolbar">
                 <button class="button button-primary" data-action="rule-new">+ Nuova regola</button>
+                <button class="button" data-action="json-paste" data-section="rules" title="Incolla una regola in formato JSON">📋 Importa JSON</button>
             </div>
             <div data-region="rules-list"><p class="hsync-loading">Caricamento…</p></div>
             <div class="hsync-rule-editor is-hidden" data-region="rule-editor"></div>
@@ -205,6 +211,7 @@ function hsync_render_admin_page(): void {
             </div>
             <div class="hsync-toolbar">
                 <button class="button button-primary" data-action="job-new">+ Nuova automazione</button>
+                <button class="button" data-action="json-paste" data-section="jobs" title="Incolla un job in formato JSON">📋 Importa JSON</button>
                 <button class="button" data-action="jobs-tick-now">Esegui ora</button>
                 <button class="button" data-action="as-health">Stato del motore</button>
             </div>
@@ -426,6 +433,31 @@ function hsync_render_admin_page(): void {
             </div>
             <div data-region="config-apply-output"></div>
         </section>
+    </div>
+
+    <!--
+        Per-tab JSON paste modal — opened by any "📋 Importa JSON" button.
+        Reuses the project_validate / project_apply backend by wrapping
+        the user's pasted entity (or array) into a minimal project doc
+        whose only populated section is the one matching the button.
+        Hidden until HSync.openJsonPaste() flips it visible.
+    -->
+    <div class="hsync-modal is-hidden" data-region="json-paste-modal" role="dialog" aria-modal="true" aria-labelledby="hsync-json-paste-title">
+        <div class="hsync-modal-backdrop" data-action="json-paste-cancel"></div>
+        <div class="hsync-modal-panel">
+            <h2 id="hsync-json-paste-title">📋 Importa <span data-field="json-paste-section-label">JSON</span></h2>
+            <p class="hsync-muted" data-field="json-paste-section-help">
+                Incolla un singolo oggetto, un array di oggetti, oppure un <code>project.json</code>
+                completo. Vengono applicati solo gli oggetti della sezione selezionata.
+            </p>
+            <textarea data-field="json-paste-input" rows="16" spellcheck="false" placeholder='Esempio singola entità:&#10;{ "slug": "...", "name": "..." }&#10;&#10;Esempio array:&#10;[ { ... }, { ... } ]&#10;&#10;Esempio progetto completo:&#10;{ "$schema": "hive-sync/project/v1", "version": 1, "mappings": [ ... ] }'></textarea>
+            <div class="hsync-actions">
+                <button class="button" data-action="json-paste-cancel">Annulla</button>
+                <button class="button" data-action="json-paste-validate">✓ Valida + diff</button>
+                <button class="button button-primary" data-action="json-paste-apply" disabled>⚡ Applica</button>
+            </div>
+            <div data-region="json-paste-output"></div>
+        </div>
     </div>
     <?php
 }

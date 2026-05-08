@@ -991,7 +991,17 @@
             const cfgOpts  = filtered.map(c => '<option value="' + esc(c.slug) + '">' + esc(c.name) + '</option>').join('');
             const stored   = (j.config && j.config.config_slug) || '';
             const wrapped  = j.runnable_ref ? cfgOpts : '<option value="">— scegli prima un source —</option>';
-            configField = '<label>Saved config (optional)<select data-field="job-config-slug"><option value="">— inline —</option>' + wrapped + '</select></label>';
+            // Saved (consigliato): job stores only a reference to a config
+            // saved in Connetti — tutti i job che la referenziano vedono
+            // l'aggiornamento se la modifichi. Inline: il job porta una
+            // copia self-contained delle credenziali, utile per one-shot.
+            configField = '<label>Configurazione del feed'
+                +   '<select data-field="job-config-slug">'
+                +     '<option value="">— Inline (copia nel job, sconsigliato) —</option>'
+                +     wrapped
+                +   '</select>'
+                +   '<small class="hsync-muted">Scegli una configurazione salvata da <strong>Connetti</strong> (consigliato) — il job vedrà le modifiche fatte lì. "Inline" copia i campi credenziali dentro al job e va modificata job per job.</small>'
+                + '</label>';
         }
 
         root.innerHTML = ''
@@ -1192,6 +1202,7 @@
                     +     '<div class="hsync-row-name">' + esc(c.name) + HSync.usagePill('source_configs', c.slug) + '</div>'
                     +     '<div class="hsync-row-meta"><code>' + esc(c.slug) + '</code> · '
                     +       Object.keys(c.config || {}).length + ' campi'
+                    +       HSync.markupSummary(s.id, c.config)
                     +     '</div>'
                     +   '</div>'
                     +   '<button class="button" data-action="src-config-load" data-source="' + esc(s.id) + '" data-slug="' + esc(c.slug) + '">Modifica</button>'
@@ -1225,6 +1236,133 @@
                 +   '</div>'
                 + '</div>';
         }).join('');
+
+        // Apply flavor-driven markup visibility on every freshly
+        // rendered source card. The flavor selector defaults vary per
+        // source kind (json=generic, csv=generic) so the visibility
+        // call yields the right initial state without further wiring.
+        $$('form.hsync-config-form[data-context="src"]', region).forEach(form => {
+            HSync.applyMarkupFlavorVisibility(form);
+        });
+    };
+
+    // ─── Markup field suggestions + flavor visibility ─────────────
+    //
+    // markup_rules are only honored for some flavor combinations:
+    //   - csv/stockfirmati → bypassed (uses sf_markup_mode/sf_markup_value
+    //                       formula). markup_percent + markup_rules
+    //                       are hidden in the UI to avoid the false
+    //                       impression that they're consulted.
+    //   - all other flavors → consulted; field input gets a flavor-
+    //     specific datalist so the operator sees the available feed
+    //     keys without having to remember them. Datalist (not strict
+    //     dropdown) so generic JSON feeds can still use any field
+    //     name the operator wants.
+    HSync.MARKUP_FIELD_SUGGESTIONS = {
+        'json|generic':         [],
+        'json|goldensneakers':  ['_gs_brand', '_gs_category'],
+        'csv|generic':          ['brand', 'pa_brand', 'pa_color', 'pa_gender', 'pa_material', 'pa_model', 'categories'],
+        'csv|stockfirmati':     [],  // hidden, suggestions never shown
+    };
+    HSync.MARKUP_HIDDEN_FOR = {
+        'csv|stockfirmati': 'Per StockFirmati il markup è gestito dai campi <strong>sf_markup_mode</strong> + <strong>sf_markup_value</strong> qui sopra. <em>markup_percent</em> e <em>markup_rules</em> sono ignorati per questo flavor.',
+    };
+
+    HSync.applyMarkupFlavorVisibility = function (form) {
+        if (!form) return;
+        const sourceId = form.dataset.source || '';
+        const flavorEl = form.querySelector('[name="flavor"]');
+        const flavor   = flavorEl ? String(flavorEl.value || '').trim() : '';
+        const key      = sourceId + '|' + (flavor || 'generic');
+
+        const hideMessage = HSync.MARKUP_HIDDEN_FOR[key] || null;
+
+        // Toggle the parent <label> of the markup_percent + markup_rules
+        // inputs so the entire field row vanishes.
+        $$('label', form).forEach(lbl => {
+            const input = lbl.querySelector('[name="markup_percent"], [name="markup_rules"]');
+            if (input) lbl.style.display = hideMessage ? 'none' : '';
+        });
+
+        // Surface a banner so the operator knows WHY the rows vanished.
+        let hint = form.querySelector('[data-markup-flavor-hint]');
+        if (hideMessage) {
+            if (!hint) {
+                hint = document.createElement('div');
+                hint.dataset.markupFlavorHint = '1';
+                hint.className = 'hsync-muted';
+                hint.style.padding = '6px 8px';
+                hint.style.background = '#f6f7f9';
+                hint.style.border = '1px dashed #cdd0d6';
+                hint.style.borderRadius = '4px';
+                hint.style.margin = '8px 0';
+                const anchor = form.querySelector('label > [name="sf_markup_value"], label > [name="markup_percent"]');
+                if (anchor && anchor.parentElement && anchor.parentElement.parentElement) {
+                    anchor.parentElement.parentElement.insertBefore(hint, anchor.parentElement.nextSibling);
+                } else {
+                    form.appendChild(hint);
+                }
+            }
+            hint.innerHTML = hideMessage;
+        } else if (hint) {
+            hint.remove();
+        }
+
+        // Refresh datalist suggestions on the markup-rules region.
+        const region = form.querySelector('[data-markup-region]');
+        if (region) {
+            HSync.applyMarkupFieldSuggestions(region, HSync.MARKUP_FIELD_SUGGESTIONS[key] || []);
+        }
+    };
+
+    /**
+     * Produce a one-line "· markup +25% (+2 regole)" summary for a
+     * saved source-config row, so the operator sees at a glance which
+     * markup is actually wired without having to open the editor.
+     * Returns '' when no markup is configured for that flavor (which
+     * is the case when csv/stockfirmati uses sf_markup_value=0 default).
+     */
+    HSync.markupSummary = function (sourceId, config) {
+        if (!config) return '';
+        const flavor = String(config.flavor || 'generic');
+        const key    = sourceId + '|' + flavor;
+
+        // SF: report the sf_markup_value formula, not markup_percent.
+        if (key === 'csv|stockfirmati') {
+            const mode  = String(config.sf_markup_mode || 'multiplier');
+            const value = String(config.sf_markup_value || '');
+            if (value === '' || value === '0') return '';
+            return ' · <strong>SF markup</strong> ' + esc(mode) + '=' + esc(value);
+        }
+
+        // Other flavors: markup_percent fallback + markup_rules count.
+        const pct   = parseFloat(config.markup_percent || 0);
+        const rules = Array.isArray(config.markup_rules) ? config.markup_rules.length : 0;
+        if (!pct && !rules) return '';
+        const parts = [];
+        if (pct)   parts.push((pct > 0 ? '+' : '') + pct + '%');
+        if (rules) parts.push(rules + (rules === 1 ? ' regola' : ' regole'));
+        return ' · <strong>markup</strong> ' + parts.join(' · ');
+    };
+
+    HSync.applyMarkupFieldSuggestions = function (region, suggestions) {
+        if (!region) return;
+        const datalistId = (region.id || ('markup-' + Math.random().toString(36).slice(2))) + '__field_suggestions';
+        let datalist = region.querySelector('datalist[id="' + datalistId + '"]');
+        if (Array.isArray(suggestions) && suggestions.length) {
+            if (!datalist) {
+                datalist = document.createElement('datalist');
+                datalist.id = datalistId;
+                region.appendChild(datalist);
+            }
+            datalist.innerHTML = suggestions.map(s => '<option value="' + esc(s) + '">').join('');
+        } else if (datalist) {
+            datalist.remove();
+        }
+        $$('[data-rule-field="field"]', region).forEach(inp => {
+            if (Array.isArray(suggestions) && suggestions.length) inp.setAttribute('list', datalistId);
+            else inp.removeAttribute('list');
+        });
     };
 
     HSync.loadSourceConfigEditor = function (sourceId, slug) {
@@ -1261,6 +1399,9 @@
                 }
             }
         });
+        // Refresh markup row visibility AFTER values are populated —
+        // flavor may have just been set from the saved config.
+        HSync.applyMarkupFlavorVisibility(form);
     };
 
     HSync.resetSourceConfigEditor = function (sourceId) {
@@ -2150,7 +2291,7 @@
         const filtered = sourceId
             ? HSync.state.sourceConfigs.filter(c => c.source_kind === sourceId)
             : [];
-        sel.innerHTML = '<option value="">— inline —</option>'
+        sel.innerHTML = '<option value="">— Inline (compila i campi qui sotto) —</option>'
             + filtered.map(c => '<option value="' + esc(c.slug) + '">' + esc(c.name) + '</option>').join('');
         sel.addEventListener('change', HSync.onRunConfigSlugChange, { once: true });
     };
@@ -2740,6 +2881,11 @@
             const idx = region.querySelectorAll('[data-markup-rule-idx]').length;
             rowsEl.insertAdjacentHTML('beforeend', HSync.renderMarkupRuleRow({}, idx));
             HSync.syncMarkupRules(region);
+            // New row → re-apply current flavor's datalist so the
+            // `field` input gets the same autocomplete the existing
+            // rows have.
+            const form = region.closest('form.hsync-config-form');
+            if (form) HSync.applyMarkupFlavorVisibility(form);
             return;
         }
         if (t.matches('[data-action="markup-rule-remove"]')) {
@@ -2842,6 +2988,12 @@
         if (t.matches('[data-action="config-validate"]'))     return HSync.configValidate();
         if (t.matches('[data-action="config-apply"]'))        return HSync.configApply();
 
+        // Per-tab JSON paste modal
+        if (t.matches('[data-action="json-paste"]'))          return HSync.openJsonPaste(t.dataset.section || '');
+        if (t.matches('[data-action="json-paste-cancel"]'))   return HSync.closeJsonPaste();
+        if (t.matches('[data-action="json-paste-validate"]')) return HSync.jsonPasteValidate();
+        if (t.matches('[data-action="json-paste-apply"]'))    return HSync.jsonPasteApply();
+
         // Media
         if (t.matches('[data-action="media-search"]'))             return HSync.loadMedia(1);
         if (t.matches('[data-action="media-rebuild-index"]'))      return HSync.rebuildMediaIndex();
@@ -2865,6 +3017,12 @@
         }
         if (e.target.matches('[data-field="job-type"]'))          { HSync.state.editingJob.runnable_type = e.target.value; HSync.renderJobEditor(); }
         if (e.target.matches('[data-field="job-ref"]'))           { HSync.state.editingJob.runnable_ref  = e.target.value; if (HSync.state.editingJob.runnable_type === 'source.import') HSync.loadSourceConfigs(e.target.value).then(() => HSync.renderJobEditor()); }
+        // Source-config flavor changed → toggle markup-rules visibility
+        // and refresh per-flavor field suggestions on the rule rows.
+        if (e.target.matches('[name="flavor"]')) {
+            const form = e.target.closest('form.hsync-config-form');
+            if (form) HSync.applyMarkupFlavorVisibility(form);
+        }
         if (e.target.matches('[data-action="media-toggle"]'))     HSync.toggleMediaSelection(parseInt(e.target.dataset.id, 10));
         if (e.target.matches('[data-action="mapping-toggle-json"]')) HSync.toggleMappingJson(e.target.checked);
         if (e.target.matches('[data-action="mapping-insert-snippet"]')) {
@@ -3332,6 +3490,168 @@
                 + '<table class="hsync-table"><thead><tr><th>Sezione</th><th>Creati</th><th>Aggiornati</th><th>Eliminati</th></tr></thead>'
                 + '<tbody>' + rows + '</tbody></table>';
             // Refresh cockpit + stato per riflettere le entità nuove.
+            HSync.refreshCockpit();
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+        }
+    };
+
+    // ─── Per-tab JSON paste modal ────────────────────────────────
+    //
+    // Tabs (Connetti / Mappa / Componi / Regole / Automatizza) all
+    // expose a "📋 Importa JSON" button that opens this modal. The
+    // pasted JSON is wrapped into a minimal project doc and routed
+    // through the existing project_validate + project_apply
+    // endpoints. Three accepted shapes:
+    //   1. Single entity     { slug: '...', ... }            → wrapped as [entity]
+    //   2. Array of entities [ { ... }, { ... } ]            → wrapped as is
+    //   3. Full project doc  { $schema:'…', mappings:[...] } → passed through (only
+    //                                                         the active section is
+    //                                                         applied, others ignored)
+
+    HSync.JSON_PASTE_LABELS = {
+        sources:   'Source-config',
+        mappings:  'Mappatura',
+        pipelines: 'Flusso (pipeline)',
+        rules:     'Regola',
+        jobs:      'Automazione',
+    };
+
+    HSync.state.jsonPaste = { section: '', validatedDoc: null };
+
+    HSync.openJsonPaste = function (section) {
+        if (!HSync.JSON_PASTE_LABELS[section]) return;
+        HSync.state.jsonPaste.section = section;
+        HSync.state.jsonPaste.validatedDoc = null;
+        const modal = $('[data-region="json-paste-modal"]');
+        $('[data-field="json-paste-section-label"]').textContent = HSync.JSON_PASTE_LABELS[section];
+        $('[data-field="json-paste-input"]').value = '';
+        $('[data-region="json-paste-output"]').innerHTML = '';
+        $('[data-action="json-paste-apply"]').disabled = true;
+        modal.classList.remove('is-hidden');
+    };
+
+    HSync.closeJsonPaste = function () {
+        $('[data-region="json-paste-modal"]').classList.add('is-hidden');
+        HSync.state.jsonPaste.section = '';
+        HSync.state.jsonPaste.validatedDoc = null;
+    };
+
+    /**
+     * Wrap whatever the user pasted into a minimal project doc whose
+     * only populated section is the active one. Other sections in the
+     * full project doc shape are ignored — this is a per-tab importer,
+     * not a project-level apply (use the Config tab for that).
+     */
+    HSync.buildProjectFromPaste = function (raw, section) {
+        const doc = {
+            '$schema': 'hive-sync/project/v1',
+            version:   1,
+            sources:   [], mappings: [], pipelines: [], rules: [], jobs: [],
+        };
+        let entries;
+        if (Array.isArray(raw)) {
+            entries = raw;
+        } else if (raw && typeof raw === 'object' && Array.isArray(raw[section])) {
+            // Full project doc — extract only the relevant section.
+            entries = raw[section];
+        } else if (raw && typeof raw === 'object') {
+            // Single entity object.
+            entries = [raw];
+        } else {
+            entries = [];
+        }
+        doc[section] = entries;
+        return doc;
+    };
+
+    HSync.jsonPasteValidate = async function () {
+        const section = HSync.state.jsonPaste.section;
+        if (!section) return;
+        const out      = $('[data-region="json-paste-output"]');
+        const ta       = $('[data-field="json-paste-input"]');
+        const applyBtn = $('[data-action="json-paste-apply"]');
+        const raw      = (ta.value || '').trim();
+        if (!raw) {
+            out.innerHTML = '<div class="hsync-warning">Incolla un JSON prima di validare.</div>';
+            return;
+        }
+        let parsed;
+        try {
+            parsed = JSON.parse(raw);
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">JSON non parsabile: ' + esc(e.message) + '</div>';
+            applyBtn.disabled = true;
+            HSync.state.jsonPaste.validatedDoc = null;
+            return;
+        }
+        const doc = HSync.buildProjectFromPaste(parsed, section);
+        if (!doc[section].length) {
+            out.innerHTML = '<div class="hsync-warning">Nessuna entità trovata per la sezione <code>'
+                + esc(section) + '</code>. Incolla un singolo oggetto, un array, o un project.json con la sezione popolata.</div>';
+            applyBtn.disabled = true;
+            HSync.state.jsonPaste.validatedDoc = null;
+            return;
+        }
+        out.innerHTML = '<p class="hsync-loading">Validazione…</p>';
+        try {
+            const data = await HSync.ajax('project_validate', { project: doc });
+            if (!data.ok) {
+                out.innerHTML = '<div class="hsync-error"><strong>'
+                    + (data.errors || []).length + ' errore/i</strong><ul>'
+                    + (data.errors || []).map(e => '<li><code>' + esc(e) + '</code></li>').join('')
+                    + '</ul></div>';
+                applyBtn.disabled = true;
+                HSync.state.jsonPaste.validatedDoc = null;
+                return;
+            }
+            const sectionDiff = (data.diff && data.diff[section]) || {};
+            const rows = Object.entries(sectionDiff).map(([slug, info]) =>
+                '<tr><td><code>' + esc(slug) + '</code></td>'
+                + '<td><span class="hsync-status hsync-status--' + (info.op === 'create' ? 'ok' : 'info') + '">'
+                + esc(info.op) + '</span></td></tr>'
+            ).join('');
+            out.innerHTML = '<div class="hsync-summary-foot">JSON valido. ' + Object.keys(sectionDiff).length
+                + ' entità pronta/e da applicare in <code>' + esc(section) + '</code>.</div>'
+                + (rows
+                    ? '<table class="hsync-table"><thead><tr><th>slug</th><th>op</th></tr></thead><tbody>' + rows + '</tbody></table>'
+                    : '');
+            applyBtn.disabled = false;
+            HSync.state.jsonPaste.validatedDoc = doc;
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+            applyBtn.disabled = true;
+            HSync.state.jsonPaste.validatedDoc = null;
+        }
+    };
+
+    HSync.jsonPasteApply = async function () {
+        const out = $('[data-region="json-paste-output"]');
+        const doc = HSync.state.jsonPaste.validatedDoc;
+        const section = HSync.state.jsonPaste.section;
+        if (!doc || !section) {
+            out.innerHTML = '<div class="hsync-warning">Esegui prima Valida.</div>';
+            return;
+        }
+        out.innerHTML = '<p class="hsync-loading">Applicazione…</p>';
+        try {
+            const data = await HSync.ajax('project_apply', { project: doc, prune: '' });
+            const c = (data.counts && data.counts[section]) || { created:0, updated:0, deleted:0 };
+            out.innerHTML = '<div class="hsync-summary-foot">Applicato ✓ — '
+                + 'creati: <strong>' + (c.created || 0) + '</strong>, '
+                + 'aggiornati: <strong>' + (c.updated || 0) + '</strong>.'
+                + '</div>';
+            // Refresh whichever tab is showing the section so the
+            // operator sees the result immediately.
+            const refreshers = {
+                sources:   () => HSync.loadSources(),
+                mappings:  () => HSync.loadMappings && HSync.loadMappings(),
+                pipelines: () => HSync.loadPipelines && HSync.loadPipelines(),
+                rules:     () => HSync.loadRules && HSync.loadRules(),
+                jobs:      () => HSync.loadJobs && HSync.loadJobs(),
+            };
+            const refresh = refreshers[section];
+            if (refresh) refresh();
             HSync.refreshCockpit();
         } catch (e) {
             out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';

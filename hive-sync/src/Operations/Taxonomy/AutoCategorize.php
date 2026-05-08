@@ -58,7 +58,7 @@ final class AutoCategorize implements ImportRule
     ];
 
     public function id(): string { return self::ID; }
-    public function label(): string { return 'Auto-categorizza (Sneakers / Abbigliamento)'; }
+    public function label(): string { return 'Auto-classifica Sneakers / Abbigliamento (fallback, solo se mancante)'; }
 
     public function paramsSchema(): array
     {

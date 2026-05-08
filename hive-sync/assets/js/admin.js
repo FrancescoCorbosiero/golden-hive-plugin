@@ -1014,6 +1014,7 @@
             + '</label>'
             + '<label>Riferimento ' + refField + '</label>'
             + configField
+            + HSync.renderJobRunOptions(j)
             + '<label>Cron expression (5 campi)'
             +   '<input type="text" data-field="job-cron" value="' + esc(j.cron_expr || '') + '" placeholder="*/15 * * * *">'
             +   '<small class="hsync-muted" data-region="job-cron-readout">'
@@ -1025,6 +1026,39 @@
             +   '<button class="button button-primary" data-action="job-save">Salva</button>'
             +   '<button class="button" data-action="job-cancel">Annulla</button>'
             + '</div>';
+    };
+
+    /**
+     * Render the per-job run knobs that ImportRunner reads from
+     * `config.options`: a hard cap on items processed per tick, and
+     * the bucket subset (new / update / updateStock). Source-import
+     * jobs only — rule jobs don't use these.
+     */
+    HSync.renderJobRunOptions = function (j) {
+        if (j.runnable_type !== 'source.import') return '';
+        const opts    = (j.config && j.config.options) || {};
+        const limit   = parseInt(opts.limit, 10) > 0 ? parseInt(opts.limit, 10) : '';
+        const buckets = Array.isArray(opts.buckets) && opts.buckets.length ? opts.buckets : ['new', 'update', 'updateStock'];
+        const bucketCheck = (id, label, hint) =>
+            '<label class="hsync-job-bucket" style="display:inline-flex;gap:6px;align-items:center;font-weight:400;margin-right:14px;">'
+            +   '<input type="checkbox" data-field="job-bucket" value="' + id + '"' + (buckets.indexOf(id) >= 0 ? ' checked' : '') + '>'
+            +   '<span>' + esc(label) + ' <small class="hsync-muted">' + esc(hint) + '</small></span>'
+            + '</label>';
+        return ''
+            + '<fieldset class="hsync-job-options" style="border:1px solid #ccd0d4;border-radius:4px;padding:12px 14px;margin:12px 0;">'
+            +   '<legend style="padding:0 6px;font-weight:600;font-size:13px;">Opzioni di run</legend>'
+            +   '<label>Limite massimo prodotti per esecuzione'
+            +     '<input type="number" min="0" step="1" data-field="job-limit" value="' + esc(String(limit)) + '" placeholder="0 = nessun limite" style="max-width:14em;">'
+            +     '<small class="hsync-muted">Cappa il numero di FeedItem processati in un singolo tick. Utile per primi import controllati o per non saturare il server. <code>0</code> o vuoto = nessun limite.</small>'
+            +   '</label>'
+            +   '<div class="hsync-job-buckets" style="margin-top:8px;">'
+            +     '<div style="font-size:13px;font-weight:600;margin-bottom:4px;">Bucket attivi</div>'
+            +     bucketCheck('new',         'new',         'crea SKU mancanti (pipeline completa)')
+            +     bucketCheck('update',      'update',      'rinfresca SKU esistenti, campi non-stock (pipeline completa)')
+            +     bucketCheck('updateStock', 'updateStock', 'fast-patch prezzo + stock (~10ms/prodotto)')
+            +     '<small class="hsync-muted" style="display:block;margin-top:4px;">Default: tutti e tre. Disattivane qualcuno per esecuzioni mirate (es. solo <code>updateStock</code> per refresh super-veloci).</small>'
+            +   '</div>'
+            + '</fieldset>';
     };
 
     HSync.saveJob = async function () {
@@ -1048,6 +1082,35 @@
         if (!data.runnable_ref) { alert('Scegli un riferimento.'); return; }
         const cfgSlugEl = $('[data-field="job-config-slug"]');
         if (cfgSlugEl && cfgSlugEl.value) data.config.config_slug = cfgSlugEl.value;
+
+        // Run-options: limit + buckets. Merge into existing options
+        // so we don't strip seeder-set keys (mapping_slug,
+        // pipeline_slug, category_filter, …) that the editor
+        // doesn't expose as fields.
+        if (data.runnable_type === 'source.import') {
+            const options = (data.config.options && typeof data.config.options === 'object')
+                ? Object.assign({}, data.config.options)
+                : {};
+            const limitEl = $('[data-field="job-limit"]');
+            if (limitEl) {
+                const limit = parseInt(limitEl.value, 10);
+                if (limit > 0) options.limit = limit;
+                else delete options.limit;  // 0 / empty = no cap
+            }
+            const checkedBuckets = $$('[data-field="job-bucket"]:checked').map(cb => cb.value);
+            const allBuckets     = ['new', 'update', 'updateStock'];
+            const isAllSelected  = checkedBuckets.length === allBuckets.length;
+            if (checkedBuckets.length === 0 || isAllSelected) {
+                // Empty selection or full set → drop the key so
+                // ImportRunner falls back to its default (all three).
+                // Storing [] would mean "process nothing" downstream.
+                delete options.buckets;
+            } else {
+                options.buckets = checkedBuckets;
+            }
+            data.config.options = options;
+        }
+
         try {
             await HSync.ajax('job_save', data);
             HSync.closeJobEditor();

@@ -594,13 +594,30 @@
     border-radius: 6px;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
     padding: 20px 24px;
-    width: min(820px, 92vw);
-    max-height: 90vh;
+    /* Wide enough for typical JSON payloads (mappings can have ~30
+       keys with 60-char values). 96vw lets it stretch on small
+       screens without overflowing. */
+    width: min(1280px, 96vw);
+    max-height: 92vh;
     overflow: auto;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
 }
 .hsync-modal-panel h2 { margin-top: 0; }
 .hsync-modal-panel textarea {
+    /* Override WP admin's `.form-table textarea` and any other
+       width caps that ship from core. Display:block + width:100%
+       + box-sizing:border-box guarantees the textarea fills the
+       full panel width minus its own padding. */
+    display: block;
     width: 100%;
+    box-sizing: border-box;
+    max-width: none;
+    min-height: 320px;
+    resize: vertical;
     font-family: ui-monospace, Menlo, Consolas, monospace;
     font-size: 12px;
+    line-height: 1.5;
+    padding: 10px 12px;
 }

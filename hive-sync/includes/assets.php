@@ -15,8 +15,8 @@ add_action( 'admin_enqueue_scripts', function ( $hook ) {
     // edit ships with the same `?ver=1.0.0` query and browsers keep
     // serving the stale file (the user spent a session debugging
     // a "fixed but not fixed" CSS regression for exactly this).
-    $cssPath = HSYNC_PATH . 'assets/css/admin.css';
-    $jsPath  = HSYNC_PATH . 'assets/js/admin.js';
+    $cssPath = HSYNC_DIR . 'assets/css/admin.css';
+    $jsPath  = HSYNC_DIR . 'assets/js/admin.js';
     $cssVer  = file_exists( $cssPath ) ? HSYNC_VERSION . '.' . filemtime( $cssPath ) : HSYNC_VERSION;
     $jsVer   = file_exists( $jsPath )  ? HSYNC_VERSION . '.' . filemtime( $jsPath )  : HSYNC_VERSION;
 

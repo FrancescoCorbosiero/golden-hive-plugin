@@ -704,6 +704,13 @@ final class CsvSource extends AbstractSource
         ];
 
         if ($type === 'simple') {
+            // Same fallback as variable variants: when STREET_PRICE is
+            // absent, promote the markup-adjusted cost to regular_price
+            // so the product isn't a $0 ghost.
+            if ($regPrice <= 0 && $salePrice > 0) {
+                $regPrice  = $salePrice;
+                $salePrice = 0;
+            }
             $woo['regular_price']  = (string) $regPrice;
             $woo['sale_price']     = $salePrice > 0 ? (string) $salePrice : '';
             $woo['manage_stock']   = true;
@@ -751,6 +758,16 @@ final class CsvSource extends AbstractSource
             $varReg    = round($streetPrice);
             $qty       = (int) ($size['quantity'] ?? 0);
             $totalQty += $qty;
+            // Fallback: STREET_PRICE column is optional in many SF
+            // feed exports. Without it $varReg is 0 → Woo treats the
+            // variant as a free / hidden product. Use the markup-
+            // adjusted cost as the regular price so the variant is
+            // visible and priced sanely. Drop sale_price in that case
+            // (no separate "sale" without an RRP to compare against).
+            if ($varReg <= 0 && $varSale > 0) {
+                $varReg  = $varSale;
+                $varSale = 0;
+            }
             $variations[] = [
                 'attributes'     => [ 'pa_taglia' => (string) $size['size'] ],
                 'sku'            => (string) $product['sku'] . '-' . self::sfSlug((string) $size['size']),

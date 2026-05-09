@@ -434,11 +434,14 @@ final class JsonSource extends AbstractSource
                 'manage_stock'   => true,
                 'stock_quantity' => $qty,
                 'stock_status'   => $qty > 0 ? 'instock' : 'outofstock',
-                // Variations follow the parent's status — a draft
-                // parent with published variations would be a confusing
-                // half-state; flipping the parent later (via a Rule)
-                // also flips children when we re-save.
-                'status'         => $importStatus,
+                // ALWAYS publish — `product_variation` post type only
+                // accepts publish/private/trash. status='draft' makes
+                // the data store silently drop the save and the
+                // variable parent ends up with zero children (visible
+                // in WC admin as "Ancora nessuna variante"). The
+                // user's draft preference applies to the PARENT only;
+                // storefront visibility is gated by the parent.
+                'status'         => 'publish',
                 'regular_price'  => (string) round($pp * $multiplier),
                 'sale_price'     => '',
             ];

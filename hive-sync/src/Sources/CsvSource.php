@@ -621,6 +621,13 @@ final class CsvSource extends AbstractSource
                 'street_price'    => (float) ($row['STREET_PRICE'] ?? 0),
                 'cost_price'      => (float) ($row['PRICE']        ?? 0),
                 'weight'          => (float) ($row['WEIGHT']       ?? 0),
+                // PRODUCT-row QUANTITY: real stock for items WITHOUT
+                // MODEL rows (bags, wallets, accessories — anything
+                // without sizes). Without this, simple SF items land
+                // as "Esaurito" with qty=0. The MODEL pass below
+                // overwrites this with the SUM of size quantities
+                // when sizes ARE present, matching legacy behavior.
+                'total_quantity'  => (int) ($row['QUANTITY'] ?? 0),
                 'images'          => array_values(array_filter([
                     trim((string) ($row['PICTURE_1'] ?? '')),
                     trim((string) ($row['PICTURE_2'] ?? '')),
@@ -657,6 +664,12 @@ final class CsvSource extends AbstractSource
                 'price'    => (float) ($row['PRICE'] ?? $products[$parentSku]['cost_price']),
             ];
             $products[$parentSku]['_raw_rows'][] = $row;
+            // Recompute aggregate stock from the actual sum of sizes
+            // (overrides whatever the PRODUCT-row QUANTITY column
+            // happened to claim — matches legacy gh_sf_normalize).
+            $products[$parentSku]['total_quantity'] = array_sum(
+                array_column($products[$parentSku]['sizes'], 'quantity')
+            );
         }
 
         $items = [];
@@ -726,11 +739,15 @@ final class CsvSource extends AbstractSource
             $woo['regular_price']  = (string) $regPrice;
             $woo['sale_price']     = $salePrice > 0 ? (string) $salePrice : '';
             $woo['manage_stock']   = true;
-            // No size = total stock from the PRODUCT row (we don't have
-            // it explicitly but the legacy code summed sizes which here
-            // is empty). Default to 0 — adjust manually if needed.
-            $woo['stock_quantity'] = 0;
-            $woo['stock_status']   = 'outofstock';
+            // Stock for simple SF items (bags, wallets, anything
+            // without size variants) comes from the PRODUCT row's
+            // QUANTITY column — captured into total_quantity by
+            // sfNormalizeAndTransform. The previous hardcoded 0
+            // landed every simple product as "Esaurito" regardless
+            // of feed reality. Mirrors legacy gh_sf_transform_to_woo.
+            $totalQty = (int) ($product['total_quantity'] ?? 0);
+            $woo['stock_quantity'] = $totalQty;
+            $woo['stock_status']   = $totalQty > 0 ? 'instock' : 'outofstock';
             $brand = (string) ($product['brand'] ?? '');
             if ($brand !== '') {
                 $woo['attributes'] = [

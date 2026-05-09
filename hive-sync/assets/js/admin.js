@@ -2841,11 +2841,39 @@
                     + (attrsTxt ? ' <small class="hsync-muted">attrs: ' + esc(attrsTxt) + '</small>' : '')
                     + (sh.flavor ? ' <small class="hsync-muted">flavor: ' + esc(sh.flavor) + '</small>' : '');
             }
+            // Post-materialize: what's actually written in Woo NOW.
+            // Distinguishes "bridge swallowed the data" from "data
+            // never arrived" — both look identical in the Woo admin
+            // but only the latter has a `var:0` pre-materialize shape.
+            let writtenCell = '—';
+            if (r.written) {
+                const w = r.written;
+                if (w.error) {
+                    writtenCell = '<span class="hsync-action-pill is-failed">' + esc(w.error) + '</span>';
+                } else if (w.type === 'variable') {
+                    const cnt = w.variations_in_woo || 0;
+                    const fv = w.first_variation || {};
+                    const cntBadge = '<span class="hsync-action-pill is-' + (cnt > 0 ? 'created' : 'skipped') + '">'
+                        + 'woo-var:' + cnt + '</span>';
+                    writtenCell = '<code>type=variable</code> ' + cntBadge
+                        + (cnt > 0
+                            ? ' <small>1ª: reg=<code>' + esc(String(fv.regular_price || '?')) + '</code>'
+                                + ' sale=<code>' + esc(String(fv.sale_price || '?')) + '</code>'
+                                + ' qty=<code>' + esc(String(fv.stock_quantity ?? '?')) + '</code></small>'
+                            : '')
+                        + ' <small class="hsync-muted">parent stock: ' + esc(w.stock_status || '?') + '</small>';
+                } else {
+                    writtenCell = '<code>type=' + esc(w.type || '?') + '</code>'
+                        + ' <small>reg=<code>' + esc(String(w.regular_price || '?')) + '</code>'
+                        + ' qty=<code>' + esc(String(w.stock_quantity ?? '?')) + '</code></small>';
+                }
+            }
             return '<tr class="' + klass + '"><td>' + (i + 1) + '</td>'
                 + '<td>' + (r.pid || '—') + '</td>'
                 + '<td><code>' + esc(r.sku) + '</code></td>'
                 + '<td><span class="hsync-action-pill ' + pillKl + '">' + esc(r.action) + '</span></td>'
                 + '<td>' + shapeCell + '</td>'
+                + '<td>' + writtenCell + '</td>'
                 + '<td>' + detail + '</td></tr>';
         }).join('');
 
@@ -2854,7 +2882,7 @@
             + summary
             + (warns ? '<div class="hsync-warnings">' + warns + '</div>' : '')
             + (rows
-                ? '<table class="hsync-table"><thead><tr><th>#</th><th>PID</th><th>SKU</th><th>Action</th><th>Shape (pre-materialize)</th><th>Error / Reason</th></tr></thead><tbody>' + rows + '</tbody></table>'
+                ? '<table class="hsync-table"><thead><tr><th>#</th><th>PID</th><th>SKU</th><th>Action</th><th>Pre-materialize</th><th>Post-materialize (Woo)</th><th>Error / Reason</th></tr></thead><tbody>' + rows + '</tbody></table>'
                 : '<div class="hsync-empty">Nessuna riga processata.</div>');
     };
 

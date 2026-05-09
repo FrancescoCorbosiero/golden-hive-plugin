@@ -248,6 +248,19 @@ final class ImportRunner
                 ? $item
                 : new FeedItem( sku: $item->sku, data: $draft, raw: $item->raw );
 
+            // ─── Pre-materialize shape diagnostics ─────────────────
+            // Surfaces in the run report so SF-style "imported but no
+            // variants/prices" mysteries are debuggable from the
+            // Storico tab without needing a debug session. Read-only:
+            // never blocks materialize, only annotates the row trace.
+            $rowTrace['shape'] = [
+                'type'           => isset( $draft['type'] ) ? (string) $draft['type'] : '(unset)',
+                'variations'     => isset( $draft['variations'] ) && is_array( $draft['variations'] ) ? count( $draft['variations'] ) : 0,
+                'attribute_keys' => isset( $draft['attributes'] ) && is_array( $draft['attributes'] ) ? array_keys( $draft['attributes'] ) : [],
+                'has_reg_price'  => isset( $draft['regular_price'] ) && $draft['regular_price'] !== '',
+                'flavor'         => isset( $draft['_hsync_flavor'] ) ? (string) $draft['_hsync_flavor'] : '',
+            ];
+
             // ─── Materialize ───────────────────────────────────────
             try {
                 $r = $source->materialize( $effectiveItem, $ctx );

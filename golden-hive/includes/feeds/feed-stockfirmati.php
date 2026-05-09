@@ -366,10 +366,135 @@ function gh_sf_create_product( array $data, bool $sideload = true, array $tax_ma
 
 /**
  * Aggiorna un prodotto WC esistente con dati SF (prezzi + stock).
+ *
+ * Idempotente: la stessa $data applicata N volte produce lo stesso
+ * stato. Per i variable: matcha le varianti esistenti per SKU
+ * (deterministico: <parent-sku>-<size-slug>), aggiorna prezzi/stock,
+ * crea le nuove taglie del feed, e azzera lo stock di varianti
+ * non più presenti nel feed (preservando l'ID per non rompere
+ * referenze a ordini storici). Mirror diretto di
+ * rp_rc_gs_update_product nel feed GS.
+ *
+ * Storia: in precedenza delegava a gh_csv_update_product, che
+ * tocca SOLO i campi del parent — mai le varianti. Conseguenza:
+ * le varianti SF restavano congelate al primo import (con prezzi
+ * e stock potenzialmente errati o stantii) per sempre.
  */
 function gh_sf_update_product( array $data ): array {
-    // Delega all'updater generico del CSV pipeline
-    return gh_csv_update_product( $data );
+
+    $product_id = $data['_existing_id'] ?? 0;
+    if ( ! $product_id ) {
+        return [ 'action' => 'error', 'sku' => $data['sku'] ?? '', 'name' => $data['name'] ?? '', 'reason' => 'ID mancante' ];
+    }
+
+    try {
+        $product = wc_get_product( $product_id );
+        if ( ! $product ) {
+            return [ 'action' => 'error', 'sku' => $data['sku'] ?? '', 'name' => $data['name'] ?? '', 'reason' => 'Prodotto non trovato' ];
+        }
+
+        // Re-attach attribute terms (handles pa_brand/pa_taglia
+        // backfill on prodotti creati prima del fix-attribute-attach).
+        if ( ! empty( $data['attributes'] ) && function_exists( 'gh_attach_attribute_terms' ) ) {
+            gh_attach_attribute_terms( $product_id, $data['attributes'] );
+        }
+
+        // Parent fields — sempre aggiornabili a prescindere dal type
+        if ( isset( $data['name'] ) )              $product->set_name( $data['name'] );
+        if ( isset( $data['description'] ) )       $product->set_description( $data['description'] );
+        if ( isset( $data['short_description'] ) ) $product->set_short_description( $data['short_description'] );
+        if ( isset( $data['weight'] ) )            $product->set_weight( $data['weight'] );
+
+        if ( $product->is_type( 'simple' ) ) {
+            // Simple path: identica al gh_csv_update_product di sempre.
+            if ( isset( $data['regular_price'] ) ) $product->set_regular_price( $data['regular_price'] );
+            if ( isset( $data['sale_price'] ) )    $product->set_sale_price( $data['sale_price'] );
+            if ( isset( $data['stock_quantity'] ) ) {
+                $qty = (int) $data['stock_quantity'];
+                $product->set_manage_stock( true );
+                $product->set_stock_quantity( $qty );
+                $product->set_stock_status( $qty > 0 ? 'instock' : 'outofstock' );
+            } elseif ( isset( $data['stock_status'] ) ) {
+                $product->set_stock_status( $data['stock_status'] );
+            }
+            $product->save();
+        } elseif ( $product->is_type( 'variable' ) && ! empty( $data['variations'] ) ) {
+            // Variable path: il parent NON gestisce stock direttamente
+            // (Woo aggrega dalle varianti). Salviamo i campi parent
+            // prima di toccare le varianti.
+            $product->set_manage_stock( false );
+            $product->save();
+
+            $seen_skus = [];
+            foreach ( $data['variations'] as $var_data ) {
+                $var_sku = (string) ( $var_data['sku'] ?? '' );
+                if ( $var_sku === '' ) continue;
+                $seen_skus[ $var_sku ] = true;
+
+                $var_id = wc_get_product_id_by_sku( $var_sku );
+                if ( $var_id ) {
+                    $v = wc_get_product( $var_id );
+                    if ( ! $v || ! $v->is_type( 'variation' ) ) continue;
+                    if ( isset( $var_data['regular_price'] ) ) $v->set_regular_price( $var_data['regular_price'] );
+                    if ( isset( $var_data['sale_price'] ) )    $v->set_sale_price( $var_data['sale_price'] );
+                    if ( isset( $var_data['stock_quantity'] ) ) {
+                        $qty = (int) $var_data['stock_quantity'];
+                        $v->set_manage_stock( true );
+                        $v->set_stock_quantity( $qty );
+                        $v->set_stock_status( $qty > 0 ? 'instock' : 'outofstock' );
+                    } elseif ( isset( $var_data['stock_status'] ) ) {
+                        $v->set_stock_status( $var_data['stock_status'] );
+                    }
+                    if ( isset( $var_data['status'] ) ) $v->set_status( $var_data['status'] );
+                    $v->save();
+                } else {
+                    // Nuova taglia nel feed → crea la variante
+                    if ( function_exists( 'gh_create_variation' ) ) {
+                        gh_create_variation( $product_id, $var_data );
+                    }
+                }
+            }
+
+            // Varianti che non sono più nel feed → azzera stock invece
+            // di eliminarle. Preserva l'ID e non rompe ordini storici.
+            // Effetto idempotente: stessa rimozione applicata più volte
+            // converge nello stesso stato (qty=0, OOS).
+            foreach ( $product->get_children() as $existing_var_id ) {
+                $existing_var = wc_get_product( $existing_var_id );
+                if ( ! $existing_var ) continue;
+                $existing_sku = (string) $existing_var->get_sku();
+                if ( $existing_sku === '' || isset( $seen_skus[ $existing_sku ] ) ) continue;
+                $existing_var->set_manage_stock( true );
+                $existing_var->set_stock_quantity( 0 );
+                $existing_var->set_stock_status( 'outofstock' );
+                $existing_var->save();
+            }
+
+            // Ricalcola il rollup parent (price range + stock_status
+            // + lookup tables). Senza sync il front-end mostra
+            // prezzo/stock stantii anche dopo un update riuscito.
+            WC_Product_Variable::sync( $product_id );
+            if ( function_exists( 'gh_fix_variable_stock_status' ) ) {
+                gh_fix_variable_stock_status( $product_id );
+            }
+        } else {
+            // Né simple né variable con variazioni → solo i campi
+            // parent (già applicati sopra).
+            $product->save();
+        }
+
+        gh_apply_product_meta( $product_id, $data );
+
+        return [
+            'action'  => 'updated',
+            'id'      => $product_id,
+            'sku'     => $data['sku'] ?? '',
+            'name'    => $data['name'] ?? '',
+            'changes' => $data['_changes'] ?? [],
+        ];
+    } catch ( \Throwable $e ) {
+        return [ 'action' => 'error', 'sku' => $data['sku'] ?? '', 'name' => $data['name'] ?? '', 'reason' => $e->getMessage() ];
+    }
 }
 
 // ── Taxonomy helpers ───────────────────────────────────────

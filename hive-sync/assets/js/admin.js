@@ -1645,13 +1645,13 @@
                 '<div class="hsync-warning">' + esc(w) + '</div>'
             ).join('');
             const rows  = (data.preview || []).map((p, i) =>
-                '<tr><td>' + (i + 1) + '</td><td><code>' + esc(p.sku) + '</code></td><td>' + esc(JSON.stringify(p.data).slice(0, 200)) + '</td></tr>'
+                '<tr><td>' + (i + 1) + '</td><td><code>' + esc(p.sku) + '</code></td><td>' + HSync.summarizePreviewData(p.data) + '</td></tr>'
             ).join('');
             out.innerHTML = ''
                 + '<p><strong>' + data.count + '</strong> items fetched.</p>'
                 + (warns ? '<div class="hsync-warnings">' + warns + '</div>' : '')
                 + (rows
-                    ? '<table class="hsync-table"><thead><tr><th>#</th><th>SKU</th><th>Data (preview)</th></tr></thead><tbody>' + rows + '</tbody></table>'
+                    ? '<table class="hsync-table"><thead><tr><th>#</th><th>SKU</th><th>Shape preview</th></tr></thead><tbody>' + rows + '</tbody></table>'
                     : '');
         } catch (e) {
             out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
@@ -2858,6 +2858,40 @@
                 : '<div class="hsync-empty">Nessuna riga processata.</div>');
     };
 
+    /**
+     * Operator-friendly per-item summary for test-fetch previews. The
+     * raw FeedItem.data is full of nested arrays (variations, attributes,
+     * _sf_* meta) that are unreadable when JSON.stringify-truncated.
+     * This pulls out the four signals that matter when debugging
+     * "products imported with no prices/stocks/variants":
+     *   - type (simple vs variable)
+     *   - variations count + first variant's reg/sale/qty
+     *   - attribute keys
+     *   - flavor marker
+     */
+    HSync.summarizePreviewData = function (d) {
+        if (!d || typeof d !== 'object') return '<em class="hsync-muted">(no data)</em>';
+        const type  = d.type || '?';
+        const vars  = Array.isArray(d.variations) ? d.variations : [];
+        const v0    = vars[0] || {};
+        const attrs = d.attributes && typeof d.attributes === 'object' ? Object.keys(d.attributes).join(',') : '';
+        const parts = [
+            '<code>type=' + esc(type) + '</code>',
+            'var:<strong>' + vars.length + '</strong>',
+        ];
+        if (vars.length > 0) {
+            parts.push('1ª var: reg=<code>' + esc(String(v0.regular_price ?? '?')) + '</code>'
+                + ' sale=<code>' + esc(String(v0.sale_price ?? '?')) + '</code>'
+                + ' qty=<code>' + esc(String(v0.stock_quantity ?? '?')) + '</code>');
+        } else {
+            parts.push('reg=<code>' + esc(String(d.regular_price ?? '?')) + '</code>'
+                + ' qty=<code>' + esc(String(d.stock_quantity ?? '?')) + '</code>');
+        }
+        if (attrs) parts.push('<small class="hsync-muted">attrs: ' + esc(attrs) + '</small>');
+        if (d._hsync_flavor) parts.push('<small class="hsync-muted">flavor: ' + esc(d._hsync_flavor) + '</small>');
+        return parts.join(' · ');
+    };
+
     HSync.testFetchFromRun = async function () {
         const sourceId = $('[data-field="run-source"]').value;
         if (!sourceId) { alert('Scegli una sorgente.'); return; }
@@ -2872,33 +2906,8 @@
                 options:   {},
             });
             const warns = (data.warnings || []).map(w => '<div class="hsync-warning">' + esc(w) + '</div>').join('');
-            // Per-item summary so SF/GS variant issues are visible
-            // without truncated raw JSON. Shows: type, variations count,
-            // first variant's price/stock, top-level attribute keys.
-            const summarize = (d) => {
-                if (!d || typeof d !== 'object') return '<em class="hsync-muted">(no data)</em>';
-                const type = d.type || '?';
-                const vars = Array.isArray(d.variations) ? d.variations : [];
-                const v0   = vars[0] || {};
-                const attrs = d.attributes && typeof d.attributes === 'object' ? Object.keys(d.attributes).join(',') : '';
-                const parts = [
-                    '<code>type=' + esc(type) + '</code>',
-                    'var:<strong>' + vars.length + '</strong>',
-                ];
-                if (vars.length > 0) {
-                    parts.push('1ª var: reg=<code>' + esc(String(v0.regular_price ?? '?')) + '</code>'
-                        + ' sale=<code>' + esc(String(v0.sale_price ?? '?')) + '</code>'
-                        + ' qty=<code>' + esc(String(v0.stock_quantity ?? '?')) + '</code>');
-                } else {
-                    parts.push('reg=<code>' + esc(String(d.regular_price ?? '?')) + '</code>'
-                        + ' qty=<code>' + esc(String(d.stock_quantity ?? '?')) + '</code>');
-                }
-                if (attrs) parts.push('<small class="hsync-muted">attrs: ' + esc(attrs) + '</small>');
-                if (d._hsync_flavor) parts.push('<small class="hsync-muted">flavor: ' + esc(d._hsync_flavor) + '</small>');
-                return parts.join(' · ');
-            };
             const rows  = (data.preview || []).map((p, i) =>
-                '<tr><td>' + (i + 1) + '</td><td><code>' + esc(p.sku) + '</code></td><td>' + summarize(p.data) + '</td></tr>'
+                '<tr><td>' + (i + 1) + '</td><td><code>' + esc(p.sku) + '</code></td><td>' + HSync.summarizePreviewData(p.data) + '</td></tr>'
             ).join('');
             out.innerHTML = ''
                 + '<p><strong>' + data.count + '</strong> items in fetch (preview limit 10).</p>'

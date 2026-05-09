@@ -281,6 +281,48 @@ final class ImportRunner
             if ( $r->action === 'skipped' && isset( $r->details['reason'] ) ) {
                 $rowTrace['reason'] = (string) $r->details['reason'];
             }
+
+            // Post-materialize sanity: what does the Woo product
+            // ACTUALLY look like after the bridge ran? This catches
+            // the "shape pre-materialize was perfect but Woo wrote
+            // an empty shell" class of bug where the bridge silently
+            // drops variants or fails to attach prices/stocks. Five
+            // signals: type, variations count, first variant's
+            // reg/sale/qty, parent's stock_status. Read-only:
+            // adds latency only when wc_get_product() resolves the
+            // freshly-created/updated product (which is in WC's
+            // object cache anyway).
+            if ( $r->productId !== null && $r->productId > 0 && function_exists( 'wc_get_product' ) ) {
+                $writtenShape = [ 'pid' => (int) $r->productId ];
+                $w = \wc_get_product( (int) $r->productId );
+                if ( $w ) {
+                    $writtenShape['type']         = $w->get_type();
+                    $writtenShape['stock_status'] = (string) $w->get_stock_status();
+                    if ( $w->is_type( 'variable' ) ) {
+                        $children = $w->get_children();
+                        $writtenShape['variations_in_woo'] = count( $children );
+                        if ( $children ) {
+                            $first = \wc_get_product( (int) $children[0] );
+                            if ( $first ) {
+                                $writtenShape['first_variation'] = [
+                                    'sku'            => (string) $first->get_sku(),
+                                    'regular_price'  => (string) $first->get_regular_price(),
+                                    'sale_price'     => (string) $first->get_sale_price(),
+                                    'stock_quantity' => $first->get_stock_quantity(),
+                                    'stock_status'   => (string) $first->get_stock_status(),
+                                ];
+                            }
+                        }
+                    } else {
+                        $writtenShape['regular_price']  = (string) $w->get_regular_price();
+                        $writtenShape['sale_price']     = (string) $w->get_sale_price();
+                        $writtenShape['stock_quantity'] = $w->get_stock_quantity();
+                    }
+                } else {
+                    $writtenShape['error'] = 'wc_get_product returned null';
+                }
+                $rowTrace['written'] = $writtenShape;
+            }
             switch ( $r->action ) {
                 case 'created': $summary['created']++; break;
                 case 'updated': $summary['updated']++; break;

@@ -138,9 +138,15 @@ final class JsonSource extends AbstractSource
         if ($cookie !== '') $headers['Cookie']        = $cookie;
 
         $resp = wp_remote_get($url, [
-            'headers'    => $headers,
-            'timeout'    => 30,
-            'user-agent' => 'HiveSync/' . (defined('HSYNC_VERSION') ? HSYNC_VERSION : '1.0'),
+            'headers'             => $headers,
+            // Same timeout/size posture as CsvSource — large feeds
+            // (GS production has ~15k items) need more than the 30s
+            // default to download fully. limit_response_size=0
+            // disables WP's defensive body-size cap.
+            'timeout'             => 120,
+            'redirection'         => 5,
+            'limit_response_size' => 0,
+            'user-agent'          => 'HiveSync/' . (defined('HSYNC_VERSION') ? HSYNC_VERSION : '1.0'),
         ]);
         if (is_wp_error($resp)) {
             return new FetchResult(items: [], warnings: ['Errore HTTP: ' . $resp->get_error_message()]);

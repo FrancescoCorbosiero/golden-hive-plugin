@@ -493,7 +493,19 @@ final class CsvSource extends AbstractSource
     {
         if ($url === '') return null;
         if (function_exists('wp_remote_get')) {
-            $r = \wp_remote_get($url, ['timeout' => 30]);
+            // Timeout 120s + no body-size cap. SF feeds are routinely
+            // multi-MB and slow to deliver; the legacy golden-hive
+            // fetch uses 120s. The previous 30s default was producing
+            // truncated CSV bodies on real SF feeds — products whose
+            // MODEL rows fell after the cut-off arrived as
+            // type=variable with no variations. limit_response_size=0
+            // disables WP's defensive cap (defaults vary by transport
+            // but can be as low as a few MB).
+            $r = \wp_remote_get($url, [
+                'timeout'             => 120,
+                'redirection'         => 5,
+                'limit_response_size' => 0,
+            ]);
             if (function_exists('is_wp_error') && \is_wp_error($r)) return null;
             $body = \wp_remote_retrieve_body($r);
             return is_string($body) && $body !== '' ? $body : null;

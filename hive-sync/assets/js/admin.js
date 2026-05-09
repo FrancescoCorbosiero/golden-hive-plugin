@@ -2944,11 +2944,20 @@
             const idx = region.querySelectorAll('[data-markup-rule-idx]').length;
             rowsEl.insertAdjacentHTML('beforeend', HSync.renderMarkupRuleRow({}, idx));
             HSync.syncMarkupRules(region);
-            // New row → re-apply current flavor's datalist so the
-            // `field` input gets the same autocomplete the existing
-            // rows have.
+            // Datalist suggestions: only the new row needs them. Avoid
+            // re-running the full applyMarkupFlavorVisibility here —
+            // it walks every label in the form and was reported to
+            // glitch the UI when re-toggling labels mid-interaction.
+            // The button's existence already implies markup_rules is
+            // visible, so there's nothing to re-hide.
             const form = region.closest('form.hsync-config-form');
-            if (form) HSync.applyMarkupFlavorVisibility(form);
+            const datalist = region.querySelector('datalist[id$="__field_suggestions"]');
+            if (datalist && form) {
+                const newField = rowsEl.lastElementChild
+                    ? rowsEl.lastElementChild.querySelector('[data-rule-field="field"]')
+                    : null;
+                if (newField) newField.setAttribute('list', datalist.id);
+            }
             return;
         }
         if (t.matches('[data-action="markup-rule-remove"]')) {

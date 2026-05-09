@@ -375,8 +375,15 @@ final class ImportRunner
     /**
      * Light-weight stock + price patch — bypasses the source's full
      * materialize, which would re-download media + re-resolve taxonomy
-     * + re-render templates. Touches the four fields we know are stock
-     * deltas, then save() once. ~10–30ms per product on a warm cache.
+     * + re-render templates.
+     *
+     * Two paths by parent type:
+     *  - simple    → patch the parent's price/stock fields directly.
+     *  - variable  → patch each VARIATION by SKU (deterministic
+     *                <parent>-<size> from the SF/GS transforms),
+     *                then sync the parent. Patching a variable parent's
+     *                regular_price/stock_quantity is meaningless —
+     *                Woo computes those from children.
      *
      * Returns the product id on success, null when the SKU has no match
      * in Woo (caller treats as skipped, not failed).
@@ -389,9 +396,84 @@ final class ImportRunner
         $product = \wc_get_product( $pid );
         if ( ! $product ) return null;
 
-        $touched = false;
-        $data    = $item->data;
+        $data = $item->data;
 
+        // Variable path: patch each variation by SKU. The variations[]
+        // array on the FeedItem is the source of truth (output of the
+        // source's transform — e.g. CsvSource::sfTransformToWoo or the
+        // GS bridge). Without this branch, fast-patch would silently
+        // touch only the parent and leave every variation stale —
+        // which is exactly the bug that landed SF re-imports without
+        // updated prices/stocks even after a successful first import.
+        if ( $product->is_type( 'variable' ) ) {
+            $variations = $data['variations'] ?? null;
+            if ( ! is_array( $variations ) || $variations === [] ) {
+                // No variations in payload (likely a hive-sync source
+                // that doesn't produce them). Bail out so the caller
+                // routes to the full bridge update path instead of
+                // silently no-oping.
+                return null;
+            }
+
+            // Make sure the parent isn't accidentally managing stock —
+            // older imports left it in a half-broken state where the
+            // parent had its own stock_quantity. Idempotent: re-running
+            // converges the parent to the canonical "Woo aggregates
+            // from variants" state.
+            if ( $product->get_manage_stock() ) {
+                $product->set_manage_stock( false );
+                $product->save();
+            }
+
+            $touched_any = false;
+            foreach ( $variations as $var_data ) {
+                if ( ! is_array( $var_data ) ) continue;
+                $var_sku = (string) ( $var_data['sku'] ?? '' );
+                if ( $var_sku === '' ) continue;
+                $var_id = \wc_get_product_id_by_sku( $var_sku );
+                if ( ! $var_id ) continue;  // new size? full update path will handle creation
+                $v = \wc_get_product( $var_id );
+                if ( ! $v || ! $v->is_type( 'variation' ) ) continue;
+
+                $touched = false;
+                if ( array_key_exists( 'regular_price', $var_data ) ) {
+                    $v->set_regular_price( (string) $var_data['regular_price'] );
+                    $touched = true;
+                }
+                if ( array_key_exists( 'sale_price', $var_data ) ) {
+                    $v->set_sale_price( (string) $var_data['sale_price'] );
+                    $touched = true;
+                }
+                if ( array_key_exists( 'stock_quantity', $var_data ) ) {
+                    $qty = (int) $var_data['stock_quantity'];
+                    $v->set_manage_stock( true );
+                    $v->set_stock_quantity( $qty );
+                    if ( ! array_key_exists( 'stock_status', $var_data ) ) {
+                        $v->set_stock_status( $qty > 0 ? 'instock' : 'outofstock' );
+                    }
+                    $touched = true;
+                }
+                if ( array_key_exists( 'stock_status', $var_data ) ) {
+                    $v->set_stock_status( (string) $var_data['stock_status'] );
+                    $touched = true;
+                }
+                if ( $touched ) {
+                    $v->save();
+                    $touched_any = true;
+                }
+            }
+
+            // Re-aggregate the parent: price range + stock_status
+            // + lookup tables. Without sync, the front-end keeps
+            // showing stale prices even after a correct variant patch.
+            if ( $touched_any && class_exists( '\\WC_Product_Variable' ) ) {
+                \WC_Product_Variable::sync( $pid );
+            }
+            return $pid;
+        }
+
+        // Simple path: original behaviour. Patches parent fields directly.
+        $touched = false;
         if ( array_key_exists( 'regular_price', $data ) ) {
             $product->set_regular_price( (string) $data['regular_price'] );
             $touched = true;

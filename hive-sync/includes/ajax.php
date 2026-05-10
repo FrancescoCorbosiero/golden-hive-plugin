@@ -1296,23 +1296,49 @@ add_action( 'wp_ajax_hsync_ajax_markup_rules_test', function () {
     // Surface the markup-relevant fields per product. The SF flavor
     // populates _sf_applied_multiplier on each FeedItem, so we just
     // pluck the diagnostic-ready fields directly.
+    //
+    // We ALSO re-run MarkupResolver::ruleMultiplier against the
+    // server-built ruleData independently here. If the result
+    // disagrees with _sf_applied_multiplier persisted on the item,
+    // the bug is between rule resolution and the FeedItem write.
     $rows = [];
     foreach ( array_slice( $fetch->items, 0, 20 ) as $item ) {
         $d = $item->data;
+
+        // Reproduce the EXACT ruleData projection sfNormalizeAndTransform
+        // builds, so server-side matching here mirrors the fetch path.
+        $catLevel    = (string) ( $d['_sf_category']    ?? '' );
+        $subLevel    = (string) ( $d['_sf_subcategory'] ?? '' );
+        $taxAny      = $subLevel !== '' ? $subLevel : $catLevel;
+        $ruleData    = [
+            '_sf_brand'        => (string) ( $d['_sf_brand']     ?? '' ),
+            '_sf_category'     => $catLevel,
+            '_sf_subcategory'  => $subLevel,
+            '_sf_taxonomy'     => trim( $catLevel . ' > ' . $subLevel, ' >' ),
+            '_sf_taxonomy_any' => $taxAny,
+            '_sf_sex'          => (string) ( $d['_sf_sex']       ?? '' ),
+            '_sf_color'        => (string) ( $d['_sf_color']     ?? '' ),
+            '_sf_material'     => (string) ( $d['_sf_material']  ?? '' ),
+            '_sf_made_in'      => (string) ( $d['_sf_made_in']   ?? '' ),
+            '_sf_season'       => (string) ( $d['_sf_season']    ?? '' ),
+        ];
+        // Server-side independent recompute. Should match _sf_applied_multiplier.
+        $serverMatched = \HiveSync\Sources\MarkupResolver::ruleMultiplier( $ruleData, $normalizedRules );
+
         $rows[] = [
             'sku'                    => (string) $item->sku,
             'name'                   => (string) ( $d['name'] ?? '' ),
             'applied_multiplier'     => isset( $d['_sf_applied_multiplier'] ) ? (float) $d['_sf_applied_multiplier'] : null,
+            // Independent server recompute — if this is ≠ applied_multiplier,
+            // the bug is that the value persisted on the FeedItem doesn't
+            // match what the matcher actually returned at fetch time.
+            'server_recompute'       => $serverMatched,
             'markup_target'          => (string) ( $d['_sf_markup_target'] ?? '' ),
-            '_sf_brand'              => (string) ( $d['_sf_brand']        ?? '' ),
-            '_sf_category'           => (string) ( $d['_sf_category']     ?? '' ),
-            '_sf_subcategory'        => (string) ( $d['_sf_subcategory']  ?? '' ),
-            '_sf_taxonomy_any'       => trim(
-                ( (string) ( $d['_sf_subcategory'] ?? '' ) ) !== ''
-                    ? (string) $d['_sf_subcategory']
-                    : (string) ( $d['_sf_category'] ?? '' )
-            ),
-            '_sf_taxonomy'           => trim( ( (string) ( $d['_sf_category'] ?? '' ) ) . ' > ' . ( (string) ( $d['_sf_subcategory'] ?? '' ) ), ' >' ),
+            '_sf_brand'              => $ruleData['_sf_brand'],
+            '_sf_category'           => $catLevel,
+            '_sf_subcategory'        => $subLevel,
+            '_sf_taxonomy_any'       => $taxAny,
+            '_sf_taxonomy'           => $ruleData['_sf_taxonomy'],
             'variations_count'       => isset( $d['variations'] ) && is_array( $d['variations'] ) ? count( $d['variations'] ) : 0,
             'first_variation_prices' => isset( $d['variations'][0] ) && is_array( $d['variations'][0] )
                 ? [

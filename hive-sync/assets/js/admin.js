@@ -1709,6 +1709,26 @@
                         + ' · ' + esc(String(matchedRule.field)) + ' ' + esc(String(matchedRule.operator)) + ' "' + esc(String(matchedRule.value)) + '"</span>'
                     : '<span class="hsync-action-pill is-skipped">— nessuna —</span>';
                 const mult = r.applied_multiplier != null ? Number(r.applied_multiplier).toFixed(2) : '?';
+                // server_recompute = MarkupResolver result run AGAIN
+                // server-side from the diagnostic endpoint. Should
+                // equal applied_multiplier when a rule matched. If
+                // they disagree, there's a persistence/serialization
+                // bug between rule resolution and FeedItem.data.
+                let serverNote = '';
+                if (r.server_recompute != null) {
+                    const sm = Number(r.server_recompute).toFixed(2);
+                    if (sm !== mult) {
+                        serverNote = ' <span style="color:#b32d2e;">(server recompute: ×' + sm + ' ≠ stored!)</span>';
+                    } else {
+                        serverNote = ' <small class="hsync-muted">(server ✓)</small>';
+                    }
+                } else {
+                    // null = no rule matched server-side. If JS pill is green,
+                    // server and JS disagree — that's the bug.
+                    serverNote = matchedRule
+                        ? ' <span style="color:#b32d2e;">(server: nessun match ⚠)</span>'
+                        : '';
+                }
                 const fv = r.first_variation_prices;
                 const priceCell = fv
                     ? 'reg=<code>' + esc(String(fv.regular_price || '?')) + '</code> sale=<code>' + esc(String(fv.sale_price || '?')) + '</code> qty=<code>' + esc(String(fv.stock_quantity)) + '</code>'
@@ -1723,7 +1743,7 @@
                     + '<td><code>' + esc(r._sf_category || '') + '</code></td>'
                     + '<td><code>' + esc(r._sf_subcategory || '') + '</code></td>'
                     + '<td>' + ruleCell + '</td>'
-                    + '<td><strong>×' + mult + '</strong></td>'
+                    + '<td><strong>×' + mult + '</strong>' + serverNote + '</td>'
                     + '<td>' + priceCell + '</td>'
                     + '</tr>';
             }).join('');

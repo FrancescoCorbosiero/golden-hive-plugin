@@ -2964,6 +2964,18 @@
         }
         if (attrs) parts.push('<small class="hsync-muted">attrs: ' + esc(attrs) + '</small>');
         if (d._hsync_flavor) parts.push('<small class="hsync-muted">flavor: ' + esc(d._hsync_flavor) + '</small>');
+        // SF-specific markup diagnostic: which multiplier was actually
+        // resolved for THIS product (rule match → rule's multiplier;
+        // no match → flat sf_markup_value). Lets the operator verify
+        // markup_rules are firing without combing through prices.
+        if (d._sf_applied_multiplier !== undefined) {
+            const mult = Number(d._sf_applied_multiplier);
+            const tgt  = d._sf_markup_target ? esc(String(d._sf_markup_target)) : 'sale';
+            const cat  = d._sf_category    ? esc(String(d._sf_category))    : '';
+            const sub  = d._sf_subcategory ? esc(String(d._sf_subcategory)) : '';
+            const taxo = (cat || sub) ? ' [' + cat + (sub ? ' › ' + sub : '') + ']' : '';
+            parts.push('<small class="hsync-muted">markup: <code>×' + (Number.isFinite(mult) ? mult.toFixed(2) : '?') + '</code> target=<code>' + tgt + '</code>' + taxo + '</small>');
+        }
         return parts.join(' · ');
     };
 

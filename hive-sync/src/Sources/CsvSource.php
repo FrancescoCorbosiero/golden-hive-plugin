@@ -805,8 +805,15 @@ final class CsvSource extends AbstractSource
                 'manage_stock'   => true,
                 'stock_quantity' => $qty,
                 'stock_status'   => $qty > 0 ? 'instock' : 'outofstock',
-                // Variations follow the parent's status (see JsonSource).
-                'status'         => $importStatus,
+                // ALWAYS publish — `product_variation` post type rejects
+                // 'draft' (only publish/private/trash are valid). With
+                // status=draft the WC data store silently fails to
+                // persist the variation, leaving the variable parent
+                // with zero children. The user's draft preference
+                // applies to the PARENT only; visibility on the
+                // storefront is gated by the parent's status, not
+                // the variation's. Mirrors legacy gh_sf_transform_to_woo.
+                'status'         => 'publish',
             ];
         }
         $woo['variations']     = $variations;

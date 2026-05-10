@@ -1329,7 +1329,15 @@
         // is the fallback when no rule matches). Field paths are the
         // SF-prefixed keys the transform projects onto each grouped
         // product before resolving rules.
-        'csv|stockfirmati':     ['_sf_brand', '_sf_category', '_sf_subcategory', '_sf_sex', '_sf_color', '_sf_material', '_sf_season'],
+        //
+        // `_sf_taxonomy_any` is the safest choice: contains the
+        // subcategory when the feed has one, otherwise the category.
+        // Saves the operator from having to know which level holds
+        // the value they want to target. Listed FIRST so the
+        // datalist surfaces it as the suggested default.
+        // `_sf_taxonomy` is the same idea but combined ("Cat > Sub"),
+        // useful with `contains` operator.
+        'csv|stockfirmati':     ['_sf_taxonomy_any', '_sf_taxonomy', '_sf_brand', '_sf_category', '_sf_subcategory', '_sf_sex', '_sf_color', '_sf_material', '_sf_season'],
     };
     // markup_percent (the flat-percent fallback) is irrelevant for
     // csv/stockfirmati — that flavor falls back to sf_markup_value

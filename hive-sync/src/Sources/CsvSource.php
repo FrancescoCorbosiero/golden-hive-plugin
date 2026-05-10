@@ -146,7 +146,7 @@ final class CsvSource extends AbstractSource
                 'type'    => 'markup_rules',
                 'label'   => 'Markup per categoria/brand/etc.',
                 'default' => [],
-                'description' => 'Sovrascrivi il markup di fallback per sottoinsiemi. Esempio: brand "Nike" → 40%, categoria "abbigliamento" → 20%. Prima regola che matcha vince. Confronto case-insensitive.\n\n• Generic CSV → fallback su markup_percent. Campi tipici: `brand`, `category`, o qualsiasi colonna del CSV.\n• StockFirmati → fallback su sf_markup_value. Campi: `_sf_brand`, `_sf_category`, `_sf_subcategory`, `_sf_sex`, `_sf_color`, `_sf_material`, `_sf_season`.',
+                'description' => 'Sovrascrivi il markup di fallback per sottoinsiemi. Esempio: brand "Nike" → 40%, categoria "abbigliamento" → 20%. Prima regola che matcha vince. Confronto case-insensitive, Unicode-safe.\n\n• Generic CSV → fallback su markup_percent. Campi tipici: `brand`, `category`, o qualsiasi colonna del CSV.\n• StockFirmati → fallback su sf_markup_value. **Consigliato `_sf_taxonomy_any`** (cerca in categoria OR sottocategoria — utile quando il feed mette il valore in uno dei due ma non sai quale). Altri campi: `_sf_taxonomy` (cat > sub combinato per `contains`), `_sf_brand`, `_sf_category`, `_sf_subcategory`, `_sf_sex`, `_sf_color`, `_sf_material`, `_sf_season`.',
             ],
             'markup_target' => [
                 'type'    => 'enum',
@@ -716,15 +716,27 @@ final class CsvSource extends AbstractSource
             // them under the `_sf_` namespace just for the rule check.
             $perProductMultiplier = $multiplier;
             if ($markupRules !== []) {
+                $catLevel = self::sfClean((string) ($p['category']    ?? ''));
+                $subLevel = self::sfClean((string) ($p['subcategory'] ?? ''));
+                // Virtual fields covering common gotchas:
+                //   _sf_taxonomy        → "category > subcategory" combined,
+                //                         match anywhere with `contains`.
+                //   _sf_taxonomy_any    → category OR subcategory, whichever
+                //                         the operator's rule expects, so
+                //                         `_sf_taxonomy_any equals pantaloni`
+                //                         matches whether the feed puts
+                //                         "Pantaloni" in CAT or SUBCAT.
                 $ruleData = [
-                    '_sf_brand'        => $p['brand']       ?? '',
-                    '_sf_category'     => $p['category']    ?? '',
-                    '_sf_subcategory'  => $p['subcategory'] ?? '',
-                    '_sf_sex'          => $p['sex']         ?? '',
-                    '_sf_color'        => $p['color']       ?? '',
-                    '_sf_material'     => $p['material']    ?? '',
-                    '_sf_made_in'      => $p['made_in']     ?? '',
-                    '_sf_season'       => $p['season']      ?? '',
+                    '_sf_brand'           => $p['brand']       ?? '',
+                    '_sf_category'        => $catLevel,
+                    '_sf_subcategory'     => $subLevel,
+                    '_sf_taxonomy'        => trim($catLevel . ' > ' . $subLevel, ' >'),
+                    '_sf_taxonomy_any'    => $subLevel !== '' ? $subLevel : $catLevel,
+                    '_sf_sex'             => $p['sex']         ?? '',
+                    '_sf_color'           => $p['color']       ?? '',
+                    '_sf_material'        => $p['material']    ?? '',
+                    '_sf_made_in'         => $p['made_in']     ?? '',
+                    '_sf_season'          => $p['season']      ?? '',
                 ];
                 $matched = MarkupResolver::ruleMultiplier($ruleData, $markupRules);
                 if ($matched !== null) $perProductMultiplier = $matched;

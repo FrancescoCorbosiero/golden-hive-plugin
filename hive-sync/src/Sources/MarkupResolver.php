@@ -122,11 +122,10 @@ final class MarkupResolver
         // Case-insensitive comparison for ALL string ops. Operators
         // type rule values by hand ("nike", "pantaloni") while feeds
         // ship Title Case ("Nike", "Pantaloni"). Strict === would
-        // miss those silently and the operator would think their
-        // markup_rule was broken when it's just casing. Generic CSV
-        // and GS flavors hit the same hazard, so we normalize at
-        // the resolver layer rather than per-flavor.
-        $actualStr = is_scalar($actual) ? strtolower(trim((string) $actual)) : '';
+        // miss those silently. Use mb_strtolower so non-ASCII
+        // characters (Italian é/à/ò, etc.) lowercase correctly —
+        // PHP's strtolower is ASCII-only and would leave them alone.
+        $actualStr = is_scalar($actual) ? self::lc((string) $actual) : '';
 
         return match ($rule['operator']) {
             'equals'      => $actualStr === self::lc((string) $rule['value']),
@@ -141,7 +140,8 @@ final class MarkupResolver
 
     private static function lc(string $v): string
     {
-        return strtolower(trim($v));
+        $v = trim($v);
+        return function_exists('mb_strtolower') ? mb_strtolower($v, 'UTF-8') : strtolower($v);
     }
 
     /**

@@ -88,10 +88,28 @@ abstract class AbstractSource implements Source
                 case 'bool':
                     $value = (bool) $value;
                     break;
+                // Structured types — schema authors flag fields that carry
+                // arrays (or other non-scalar shapes) here so the default
+                // (string) cast below doesn't silently flatten them to
+                // "Array". MarkupResolver::normalize handles the deeper
+                // validation downstream, so we just pass the value through.
+                // Without this, markup_rules typed in the UI survive AJAX
+                // transport intact but get cast to "Array" inside
+                // validateConfig, and the downstream `is_array` guard in
+                // normalize() drops every rule — the symptom was
+                // multiplier × 1.00 on every row even when the operator's
+                // rule pill matched on the JS side.
+                case 'markup_rules':
+                    if (! is_array($value)) $value = [];
+                    break;
                 case 'secret':
                 case 'text':
                 default:
-                    $value = (string) $value;
+                    // Be defensive: scalar-only cast. Non-scalars (arrays
+                    // for unknown structured types) pass through unchanged
+                    // so future schema types don't repeat the markup_rules
+                    // bug. Stringly-typed schema fields still get cast.
+                    if (is_scalar($value)) $value = (string) $value;
             }
 
             if ($max !== null && is_string($value) && strlen($value) > $max) {

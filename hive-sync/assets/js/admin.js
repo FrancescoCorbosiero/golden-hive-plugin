@@ -1594,7 +1594,11 @@
         return ''
           + '<div class="hsync-markup-rules" id="' + esc(id) + '" data-markup-region>'
           +   '<div data-markup-rows>' + rows + '</div>'
-          +   '<button type="button" class="button" data-action="markup-rule-add" style="margin-top:6px;">+ Aggiungi regola</button>'
+          +   '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">'
+          +     '<button type="button" class="button" data-action="markup-rule-add">+ Aggiungi regola</button>'
+          +     '<button type="button" class="button" data-action="markup-rules-test" title="Esegui un test fetch e mostra per ogni prodotto quale regola matcha e quale moltiplicatore viene applicato.">🔍 Verifica regole sui dati reali</button>'
+          +   '</div>'
+          +   '<div data-region="markup-rules-test-output" style="margin-top:8px;"></div>'
           // Hidden carrier — collectConfig reads it like any other named input,
           // markup_rules special-case in collectConfig parses the JSON.
           +   '<input type="hidden" name="' + esc(field) + '" value="' + esc(JSON.stringify(list)) + '">'
@@ -1622,6 +1626,119 @@
      * every change in the repeater so collectConfig sees fresh data
      * even if the user never blurs out of the last input.
      */
+    /**
+     * Live diagnostic: fetch a few real products from the source (with
+     * the operator's current config including markup_rules) and show
+     * which rule matched each. Removes the "did my rule fire?" guessing.
+     */
+    HSync.runMarkupRulesTest = async function (button) {
+        const region = button.closest('[data-markup-region]');
+        if (!region) return;
+        const out = region.querySelector('[data-region="markup-rules-test-output"]');
+        const form = button.closest('form.hsync-config-form');
+        if (!form) {
+            out.innerHTML = '<div class="hsync-error">Form non trovato.</div>';
+            return;
+        }
+        // Make sure the hidden markup_rules input reflects the latest
+        // edits before we ship the config to the server.
+        HSync.syncMarkupRules(region);
+        const sourceId = form.dataset.source || '';
+        const config   = HSync.collectConfig(form);
+        const rules    = Array.isArray(config.markup_rules) ? config.markup_rules : [];
+
+        out.innerHTML = '<p class="hsync-loading">Verifica regole in corso…</p>';
+        try {
+            const data = await HSync.ajax('markup_rules_test', {
+                source_id: sourceId,
+                config:    config,
+            });
+            if (!data.rows || data.rows.length === 0) {
+                out.innerHTML = '<div class="hsync-warning">Nessun prodotto restituito dalla sorgente. Controlla URL/credenziali.</div>';
+                return;
+            }
+            // Per-product diagnostic. For each row we walk the rules
+            // client-side to mirror what the server already did — the
+            // server returns _sf_applied_multiplier for SF, but we
+            // ALSO want to show which rule index matched + the value
+            // that was compared, so the operator can see the exact
+            // pairing. Client-side mirror is fine because the source-
+            // returned ruleData is already projected.
+            const ruleMatch = (rowFields, rule) => {
+                if (!rule || !rule.field) return false;
+                const actual = String(rowFields[rule.field] ?? '').trim().toLowerCase();
+                const value  = String(rule.value ?? '').trim().toLowerCase();
+                switch (rule.operator) {
+                    case 'equals':      return actual === value;
+                    case 'not_equals':  return actual !== value;
+                    case 'contains':    return actual !== '' && actual.includes(value);
+                    case 'starts_with': return actual !== '' && actual.startsWith(value);
+                    case 'in': {
+                        const list = String(rule.value || '').split(',').map(v => v.trim().toLowerCase());
+                        return list.includes(actual);
+                    }
+                    case 'not_in': {
+                        const list = String(rule.value || '').split(',').map(v => v.trim().toLowerCase());
+                        return !list.includes(actual);
+                    }
+                    default: return false;
+                }
+            };
+
+            const head = ''
+                + '<tr>'
+                + '<th>#</th><th>SKU</th><th>Nome</th>'
+                + '<th><code>_sf_taxonomy_any</code></th>'
+                + '<th><code>_sf_brand</code></th>'
+                + '<th><code>_sf_category</code></th>'
+                + '<th><code>_sf_subcategory</code></th>'
+                + '<th>Regola</th>'
+                + '<th>Moltiplicatore</th>'
+                + '<th>Prezzo variante</th>'
+                + '</tr>';
+
+            const body = data.rows.map((r, i) => {
+                // Client-side rule walk for "which rule index matched".
+                let matchedRule = null;
+                let matchedIdx  = -1;
+                for (let j = 0; j < rules.length; j++) {
+                    if (ruleMatch(r, rules[j])) { matchedRule = rules[j]; matchedIdx = j; break; }
+                }
+                const ruleCell = matchedRule
+                    ? '<span class="hsync-action-pill is-created">#' + (matchedIdx + 1)
+                        + ' · ' + esc(String(matchedRule.field)) + ' ' + esc(String(matchedRule.operator)) + ' "' + esc(String(matchedRule.value)) + '"</span>'
+                    : '<span class="hsync-action-pill is-skipped">— nessuna —</span>';
+                const mult = r.applied_multiplier != null ? Number(r.applied_multiplier).toFixed(2) : '?';
+                const fv = r.first_variation_prices;
+                const priceCell = fv
+                    ? 'reg=<code>' + esc(String(fv.regular_price || '?')) + '</code> sale=<code>' + esc(String(fv.sale_price || '?')) + '</code> qty=<code>' + esc(String(fv.stock_quantity)) + '</code>'
+                    : '—';
+                return ''
+                    + '<tr>'
+                    + '<td>' + (i + 1) + '</td>'
+                    + '<td><code>' + esc(r.sku) + '</code></td>'
+                    + '<td>' + esc(r.name || '') + '</td>'
+                    + '<td><code>' + esc(r._sf_taxonomy_any || '') + '</code></td>'
+                    + '<td><code>' + esc(r._sf_brand || '') + '</code></td>'
+                    + '<td><code>' + esc(r._sf_category || '') + '</code></td>'
+                    + '<td><code>' + esc(r._sf_subcategory || '') + '</code></td>'
+                    + '<td>' + ruleCell + '</td>'
+                    + '<td><strong>×' + mult + '</strong></td>'
+                    + '<td>' + priceCell + '</td>'
+                    + '</tr>';
+            }).join('');
+
+            const matchedCount = data.rows.filter(r => rules.some(rule => ruleMatch(r, rule))).length;
+            const summary = rules.length === 0
+                ? '<div class="hsync-warning">Nessuna regola definita. Stai usando solo il moltiplicatore di fallback (sf_markup_value).</div>'
+                : '<div class="hsync-summary-foot">' + matchedCount + ' / ' + data.rows.length + ' prodotti del campione matchano almeno una regola.</div>';
+            out.innerHTML = summary
+                + '<div style="overflow-x:auto;"><table class="hsync-table">' + head + body + '</table></div>';
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+        }
+    };
+
     HSync.syncMarkupRules = function (region) {
         const rows = $$('[data-markup-rule-idx]', region);
         const list = rows.map(row => {
@@ -3116,6 +3233,9 @@
             if (row) row.remove();
             if (region) HSync.syncMarkupRules(region);
             return;
+        }
+        if (t.matches('[data-action="markup-rules-test"]')) {
+            return HSync.runMarkupRulesTest(t);
         }
         if (t.matches('[data-action="run-test-fetch"]')) return HSync.testFetchFromRun();
         if (t.matches('[data-action="run-save-config"]'))return HSync.saveCurrentConfig();

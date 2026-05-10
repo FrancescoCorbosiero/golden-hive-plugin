@@ -440,6 +440,28 @@ final class ImportRunner
 
         $data = $item->data;
 
+        // Track parent dirtiness so we can save once at the end
+        // regardless of which conditions fired. set_status alone
+        // wouldn't otherwise persist for variable products where
+        // manage_stock is already false.
+        $parentDirty = false;
+
+        // Sync parent status from the incoming payload regardless of
+        // type. Without this, flipping import_status on the source-
+        // config and re-syncing leaves existing products at their
+        // original status because most re-imports route here (the
+        // bucket diff classifies cosmetic changes as updateStock) and
+        // we never reach gh_sf_update_product / gh_create_*_product
+        // which DO sync status. Operator sees "products imported as
+        // draft" even after switching to publish.
+        if ( isset( $data['status'] ) && $data['status'] !== '' ) {
+            $incomingStatus = (string) $data['status'];
+            if ( $product->get_status() !== $incomingStatus ) {
+                $product->set_status( $incomingStatus );
+                $parentDirty = true;
+            }
+        }
+
         // Variable path: patch each variation by SKU. The variations[]
         // array on the FeedItem is the source of truth (output of the
         // source's transform — e.g. CsvSource::sfTransformToWoo or the
@@ -453,7 +475,9 @@ final class ImportRunner
                 // No variations in payload (likely a hive-sync source
                 // that doesn't produce them). Bail out so the caller
                 // routes to the full bridge update path instead of
-                // silently no-oping.
+                // silently no-oping. Save the parent first if status
+                // changed — don't lose that mutation on the bail-out.
+                if ( $parentDirty ) $product->save();
                 return null;
             }
 
@@ -464,6 +488,9 @@ final class ImportRunner
             // from variants" state.
             if ( $product->get_manage_stock() ) {
                 $product->set_manage_stock( false );
+                $parentDirty = true;
+            }
+            if ( $parentDirty ) {
                 $product->save();
             }
 
@@ -515,7 +542,8 @@ final class ImportRunner
         }
 
         // Simple path: original behaviour. Patches parent fields directly.
-        $touched = false;
+        // $parentDirty already captures any status sync from above.
+        $touched = $parentDirty;
         if ( array_key_exists( 'regular_price', $data ) ) {
             $product->set_regular_price( (string) $data['regular_price'] );
             $touched = true;

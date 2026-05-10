@@ -955,6 +955,13 @@ final class CsvSource extends AbstractSource
      * sf_markup_multiplier (int × 10) is present, fall through to it
      * so existing source-configs keep working without manual edit.
      */
+    /** Public diagnostic wrapper. The markup-rules tester needs the
+     *  flat multiplier without re-running the whole fetch. */
+    public static function resolveSfMarkupPublic(array $cfg): float
+    {
+        return self::resolveSfMarkup($cfg);
+    }
+
     private static function resolveSfMarkup(array $cfg): float
     {
         $rawValue = trim((string) ($cfg['sf_markup_value'] ?? ''));

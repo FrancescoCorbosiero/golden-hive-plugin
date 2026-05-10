@@ -1731,8 +1731,27 @@
             const matchedCount = data.rows.filter(r => rules.some(rule => ruleMatch(r, rule))).length;
             const summary = rules.length === 0
                 ? '<div class="hsync-warning">Nessuna regola definita. Stai usando solo il moltiplicatore di fallback (sf_markup_value).</div>'
-                : '<div class="hsync-summary-foot">' + matchedCount + ' / ' + data.rows.length + ' prodotti del campione matchano almeno una regola.</div>';
-            out.innerHTML = summary
+                : '<div class="hsync-summary-foot">' + matchedCount + ' / ' + data.rows.length + ' prodotti del campione matchano almeno una regola (lato JS).</div>';
+            // Server-side debug: what PHP actually received and how it
+            // normalized the rules. If applied_multiplier is wrong
+            // despite the JS pill being green, the issue is here:
+            // either normalized_rules dropped a rule (look at
+            // rules_dropped > 0), the percent was lost in transit, or
+            // the flat_sf_multiplier is unexpectedly low.
+            let dbg = '';
+            if (data._debug) {
+                const d = data._debug;
+                dbg = '<details style="margin:8px 0;padding:8px;background:#f6f7f9;border:1px dashed #cdd0d6;border-radius:4px;">'
+                    + '<summary><strong>Debug server-side</strong> (clicca per espandere)</summary>'
+                    + '<table class="hsync-table" style="margin-top:6px;">'
+                    + '<tr><th>flavor</th><td><code>' + esc(d.flavor || '?') + '</code></td></tr>'
+                    + (d.flat_sf_multiplier !== undefined ? '<tr><th>flat multiplier (sf_markup_value)</th><td><code>×' + Number(d.flat_sf_multiplier).toFixed(2) + '</code></td></tr>' : '')
+                    + '<tr><th>regole inviate</th><td><pre style="margin:0;font-size:11px;">' + esc(JSON.stringify(d.raw_rules || [], null, 2)) + '</pre></td></tr>'
+                    + '<tr><th>regole normalizzate (post-validation)</th><td><pre style="margin:0;font-size:11px;">' + esc(JSON.stringify(d.normalized_rules || [], null, 2)) + '</pre></td></tr>'
+                    + (d.rules_dropped > 0 ? '<tr><th style="color:#b32d2e;">⚠ regole scartate</th><td><code>' + d.rules_dropped + '</code> regole non hanno passato la validazione (field vuoto, operator non valido, o percent non numerico)</td></tr>' : '')
+                    + '</table></details>';
+            }
+            out.innerHTML = summary + dbg
                 + '<div style="overflow-x:auto;"><table class="hsync-table">' + head + body + '</table></div>';
         } catch (e) {
             out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';

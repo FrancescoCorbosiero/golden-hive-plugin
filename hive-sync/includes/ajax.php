@@ -1246,3 +1246,74 @@ add_action( 'wp_ajax_hsync_ajax_project_apply', function () {
     }
     wp_send_json_success( $result );
 } );
+
+// ─── Markup rules tester ──────────────────────────────────────────
+//
+// Runs source.fetch with the operator's current config (including
+// markup_rules) on a small slice of the feed and returns per-product
+// diagnostics: which rule matched, what value was compared, what
+// multiplier resolved. Removes guessing about "did my rule fire?".
+
+add_action( 'wp_ajax_hsync_ajax_markup_rules_test', function () {
+    hsync_ajax_guard();
+    $sourceId   = hsync_post_text( 'source_id' );
+    $configSlug = hsync_post_text( 'config_slug' );
+    $config     = hsync_resolve_source_config( hsync_post_json( 'config' ), $configSlug );
+
+    if ( ! \HiveSync\Core\Bootstrap::$sources ) {
+        wp_send_json_error( [ 'message' => 'Bootstrap non inizializzato.' ] );
+    }
+    $src = \HiveSync\Core\Bootstrap::$sources->get( $sourceId );
+    if ( ! $src ) {
+        wp_send_json_error( [ 'message' => "Source '{$sourceId}' non registrata." ] );
+    }
+
+    $ctx = new \HiveSync\Core\Source\Context( runId: 'markup-test' );
+    $req = new \HiveSync\Core\Source\FetchRequest( $config, [] );
+    try {
+        $fetch = $src->fetch( $req, $ctx );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( [ 'message' => $e->getMessage() ] );
+    }
+
+    // Surface the markup-relevant fields per product. The SF flavor
+    // populates _sf_applied_multiplier on each FeedItem, so we just
+    // pluck the diagnostic-ready fields directly. For generic CSV
+    // and JSON the same diagnostics are computed on demand.
+    $rows = [];
+    foreach ( array_slice( $fetch->items, 0, 20 ) as $item ) {
+        $d = $item->data;
+        $rows[] = [
+            'sku'                    => (string) $item->sku,
+            'name'                   => (string) ( $d['name'] ?? '' ),
+            // SF-specific diagnostic fields surfaced by the transform.
+            'applied_multiplier'     => isset( $d['_sf_applied_multiplier'] ) ? (float) $d['_sf_applied_multiplier'] : null,
+            'markup_target'          => (string) ( $d['_sf_markup_target'] ?? '' ),
+            // The actual field values the matcher saw.
+            '_sf_brand'              => (string) ( $d['_sf_brand']        ?? '' ),
+            '_sf_category'           => (string) ( $d['_sf_category']     ?? '' ),
+            '_sf_subcategory'        => (string) ( $d['_sf_subcategory']  ?? '' ),
+            '_sf_taxonomy_any'       => trim(
+                ( (string) ( $d['_sf_subcategory'] ?? '' ) ) !== ''
+                    ? (string) $d['_sf_subcategory']
+                    : (string) ( $d['_sf_category'] ?? '' )
+            ),
+            '_sf_taxonomy'           => trim( ( (string) ( $d['_sf_category'] ?? '' ) ) . ' > ' . ( (string) ( $d['_sf_subcategory'] ?? '' ) ), ' >' ),
+            'variations_count'       => isset( $d['variations'] ) && is_array( $d['variations'] ) ? count( $d['variations'] ) : 0,
+            'first_variation_prices' => isset( $d['variations'][0] ) && is_array( $d['variations'][0] )
+                ? [
+                    'regular_price'  => (string) ( $d['variations'][0]['regular_price']  ?? '' ),
+                    'sale_price'     => (string) ( $d['variations'][0]['sale_price']     ?? '' ),
+                    'stock_quantity' => (int)    ( $d['variations'][0]['stock_quantity'] ?? 0 ),
+                ]
+                : null,
+        ];
+    }
+
+    wp_send_json_success( [
+        'count'    => count( $fetch->items ),
+        'rules'    => is_array( $config['markup_rules'] ?? null ) ? $config['markup_rules'] : [],
+        'rows'     => $rows,
+        'warnings' => $fetch->warnings,
+    ] );
+} );

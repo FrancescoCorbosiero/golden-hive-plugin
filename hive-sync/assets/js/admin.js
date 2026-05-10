@@ -2316,6 +2316,13 @@
         region.innerHTML = '<form class="hsync-config-form" data-source="' + esc(src.id) + '" data-context="run">'
             + HSync.renderSchema(src.config_schema, 'run-' + src.id)
             + '</form>';
+        // Datalist suggestions for the markup-rules `field` input —
+        // same flavor-aware autocomplete the Connetti tab gets.
+        // Without this call the run form rendered the `campo` input
+        // as plain text and the operator had to remember field names
+        // (_sf_brand / _gs_category / pa_brand / …) by heart.
+        const runForm = region.querySelector('form.hsync-config-form');
+        if (runForm) HSync.applyMarkupFlavorVisibility(runForm);
         if (HSync.state.mappings.length === 0) HSync.loadMappings();
         else HSync.populateRunMappings();
         HSync.loadSourceConfigs(sourceId);
@@ -2366,18 +2373,37 @@
         if (!form) return;
         if (!cfg) return;
         // Hydrate visible fields with stored values (secrets stay redacted).
+        // Mirrors loadSourceConfigEditor's special-case for markup_rules:
+        // the hidden carrier holds the JSON, but the visible rows need
+        // an explicit repaint — without it picking a saved config
+        // showed empty rule rows even when the config had rules.
         $$('input, select, textarea', form).forEach(el => {
             if (!el.name) return;
             if (Object.prototype.hasOwnProperty.call(cfg, el.name)) {
-                if (el.type === 'checkbox') el.checked = !!cfg[el.name];
-                else if (el.type === 'password' && /^•+/.test(String(cfg[el.name]))) {
-                    el.placeholder = String(cfg[el.name]);
+                const val = cfg[el.name];
+                if (el.type === 'checkbox') {
+                    el.checked = !!val;
+                } else if (el.type === 'password' && /^•+/.test(String(val))) {
+                    el.placeholder = String(val);
                     el.value = '';
+                } else if (el.name === 'markup_rules') {
+                    const list = Array.isArray(val) ? val : [];
+                    el.value = JSON.stringify(list);
+                    const region = el.closest('[data-markup-region]');
+                    const rowsEl = region && region.querySelector('[data-markup-rows]');
+                    if (rowsEl) {
+                        rowsEl.innerHTML = list.map((r, i) => HSync.renderMarkupRuleRow(r, i)).join('');
+                    }
                 } else {
-                    el.value = String(cfg[el.name] ?? '');
+                    el.value = String(val ?? '');
                 }
             }
         });
+        // Flavor may have just changed via the saved config — refresh
+        // markup-rules visibility + datalist suggestions on the
+        // `field` (campo) inputs so the operator gets the right
+        // autocomplete (_sf_*, _gs_*, pa_*) for the picked flavor.
+        HSync.applyMarkupFlavorVisibility(form);
         // Re-attach listener so subsequent picks still hydrate.
         $('[data-field="run-config-slug"]').addEventListener('change', HSync.onRunConfigSlugChange, { once: true });
     };

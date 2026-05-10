@@ -526,6 +526,20 @@ function rp_rc_gs_update_product( array $data ): array {
             gh_attach_attribute_terms( $product_id, $data['attributes'] );
         }
 
+        // Sync parent status from the incoming payload. Same posture
+        // as gh_sf_update_product: flipping import_status on the
+        // source-config and re-syncing promotes existing products
+        // too. Without this the parent stays at whatever status it
+        // was created with on the very first import.
+        //
+        // Saved immediately because the variable branch below only
+        // touches variations (no parent save), so without an explicit
+        // save here set_status would be lost for variable parents.
+        if ( isset( $data['status'] ) ) {
+            $product->set_status( $data['status'] );
+            $product->save();
+        }
+
         // Aggiorna prezzo parent (simple)
         if ( $product->is_type( 'simple' ) ) {
             if ( isset( $data['regular_price'] ) ) $product->set_regular_price( $data['regular_price'] );

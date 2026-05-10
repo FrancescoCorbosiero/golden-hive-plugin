@@ -404,6 +404,13 @@ function gh_sf_update_product( array $data ): array {
         if ( isset( $data['description'] ) )       $product->set_description( $data['description'] );
         if ( isset( $data['short_description'] ) ) $product->set_short_description( $data['short_description'] );
         if ( isset( $data['weight'] ) )            $product->set_weight( $data['weight'] );
+        // Sync status when the source-config carries it. Mirrors the
+        // operator's mental model: flipping import_status from 'draft'
+        // to 'publish' on the source-config and re-syncing should
+        // promote the existing products too. Manual edits made in
+        // WC admin lose to the next sync — that's the trade-off, and
+        // the conflict-rules layer is where to add finer protection.
+        if ( isset( $data['status'] ) )            $product->set_status( $data['status'] );
 
         if ( $product->is_type( 'simple' ) ) {
             // Simple path: identica al gh_csv_update_product di sempre.

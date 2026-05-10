@@ -146,7 +146,18 @@ final class CsvSource extends AbstractSource
                 'type'    => 'markup_rules',
                 'label'   => 'Markup per categoria/brand/etc.',
                 'default' => [],
-                'description' => 'Sovrascrivi il markup di fallback per sottoinsiemi. Esempio: brand "Nike" → 40%, categoria "abbigliamento" → 20%. Prima regola che matcha vince.\n\n• Generic CSV → fallback su markup_percent. Campi tipici: `brand`, `category`, o qualsiasi colonna del CSV.\n• StockFirmati → fallback su sf_markup_value. Campi: `_sf_brand`, `_sf_category`, `_sf_subcategory`, `_sf_sex`, `_sf_color`, `_sf_material`, `_sf_season`.',
+                'description' => 'Sovrascrivi il markup di fallback per sottoinsiemi. Esempio: brand "Nike" → 40%, categoria "abbigliamento" → 20%. Prima regola che matcha vince. Confronto case-insensitive, Unicode-safe.\n\n• Generic CSV → fallback su markup_percent. Campi tipici: `brand`, `category`, o qualsiasi colonna del CSV.\n• StockFirmati → fallback su sf_markup_value. **Consigliato `_sf_taxonomy_any`** (cerca in categoria OR sottocategoria — utile quando il feed mette il valore in uno dei due ma non sai quale). Altri campi: `_sf_taxonomy` (cat > sub combinato per `contains`), `_sf_brand`, `_sf_category`, `_sf_subcategory`, `_sf_sex`, `_sf_color`, `_sf_material`, `_sf_season`.',
+            ],
+            'markup_target' => [
+                'type'    => 'enum',
+                'label'   => 'Applica il markup a',
+                'options' => [ 'sale', 'both' ],
+                'option_labels' => [
+                    'sale' => 'Solo prezzo di vendita (default — preserva l\'RRP del feed)',
+                    'both' => 'Entrambi (RRP + prezzo di vendita scalano insieme)',
+                ],
+                'default' => 'sale',
+                'description' => 'Per StockFirmati: "Solo vendita" mantiene regular_price = STREET_PRICE (l\'RRP del feed) e applica il markup a sale_price. "Entrambi" scala anche regular_price dello stesso fattore — utile se vuoi che l\'RRP visualizzato dal cliente venga gonfiato col markup. Per generic flavor è già "Entrambi" by design.',
             ],
         ];
     }
@@ -233,7 +244,11 @@ final class CsvSource extends AbstractSource
             // always the raw feed cost, output is reproducible.
             $flatMultiplier = self::resolveSfMarkup($cfg);
             $sfMarkupRules  = MarkupResolver::normalize($cfg['markup_rules'] ?? []);
-            $items = self::sfNormalizeAndTransform($assocRows, $flatMultiplier, $importStatus, $sfMarkupRules);
+            $sfMarkupTarget = (string) ($cfg['markup_target'] ?? 'sale');
+            if (! in_array($sfMarkupTarget, ['sale', 'both'], true)) {
+                $sfMarkupTarget = 'sale';
+            }
+            $items = self::sfNormalizeAndTransform($assocRows, $flatMultiplier, $importStatus, $sfMarkupRules, $sfMarkupTarget);
             $items = self::applySfCategoryFilter($items, $request->options['category_filter'] ?? null);
             if ($mapping) {
                 $remapped = [];
@@ -610,9 +625,13 @@ final class CsvSource extends AbstractSource
      *        overrides resolved against each grouped product's
      *        SF-prefixed fields (`_sf_brand`, `_sf_category`, etc.).
      *        First match wins; no match → fall back to $multiplier.
+     * @param string $markupTarget  'sale' (default — only sale_price
+     *        gets the multiplier; regular_price = STREET_PRICE) OR
+     *        'both' (regular_price ALSO scales by the resolved
+     *        multiplier). Mirrors the source-config knob.
      * @return FeedItem[]
      */
-    private static function sfNormalizeAndTransform(array $assocRows, float $multiplier, string $importStatus = 'publish', array $markupRules = []): array
+    private static function sfNormalizeAndTransform(array $assocRows, float $multiplier, string $importStatus = 'publish', array $markupRules = [], string $markupTarget = 'sale'): array
     {
         $products = [];
         foreach ($assocRows as $row) {
@@ -697,22 +716,42 @@ final class CsvSource extends AbstractSource
             // them under the `_sf_` namespace just for the rule check.
             $perProductMultiplier = $multiplier;
             if ($markupRules !== []) {
+                $catLevel = self::sfClean((string) ($p['category']    ?? ''));
+                $subLevel = self::sfClean((string) ($p['subcategory'] ?? ''));
+                // Virtual fields covering common gotchas:
+                //   _sf_taxonomy        → "category > subcategory" combined,
+                //                         match anywhere with `contains`.
+                //   _sf_taxonomy_any    → category OR subcategory, whichever
+                //                         the operator's rule expects, so
+                //                         `_sf_taxonomy_any equals pantaloni`
+                //                         matches whether the feed puts
+                //                         "Pantaloni" in CAT or SUBCAT.
                 $ruleData = [
-                    '_sf_brand'        => $p['brand']       ?? '',
-                    '_sf_category'     => $p['category']    ?? '',
-                    '_sf_subcategory'  => $p['subcategory'] ?? '',
-                    '_sf_sex'          => $p['sex']         ?? '',
-                    '_sf_color'        => $p['color']       ?? '',
-                    '_sf_material'     => $p['material']    ?? '',
-                    '_sf_made_in'      => $p['made_in']     ?? '',
-                    '_sf_season'       => $p['season']      ?? '',
+                    '_sf_brand'           => $p['brand']       ?? '',
+                    '_sf_category'        => $catLevel,
+                    '_sf_subcategory'     => $subLevel,
+                    '_sf_taxonomy'        => trim($catLevel . ' > ' . $subLevel, ' >'),
+                    '_sf_taxonomy_any'    => $subLevel !== '' ? $subLevel : $catLevel,
+                    '_sf_sex'             => $p['sex']         ?? '',
+                    '_sf_color'           => $p['color']       ?? '',
+                    '_sf_material'        => $p['material']    ?? '',
+                    '_sf_made_in'         => $p['made_in']     ?? '',
+                    '_sf_season'          => $p['season']      ?? '',
                 ];
                 $matched = MarkupResolver::ruleMultiplier($ruleData, $markupRules);
                 if ($matched !== null) $perProductMultiplier = $matched;
             }
 
-            $woo = self::sfTransformToWoo($p, $perProductMultiplier, $importStatus);
+            $woo = self::sfTransformToWoo($p, $perProductMultiplier, $importStatus, $markupTarget);
             $woo['_hsync_flavor'] = self::FLAVOR_SF;
+            // Diagnostic: surface the multiplier ACTUALLY APPLIED to
+            // this product so test-fetch can show whether a rule
+            // matched. `_sf_applied_multiplier` shows up in the
+            // shape preview — operator can compare across products
+            // to verify rules fire correctly without reading the run
+            // log. Read-only meta, ignored by the bridge.
+            $woo['_sf_applied_multiplier'] = $perProductMultiplier;
+            $woo['_sf_markup_target']      = $markupTarget;
             $items[] = new FeedItem(sku: (string) $sku, data: $woo, raw: $rawRows);
         }
         return $items;
@@ -726,7 +765,7 @@ final class CsvSource extends AbstractSource
      * @param array<string, mixed> $product
      * @return array<string, mixed>
      */
-    private static function sfTransformToWoo(array $product, float $multiplier, string $importStatus = 'publish'): array
+    private static function sfTransformToWoo(array $product, float $multiplier, string $importStatus = 'publish', string $markupTarget = 'sale'): array
     {
         $sizes    = $product['sizes'] ?? [];
         $hasSizes = count($sizes) > 0;
@@ -735,7 +774,16 @@ final class CsvSource extends AbstractSource
         $streetPrice = (float) ($product['street_price'] ?? 0);
         $costPrice   = (float) ($product['cost_price']   ?? 0);
         $salePrice   = round($costPrice * $multiplier);
-        $regPrice    = round($streetPrice);
+        // 'sale' (default) → regular_price tracks STREET_PRICE (RRP)
+        //                    untouched. Markup affects sale_price only.
+        // 'both'           → regular_price ALSO scales by the same
+        //                    multiplier — useful when the operator
+        //                    wants the displayed RRP to inflate
+        //                    proportionally with the rule (e.g. show
+        //                    a higher "list" price next to the sale).
+        $regPrice    = $markupTarget === 'both'
+            ? round($streetPrice * $multiplier)
+            : round($streetPrice);
 
         $name = ($product['name'] !== '')
             ? $product['name']
@@ -819,7 +867,13 @@ final class CsvSource extends AbstractSource
         foreach ($sizes as $size) {
             $varCost   = (float) ($size['price']    ?: $costPrice);
             $varSale   = round($varCost * $multiplier);
-            $varReg    = round($streetPrice);
+            // Mirror the parent's markup_target semantics on each
+            // variant: 'both' scales regular_price together with
+            // sale_price; 'sale' (default) keeps regular at the raw
+            // STREET_PRICE.
+            $varReg    = $markupTarget === 'both'
+                ? round($streetPrice * $multiplier)
+                : round($streetPrice);
             $qty       = (int) ($size['quantity'] ?? 0);
             $totalQty += $qty;
             // Fallback: STREET_PRICE column is optional in many SF

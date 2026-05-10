@@ -119,17 +119,29 @@ final class MarkupResolver
     {
         $actual = self::dotGet($data, $rule['field']);
         if ($actual === null) return false;
-        $actualStr = is_scalar($actual) ? (string) $actual : '';
+        // Case-insensitive comparison for ALL string ops. Operators
+        // type rule values by hand ("nike", "pantaloni") while feeds
+        // ship Title Case ("Nike", "Pantaloni"). Strict === would
+        // miss those silently and the operator would think their
+        // markup_rule was broken when it's just casing. Generic CSV
+        // and GS flavors hit the same hazard, so we normalize at
+        // the resolver layer rather than per-flavor.
+        $actualStr = is_scalar($actual) ? strtolower(trim((string) $actual)) : '';
 
         return match ($rule['operator']) {
-            'equals'      => $actualStr === (string) $rule['value'],
-            'not_equals'  => $actualStr !== (string) $rule['value'],
-            'in'          => is_array($rule['value']) && in_array($actualStr, array_map('strval', $rule['value']), true),
-            'not_in'      => is_array($rule['value']) && ! in_array($actualStr, array_map('strval', $rule['value']), true),
-            'contains'    => $actualStr !== '' && str_contains($actualStr, (string) $rule['value']),
-            'starts_with' => $actualStr !== '' && str_starts_with($actualStr, (string) $rule['value']),
+            'equals'      => $actualStr === self::lc((string) $rule['value']),
+            'not_equals'  => $actualStr !== self::lc((string) $rule['value']),
+            'in'          => is_array($rule['value']) && in_array($actualStr, array_map(fn($v) => self::lc((string) $v), $rule['value']), true),
+            'not_in'      => is_array($rule['value']) && ! in_array($actualStr, array_map(fn($v) => self::lc((string) $v), $rule['value']), true),
+            'contains'    => $actualStr !== '' && str_contains($actualStr, self::lc((string) $rule['value'])),
+            'starts_with' => $actualStr !== '' && str_starts_with($actualStr, self::lc((string) $rule['value'])),
             default       => false,
         };
+    }
+
+    private static function lc(string $v): string
+    {
+        return strtolower(trim($v));
     }
 
     /**

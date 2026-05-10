@@ -140,13 +140,13 @@ final class CsvSource extends AbstractSource
                 'type'    => 'int',
                 'label'   => 'Markup percentuale di fallback (solo flavor "generic")',
                 'default' => 0,
-                'description' => 'Applicato a TUTTI i prodotti che non matchano una regola in "Markup per categoria/brand". Il flavor StockFirmati ha la sua formula dedicata sopra.',
+                'description' => 'Applicato a TUTTI i prodotti che non matchano una regola in "Markup per categoria/brand". Il flavor StockFirmati ha la sua formula dedicata sopra (sf_markup_value).',
             ],
             'markup_rules' => [
                 'type'    => 'markup_rules',
-                'label'   => 'Markup per categoria/brand/etc. (solo flavor "generic")',
+                'label'   => 'Markup per categoria/brand/etc.',
                 'default' => [],
-                'description' => 'Sovrascrivi il markup di fallback per sottoinsiemi. Esempio: brand "Nike" → 40%, categoria "abbigliamento" → 20%. Prima regola che matcha vince. Per generic CSV i campi tipici sono `brand`, `category`, o qualsiasi colonna del CSV.',
+                'description' => 'Sovrascrivi il markup di fallback per sottoinsiemi. Esempio: brand "Nike" → 40%, categoria "abbigliamento" → 20%. Prima regola che matcha vince.\n\n• Generic CSV → fallback su markup_percent. Campi tipici: `brand`, `category`, o qualsiasi colonna del CSV.\n• StockFirmati → fallback su sf_markup_value. Campi: `_sf_brand`, `_sf_category`, `_sf_subcategory`, `_sf_sex`, `_sf_color`, `_sf_material`, `_sf_season`.',
             ],
         ];
     }
@@ -226,8 +226,14 @@ final class CsvSource extends AbstractSource
             foreach ($rows as $row) {
                 $assocRows[] = $header !== null ? self::associate($header, $row) : $row;
             }
-            $multiplier = self::resolveSfMarkup($cfg);
-            $items = self::sfNormalizeAndTransform($assocRows, $multiplier, $importStatus);
+            // Per-rule overrides take precedence over the flat SF
+            // multiplier — same posture as the generic flavor's
+            // markup_rules + markup_percent split. SF's flat
+            // sf_markup_value is the fallback. Idempotent: input is
+            // always the raw feed cost, output is reproducible.
+            $flatMultiplier = self::resolveSfMarkup($cfg);
+            $sfMarkupRules  = MarkupResolver::normalize($cfg['markup_rules'] ?? []);
+            $items = self::sfNormalizeAndTransform($assocRows, $flatMultiplier, $importStatus, $sfMarkupRules);
             $items = self::applySfCategoryFilter($items, $request->options['category_filter'] ?? null);
             if ($mapping) {
                 $remapped = [];
@@ -600,9 +606,13 @@ final class CsvSource extends AbstractSource
 
     /**
      * @param array<int, array<string, mixed>> $assocRows
+     * @param array<int, array>                $markupRules  optional per-rule
+     *        overrides resolved against each grouped product's
+     *        SF-prefixed fields (`_sf_brand`, `_sf_category`, etc.).
+     *        First match wins; no match → fall back to $multiplier.
      * @return FeedItem[]
      */
-    private static function sfNormalizeAndTransform(array $assocRows, float $multiplier, string $importStatus = 'publish'): array
+    private static function sfNormalizeAndTransform(array $assocRows, float $multiplier, string $importStatus = 'publish', array $markupRules = []): array
     {
         $products = [];
         foreach ($assocRows as $row) {
@@ -676,7 +686,32 @@ final class CsvSource extends AbstractSource
         foreach ($products as $sku => $p) {
             $rawRows = $p['_raw_rows'];
             unset($p['_raw_rows']);
-            $woo = self::sfTransformToWoo($p, $multiplier, $importStatus);
+
+            // Per-product markup: rule lookup against SF-prefixed
+            // fields, fall back to the flat sf_markup_value multiplier
+            // when no rule matches. Field-name convention
+            // (`_sf_brand`, `_sf_category`, …) matches the description
+            // text the operator sees in the source-config UI and the
+            // datalist suggestions on the markup_rules editor. The
+            // grouped product carries unprefixed keys, so we project
+            // them under the `_sf_` namespace just for the rule check.
+            $perProductMultiplier = $multiplier;
+            if ($markupRules !== []) {
+                $ruleData = [
+                    '_sf_brand'        => $p['brand']       ?? '',
+                    '_sf_category'     => $p['category']    ?? '',
+                    '_sf_subcategory'  => $p['subcategory'] ?? '',
+                    '_sf_sex'          => $p['sex']         ?? '',
+                    '_sf_color'        => $p['color']       ?? '',
+                    '_sf_material'     => $p['material']    ?? '',
+                    '_sf_made_in'      => $p['made_in']     ?? '',
+                    '_sf_season'       => $p['season']      ?? '',
+                ];
+                $matched = MarkupResolver::ruleMultiplier($ruleData, $markupRules);
+                if ($matched !== null) $perProductMultiplier = $matched;
+            }
+
+            $woo = self::sfTransformToWoo($p, $perProductMultiplier, $importStatus);
             $woo['_hsync_flavor'] = self::FLAVOR_SF;
             $items[] = new FeedItem(sku: (string) $sku, data: $woo, raw: $rawRows);
         }

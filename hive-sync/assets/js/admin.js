@@ -1325,10 +1325,20 @@
         'json|generic':         [],
         'json|goldensneakers':  ['_gs_brand', '_gs_category'],
         'csv|generic':          ['brand', 'pa_brand', 'pa_color', 'pa_gender', 'pa_material', 'pa_model', 'categories'],
-        'csv|stockfirmati':     [],  // hidden, suggestions never shown
+        // SF flavor honors per-rule overrides (the flat sf_markup_value
+        // is the fallback when no rule matches). Field paths are the
+        // SF-prefixed keys the transform projects onto each grouped
+        // product before resolving rules.
+        'csv|stockfirmati':     ['_sf_brand', '_sf_category', '_sf_subcategory', '_sf_sex', '_sf_color', '_sf_material', '_sf_season'],
     };
-    HSync.MARKUP_HIDDEN_FOR = {
-        'csv|stockfirmati': 'Per StockFirmati il markup è gestito dai campi <strong>sf_markup_mode</strong> + <strong>sf_markup_value</strong> qui sopra. <em>markup_percent</em> e <em>markup_rules</em> sono ignorati per questo flavor.',
+    // markup_percent (the flat-percent fallback) is irrelevant for
+    // csv/stockfirmati — that flavor falls back to sf_markup_value
+    // instead. We hide JUST that one field; markup_rules itself is
+    // visible because rules now apply to SF too (with sf_markup_value
+    // as the fallback). The hint banner explains the split.
+    HSync.MARKUP_HIDDEN_FOR = {};
+    HSync.MARKUP_HIDDEN_PERCENT_FOR = {
+        'csv|stockfirmati': 'Per StockFirmati il fallback è <strong>sf_markup_value</strong> qui sopra; <em>markup_percent</em> è ignorato. Le regole qui sotto si applicano normalmente — il match vince sul fallback.',
     };
 
     HSync.applyMarkupFlavorVisibility = function (form) {
@@ -1338,18 +1348,29 @@
         const flavor   = flavorEl ? String(flavorEl.value || '').trim() : '';
         const key      = sourceId + '|' + (flavor || 'generic');
 
-        const hideMessage = HSync.MARKUP_HIDDEN_FOR[key] || null;
+        // Whole-block hide (markup_percent + markup_rules together).
+        // Currently empty — kept as the API surface in case a future
+        // flavor needs it. For SF we only hide markup_percent.
+        const hideAllMessage = HSync.MARKUP_HIDDEN_FOR[key] || null;
+        // markup_percent-only hide. Used by csv/stockfirmati: the
+        // flat-percent fallback is irrelevant there (sf_markup_value
+        // owns that role) but markup_rules themselves DO apply.
+        const hidePercentMessage = HSync.MARKUP_HIDDEN_PERCENT_FOR[key] || null;
 
-        // Toggle the parent <label> of the markup_percent + markup_rules
-        // inputs so the entire field row vanishes.
         $$('label', form).forEach(lbl => {
-            const input = lbl.querySelector('[name="markup_percent"], [name="markup_rules"]');
-            if (input) lbl.style.display = hideMessage ? 'none' : '';
+            const pct  = lbl.querySelector('[name="markup_percent"]');
+            const rule = lbl.querySelector('[name="markup_rules"]');
+            if (pct) {
+                lbl.style.display = (hideAllMessage || hidePercentMessage) ? 'none' : '';
+            } else if (rule) {
+                lbl.style.display = hideAllMessage ? 'none' : '';
+            }
         });
 
-        // Surface a banner so the operator knows WHY the rows vanished.
+        // Surface a banner explaining whichever hide is active.
         let hint = form.querySelector('[data-markup-flavor-hint]');
-        if (hideMessage) {
+        const message = hideAllMessage || hidePercentMessage;
+        if (message) {
             if (!hint) {
                 hint = document.createElement('div');
                 hint.dataset.markupFlavorHint = '1';
@@ -1359,14 +1380,14 @@
                 hint.style.border = '1px dashed #cdd0d6';
                 hint.style.borderRadius = '4px';
                 hint.style.margin = '8px 0';
-                const anchor = form.querySelector('label > [name="sf_markup_value"], label > [name="markup_percent"]');
+                const anchor = form.querySelector('label > [name="sf_markup_value"], label > [name="markup_percent"], label > [name="markup_rules"]');
                 if (anchor && anchor.parentElement && anchor.parentElement.parentElement) {
                     anchor.parentElement.parentElement.insertBefore(hint, anchor.parentElement.nextSibling);
                 } else {
                     form.appendChild(hint);
                 }
             }
-            hint.innerHTML = hideMessage;
+            hint.innerHTML = message;
         } else if (hint) {
             hint.remove();
         }

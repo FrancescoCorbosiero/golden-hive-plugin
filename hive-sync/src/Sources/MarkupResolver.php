@@ -48,6 +48,25 @@ final class MarkupResolver
     }
 
     /**
+     * Same as multiplierFor but returns null when no rule matches.
+     * Lets the caller compose with a non-percent fallback (e.g. SF
+     * flavor's flat sf_markup_value multiplier, which isn't a
+     * percentage but a direct multiplier).
+     *
+     * @param array<string, mixed> $itemData
+     * @param array<int, array>    $rules
+     */
+    public static function ruleMultiplier(array $itemData, array $rules): ?float
+    {
+        foreach ($rules as $rule) {
+            if (self::matches($itemData, $rule)) {
+                return 1.0 + ((float) $rule['percent'] / 100.0);
+            }
+        }
+        return null;
+    }
+
+    /**
      * Coerce raw config input into a stable list of well-typed rules.
      * Drops malformed rows silently — better to ship a partial rule
      * set than to fail the whole fetch on one typo.

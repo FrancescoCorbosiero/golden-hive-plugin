@@ -1276,20 +1276,34 @@ add_action( 'wp_ajax_hsync_ajax_markup_rules_test', function () {
         wp_send_json_error( [ 'message' => $e->getMessage() ] );
     }
 
+    // ─── DEBUG: what the server actually saw ────────────────────
+    // Lets the operator (and us) verify the rules survived JSON
+    // serialization + json_decode + MarkupResolver::normalize
+    // exactly as they were typed.
+    $rawRules        = isset( $config['markup_rules'] ) && is_array( $config['markup_rules'] ) ? $config['markup_rules'] : [];
+    $normalizedRules = \HiveSync\Sources\MarkupResolver::normalize( $rawRules );
+    $flavor          = (string) ( $config['flavor'] ?? '' );
+    $debug = [
+        'flavor'             => $flavor,
+        'raw_rules'          => $rawRules,
+        'normalized_rules'   => $normalizedRules,
+        'rules_dropped'      => count( $rawRules ) - count( $normalizedRules ),
+    ];
+    if ( $flavor === 'stockfirmati' ) {
+        $debug['flat_sf_multiplier'] = \HiveSync\Sources\CsvSource::resolveSfMarkupPublic( $config );
+    }
+
     // Surface the markup-relevant fields per product. The SF flavor
     // populates _sf_applied_multiplier on each FeedItem, so we just
-    // pluck the diagnostic-ready fields directly. For generic CSV
-    // and JSON the same diagnostics are computed on demand.
+    // pluck the diagnostic-ready fields directly.
     $rows = [];
     foreach ( array_slice( $fetch->items, 0, 20 ) as $item ) {
         $d = $item->data;
         $rows[] = [
             'sku'                    => (string) $item->sku,
             'name'                   => (string) ( $d['name'] ?? '' ),
-            // SF-specific diagnostic fields surfaced by the transform.
             'applied_multiplier'     => isset( $d['_sf_applied_multiplier'] ) ? (float) $d['_sf_applied_multiplier'] : null,
             'markup_target'          => (string) ( $d['_sf_markup_target'] ?? '' ),
-            // The actual field values the matcher saw.
             '_sf_brand'              => (string) ( $d['_sf_brand']        ?? '' ),
             '_sf_category'           => (string) ( $d['_sf_category']     ?? '' ),
             '_sf_subcategory'        => (string) ( $d['_sf_subcategory']  ?? '' ),
@@ -1312,8 +1326,9 @@ add_action( 'wp_ajax_hsync_ajax_markup_rules_test', function () {
 
     wp_send_json_success( [
         'count'    => count( $fetch->items ),
-        'rules'    => is_array( $config['markup_rules'] ?? null ) ? $config['markup_rules'] : [],
+        'rules'    => $rawRules,
         'rows'     => $rows,
         'warnings' => $fetch->warnings,
+        '_debug'   => $debug,
     ] );
 } );

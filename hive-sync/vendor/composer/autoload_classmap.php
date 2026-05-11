@@ -48,6 +48,7 @@ return array(
     'HiveSync\\Core\\Source\\Source' => $baseDir . '/src/Core/Source/Source.php',
     'HiveSync\\Core\\Source\\SourceCapabilities' => $baseDir . '/src/Core/Source/SourceCapabilities.php',
     'HiveSync\\Core\\Source\\SourceRegistry' => $baseDir . '/src/Core/Source/SourceRegistry.php',
+    'HiveSync\\Core\\Source\\TransientSourceException' => $baseDir . '/src/Core/Source/TransientSourceException.php',
     'HiveSync\\Media\\Browser' => $baseDir . '/src/Media/Browser.php',
     'HiveSync\\Media\\Cleaner' => $baseDir . '/src/Media/Cleaner.php',
     'HiveSync\\Media\\Library' => $baseDir . '/src/Media/Library.php',

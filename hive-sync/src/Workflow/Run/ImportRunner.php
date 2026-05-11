@@ -76,6 +76,20 @@ final class ImportRunner
 
         try {
             $fetch = $source->fetch( new FetchRequest( $config, $options ), $ctx );
+        } catch ( \HiveSync\Core\Source\TransientSourceException $e ) {
+            // Transient upstream failure (5xx / cURL timeout /
+            // 200-empty-body on a multi-MB CSV). Mark the DB run
+            // failed so the audit log explains why, then re-throw
+            // so the AJAX handler's catch returns recoverable:true.
+            // The JS tick loop retry-with-backoff (2s/4s/8s) will
+            // re-attempt the same cursor; after maxRetries the user
+            // gets a "Riprendi da qui" button. Without this re-throw
+            // the runner would treat the empty FetchResult as
+            // completion and silently drop the unprocessed tail of
+            // the feed — the "Reconciled 156/10454, 10298
+            // unaccounted" symptom.
+            $this->runs->finish( $runId, 'failed', [ 'error' => $e->getMessage(), 'recoverable' => true ] );
+            throw $e;
         } catch ( \Throwable $e ) {
             $this->runs->finish( $runId, 'failed', [ 'error' => $e->getMessage() ] );
             return [ 'status' => 'failed', 'run_id' => $runId, 'error' => $e->getMessage() ];

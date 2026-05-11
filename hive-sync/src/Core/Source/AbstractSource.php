@@ -180,6 +180,84 @@ abstract class AbstractSource implements Source
     }
 
     /**
+     * Retry-aware HTTP GET wrapper around wp_remote_get. Throws
+     * TransientSourceException after exhausting retries on the
+     * failure classes the JS tick loop knows how to re-attempt:
+     *  - WP_Error (network / DNS / cURL timeout)
+     *  - HTTP 5xx / 408 / 429
+     *  - HTTP 200 with empty body (proxy truncation, upstream blip)
+     *
+     * Non-transient failures (4xx other than 408/429, success with
+     * body) return normally — caller decides what to do with them.
+     *
+     * Why this exists: SF / GS feeds are multi-MB and a single tick
+     * blip leaves the runner with `items=[]`, the for-loop iterates
+     * zero times, and the run silently finishes "done" with the
+     * remaining ~10k rows unaccounted (because each tick re-fetches
+     * from scratch). With this helper a transient blip becomes a
+     * recoverable exception → AJAX returns recoverable:true → JS
+     * retries the same tick → work resumes from the cursor.
+     *
+     * @param array<string, mixed> $args  passed to wp_remote_get; any
+     *        operator-supplied args (timeout, headers, etc.) win.
+     * @return array{code:int, body:string}
+     */
+    protected static function httpGetWithRetries(
+        string $url,
+        array $args = [],
+        int $maxAttempts = 3,
+    ): array {
+        if ($url === '' || ! function_exists('wp_remote_get')) {
+            throw new TransientSourceException('URL vuoto o wp_remote_get non disponibile.');
+        }
+        $defaultArgs = [
+            'timeout'             => 120,
+            'redirection'         => 5,
+            'limit_response_size' => 0,
+        ];
+        $args = $args + $defaultArgs;
+
+        $lastErr = 'unknown';
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            $resp = \wp_remote_get($url, $args);
+            if (function_exists('is_wp_error') && \is_wp_error($resp)) {
+                $lastErr = 'WP_Error: ' . $resp->get_error_message();
+            } else {
+                $code = (int) \wp_remote_retrieve_response_code($resp);
+                $body = (string) \wp_remote_retrieve_body($resp);
+                // Non-transient: surface to caller for normal handling.
+                // 4xx (except 408/429) means "this request is wrong" —
+                // retrying won't help; let fetch() format the warning.
+                $isTransientCode = $code === 0 || $code === 408 || $code === 429 || $code >= 500;
+                if (! $isTransientCode && $code >= 200 && $code < 400 && $body !== '') {
+                    return ['code' => $code, 'body' => $body];
+                }
+                if (! $isTransientCode) {
+                    // 200-with-empty-body counts as transient (proxy
+                    // truncation). 4xx with body returns to caller.
+                    if ($code >= 200 && $code < 400 && $body === '') {
+                        $lastErr = "HTTP {$code} con body vuoto";
+                    } else {
+                        return ['code' => $code, 'body' => $body];
+                    }
+                } else {
+                    $lastErr = "HTTP {$code}" . ($body !== '' ? ' (' . substr($body, 0, 200) . ')' : '');
+                }
+            }
+            if ($attempt < $maxAttempts) {
+                // Backoff 1s, 2s, 4s — same shape as the JS retry,
+                // half the magnitude (the JS already adds its own wait
+                // around the whole tick when this throws).
+                $wait = (int) pow(2, $attempt - 1);
+                sleep($wait);
+            }
+        }
+        throw new TransientSourceException(
+            'Lettura URL fallita dopo ' . $maxAttempts . ' tentativi: ' . $lastErr
+        );
+    }
+
+    /**
      * Record provenance after a successful materialize. Routes through the
      * host adapter — when no host is wired this is a silent no-op.
      *

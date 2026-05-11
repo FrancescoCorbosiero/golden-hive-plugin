@@ -178,12 +178,18 @@ final class CsvSource extends AbstractSource
         $cfg = $val['config'];
 
         $sourceType = (string) ($cfg['source_type'] ?? 'url');
-        $contents = $sourceType === 'file'
-            ? self::readFile((string) ($cfg['file_path'] ?? ''))
-            : self::readUrl((string) ($cfg['url'] ?? ''));
-
-        if ($contents === null) {
-            return new FetchResult(items: [], warnings: ['Lettura CSV fallita.']);
+        // readUrl throws TransientSourceException on retry-exhausted
+        // network failures — ImportRunner re-throws it so the AJAX
+        // handler returns recoverable:true and the JS tick loop
+        // retries the same tick. readFile failures are local /
+        // non-transient → return an empty FetchResult with a warning.
+        if ($sourceType === 'file') {
+            $contents = self::readFile((string) ($cfg['file_path'] ?? ''));
+            if ($contents === null) {
+                return new FetchResult(items: [], warnings: ['Lettura file CSV fallita: percorso non leggibile.']);
+            }
+        } else {
+            $contents = self::readUrl((string) ($cfg['url'] ?? ''));
         }
 
         $delimiter = (string) ($cfg['delimiter'] ?? ',');
@@ -510,29 +516,18 @@ final class CsvSource extends AbstractSource
 
     // ─── CSV parsing helpers (pure PHP, unit-testable) ─────────────
 
-    private static function readUrl(string $url): ?string
+    /**
+     * Read CSV body from URL. Delegates to the shared retry helper so
+     * transient HTTP failures (5xx / cURL timeout / empty body on a
+     * 200) surface as TransientSourceException — the runner converts
+     * those into a recoverable AJAX response so the JS tick loop
+     * resumes from the cursor instead of dropping the unprocessed
+     * tail of the feed.
+     */
+    private static function readUrl(string $url): string
     {
-        if ($url === '') return null;
-        if (function_exists('wp_remote_get')) {
-            // Timeout 120s + no body-size cap. SF feeds are routinely
-            // multi-MB and slow to deliver; the legacy golden-hive
-            // fetch uses 120s. The previous 30s default was producing
-            // truncated CSV bodies on real SF feeds — products whose
-            // MODEL rows fell after the cut-off arrived as
-            // type=variable with no variations. limit_response_size=0
-            // disables WP's defensive cap (defaults vary by transport
-            // but can be as low as a few MB).
-            $r = \wp_remote_get($url, [
-                'timeout'             => 120,
-                'redirection'         => 5,
-                'limit_response_size' => 0,
-            ]);
-            if (function_exists('is_wp_error') && \is_wp_error($r)) return null;
-            $body = \wp_remote_retrieve_body($r);
-            return is_string($body) && $body !== '' ? $body : null;
-        }
-        $contents = @file_get_contents($url);
-        return is_string($contents) && $contents !== '' ? $contents : null;
+        $r = self::httpGetWithRetries($url);
+        return $r['body'];
     }
 
     private static function readFile(string $path): ?string

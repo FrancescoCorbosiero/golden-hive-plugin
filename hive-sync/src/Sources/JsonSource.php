@@ -137,22 +137,18 @@ final class JsonSource extends AbstractSource
         if ($token  !== '') $headers['Authorization'] = 'Bearer ' . $token;
         if ($cookie !== '') $headers['Cookie']        = $cookie;
 
-        $resp = wp_remote_get($url, [
-            'headers'             => $headers,
-            // Same timeout/size posture as CsvSource — large feeds
-            // (GS production has ~15k items) need more than the 30s
-            // default to download fully. limit_response_size=0
-            // disables WP's defensive body-size cap.
-            'timeout'             => 120,
-            'redirection'         => 5,
-            'limit_response_size' => 0,
-            'user-agent'          => 'HiveSync/' . (defined('HSYNC_VERSION') ? HSYNC_VERSION : '1.0'),
+        // Retry on transient HTTP failures (5xx / 408 / 429 / WP_Error
+        // / 200-empty-body). After retries are exhausted the helper
+        // throws TransientSourceException → propagates to ImportRunner
+        // → AJAX returns recoverable:true → JS tick loop retries from
+        // the same cursor. Without this, a single mid-import network
+        // blip drops the unprocessed tail of the feed.
+        $r = self::httpGetWithRetries($url, [
+            'headers'    => $headers,
+            'user-agent' => 'HiveSync/' . (defined('HSYNC_VERSION') ? HSYNC_VERSION : '1.0'),
         ]);
-        if (is_wp_error($resp)) {
-            return new FetchResult(items: [], warnings: ['Errore HTTP: ' . $resp->get_error_message()]);
-        }
-        $code = (int) wp_remote_retrieve_response_code($resp);
-        $body = (string) wp_remote_retrieve_body($resp);
+        $code = $r['code'];
+        $body = $r['body'];
         if ($code < 200 || $code >= 300) {
             return new FetchResult(items: [], warnings: ["HTTP $code dalla sorgente JSON."]);
         }

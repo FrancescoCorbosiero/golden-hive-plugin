@@ -63,6 +63,7 @@ class ComposerStaticInit8ec97cf8e32aa119124e2c238cc20b92
         'HiveSync\\Core\\Source\\Source' => __DIR__ . '/../..' . '/src/Core/Source/Source.php',
         'HiveSync\\Core\\Source\\SourceCapabilities' => __DIR__ . '/../..' . '/src/Core/Source/SourceCapabilities.php',
         'HiveSync\\Core\\Source\\SourceRegistry' => __DIR__ . '/../..' . '/src/Core/Source/SourceRegistry.php',
+        'HiveSync\\Core\\Source\\TransientSourceException' => __DIR__ . '/../..' . '/src/Core/Source/TransientSourceException.php',
         'HiveSync\\Media\\Browser' => __DIR__ . '/../..' . '/src/Media/Browser.php',
         'HiveSync\\Media\\Cleaner' => __DIR__ . '/../..' . '/src/Media/Cleaner.php',
         'HiveSync\\Media\\Library' => __DIR__ . '/../..' . '/src/Media/Library.php',

@@ -2758,12 +2758,14 @@
         const pipelineSlug = ($('[data-field="run-pipeline"]') || {}).value || '';
         const limitInput = $('[data-field="run-limit"]');
         const limit = limitInput ? Math.max(0, parseInt(limitInput.value, 10) || 0) : 0;
+        const maxTicksInput = $('[data-field="run-max-ticks"]');
+        const maxTicks = maxTicksInput ? Math.max(0, parseInt(maxTicksInput.value, 10) || 0) : 200;
         const options = {};
         if (mapping)        options.mapping = mapping.config;
         if (pipelineSlug)   options.pipeline_slug = pipelineSlug;
         if (limit > 0)      options.limit = limit;
 
-        await HSync.runImportTicked(sourceId, configSlug, config, options, dryRun, null);
+        await HSync.runImportTicked(sourceId, configSlug, config, options, dryRun, null, maxTicks);
     };
 
     /**
@@ -2772,7 +2774,7 @@
      * re-enter the loop with a preserved cursor instead of restarting
      * from scratch on a 15k-product import.
      */
-    HSync.runImportTicked = async function (sourceId, configSlug, config, options, dryRun, startCursor) {
+    HSync.runImportTicked = async function (sourceId, configSlug, config, options, dryRun, startCursor, maxTicksOpt) {
         const out = $('[data-region="run-output"]');
         if (! startCursor) {
             out.innerHTML = '<p class="hsync-loading">Tick 1: starting…</p>';
@@ -2799,7 +2801,10 @@
         };
         let cursor = startCursor || null;
         let tick = 0;
-        const maxTicks = 200;  // hard cap — refuse to loop forever on a misbehaving source
+        // Operator-controlled cap (input data-field="run-max-ticks", default 200).
+        // 0 means uncapped — surfaced as Infinity so the loop never short-circuits.
+        const requestedCap = (typeof maxTicksOpt === 'number') ? maxTicksOpt : 200;
+        const maxTicks = requestedCap > 0 ? requestedCap : Infinity;
 
         // Retry-with-backoff for transient tick failures (PHP fatal,
         // 502, idle-tab killed connection). Runs of 15k+ products
@@ -2879,9 +2884,19 @@
                 }
                 break;  // 'done' or 'failed'
             }
-            if (tick >= maxTicks) {
+            if (tick >= maxTicks && cursor) {
+                // Mirror the catch-path: stash everything needed so the
+                // resume button below has state to act on. Without this
+                // hitting the cap leaves the operator stranded.
+                HSync.lastFailedRun = {
+                    sourceId, configSlug, config, options, dryRun,
+                    cursor, tick, accumulated,
+                    maxTicks: requestedCap,
+                };
                 out.insertAdjacentHTML('beforeend',
-                    '<div class="hsync-warning">Auto-resume cap raggiunto (' + maxTicks + ' tick). Run interrotto. Apri Runs per riprendere se necessario.</div>');
+                    '<div class="hsync-warning">Tetto Max tick raggiunto (' + maxTicks + '). Cursor preservato. '
+                    + '<button type="button" class="hsync-button" data-action="run-resume">Riprendi da qui</button>'
+                    + '</div>');
             }
         } catch (e) {
             // Persist the in-flight cursor so the operator can resume
@@ -2920,7 +2935,7 @@
         // Re-enter the tick loop with the saved cursor as the starting
         // point. We rebuild a fresh accumulator so reconciliation
         // numbers are clean for the resumed segment.
-        await HSync.runImportTicked(r.sourceId, r.configSlug, r.config, r.options, r.dryRun, r.cursor);
+        await HSync.runImportTicked(r.sourceId, r.configSlug, r.config, r.options, r.dryRun, r.cursor, r.maxTicks);
     };
 
     HSync.renderRunResult = function (data) {

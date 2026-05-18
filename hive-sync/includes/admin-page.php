@@ -314,6 +314,10 @@ function hsync_render_admin_page(): void {
                         Max prodotti
                         <input type="number" data-field="run-limit" min="0" step="1" value="0" style="width:6em;">
                     </label>
+                    <label class="hsync-limit" title="Tetto al numero di tick consecutivi che il browser eseguirà in un singolo run. 0 = nessun limite (l'operatore controlla l'esecuzione). Default 200 — quando viene raggiunto compare il bottone Riprendi per estendere il loop.">
+                        Max tick
+                        <input type="number" data-field="run-max-ticks" min="0" step="1" value="200" style="width:5em;">
+                    </label>
                     <button class="button button-primary" data-action="run-now">Importa adesso</button>
                 </div>
             </div>

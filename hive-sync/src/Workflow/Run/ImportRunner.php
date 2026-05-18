@@ -63,6 +63,14 @@ final class ImportRunner
             ? (int) $cursor['run_id']
             : $this->runs->start( 0, 'source.import', $source->id() );
 
+        // skip_media also propagates to ctx.meta.sideload=false so the
+        // GS/SF bridges skip their gh_*_sideload_images fallback path
+        // (which would otherwise re-sideload anything missing from the
+        // pre-import map — exactly what skip_media is trying to avoid).
+        if ( ! empty( $options['skip_media'] ) ) {
+            $meta['sideload'] = false;
+        }
+
         $ctx = new Context(
             runId: (string) $runId,
             dryRun: $dryRun,
@@ -261,7 +269,16 @@ final class ImportRunner
             // ─── Import-rule operations (mutate the draft) ─────────
             $draft = $item->data;
             if ( $pipeline ) {
+                // options.skip_media disables the media.download step
+                // for fast first-pass imports (product data only, no
+                // image sideload). A subsequent run without the knob
+                // sweeps the existing products through the pipeline
+                // again — the diff sends them through `update` and
+                // media.download then sideloads. Halves wall-clock
+                // for the data layer on first imports.
+                $skipMedia = ! empty( $options['skip_media'] );
                 foreach ( $pipeline->importRuleSteps() as $step ) {
+                    if ( $skipMedia && $step->refId === 'media.download' ) continue;
                     $op = Bootstrap::$operations?->get( $step->refId );
                     if ( ! $op instanceof ImportRule ) continue;
                     // Per-job step-param overrides — lets multiple jobs

@@ -74,29 +74,49 @@ final class ImportRunner
         // Pipeline (optional). Each step's registry lookup is lazy.
         $pipeline = self::loadPipeline( (string) ( $options['pipeline_slug'] ?? '' ) );
 
-        try {
-            $fetch = $source->fetch( new FetchRequest( $config, $options ), $ctx );
-        } catch ( \HiveSync\Core\Source\TransientSourceException $e ) {
-            // Transient upstream failure (5xx / cURL timeout /
-            // 200-empty-body on a multi-MB CSV). Mark the DB run
-            // failed so the audit log explains why, then re-throw
-            // so the AJAX handler's catch returns recoverable:true.
-            // The JS tick loop retry-with-backoff (2s/4s/8s) will
-            // re-attempt the same cursor; after maxRetries the user
-            // gets a "Riprendi da qui" button. Without this re-throw
-            // the runner would treat the empty FetchResult as
-            // completion and silently drop the unprocessed tail of
-            // the feed — the "Reconciled 156/10454, 10298
-            // unaccounted" symptom.
-            $this->runs->finish( $runId, 'failed', [ 'error' => $e->getMessage(), 'recoverable' => true ] );
-            throw $e;
-        } catch ( \Throwable $e ) {
-            $this->runs->finish( $runId, 'failed', [ 'error' => $e->getMessage() ] );
-            return [ 'status' => 'failed', 'run_id' => $runId, 'error' => $e->getMessage() ];
-        }
+        // Resumed ticks reuse the fetch+diff from tick 1 via a
+        // gzcompressed transient keyed to runId. Saves ~5-10s of
+        // HTTP+parse+bucket-walk per tick on large feeds (10k items
+        // × 200 ticks first-import = ~30 min of pure repetition
+        // eliminated). On miss (tick 1, or cache evicted), fall
+        // through to the normal fetch+diff path and re-populate.
+        $cached       = $startIndex > 0 ? RunCache::get( $runId ) : null;
+        $fetchWarnings = [];
+        $fetchedCount  = 0;
 
-        $items = $fetch->items;
-        $diff  = $source->diff( $items, $ctx );
+        if ( $cached !== null ) {
+            $fetchWarnings = $cached['warnings'];
+            $fetchedCount  = $cached['fetched_count'];
+            $diff          = $cached['diff'];
+        } else {
+            try {
+                $fetch = $source->fetch( new FetchRequest( $config, $options ), $ctx );
+            } catch ( \HiveSync\Core\Source\TransientSourceException $e ) {
+                // Transient upstream failure (5xx / cURL timeout /
+                // 200-empty-body on a multi-MB CSV). Mark the DB run
+                // failed so the audit log explains why, then re-throw
+                // so the AJAX handler's catch returns recoverable:true.
+                // The JS tick loop retry-with-backoff (2s/4s/8s) will
+                // re-attempt the same cursor; after maxRetries the user
+                // gets a "Riprendi da qui" button. Without this re-throw
+                // the runner would treat the empty FetchResult as
+                // completion and silently drop the unprocessed tail of
+                // the feed — the "Reconciled 156/10454, 10298
+                // unaccounted" symptom.
+                RunCache::clear( $runId );
+                $this->runs->finish( $runId, 'failed', [ 'error' => $e->getMessage(), 'recoverable' => true ] );
+                throw $e;
+            } catch ( \Throwable $e ) {
+                RunCache::clear( $runId );
+                $this->runs->finish( $runId, 'failed', [ 'error' => $e->getMessage() ] );
+                return [ 'status' => 'failed', 'run_id' => $runId, 'error' => $e->getMessage() ];
+            }
+            $items         = $fetch->items;
+            $diff          = $source->diff( $items, $ctx );
+            $fetchWarnings = $fetch->warnings;
+            $fetchedCount  = count( $items );
+            RunCache::set( $runId, $fetchWarnings, $fetchedCount, $diff );
+        }
 
         // `unchanged` is reported as a top-level metric — items the diff
         // declared identical to the existing product, so they were never
@@ -106,7 +126,7 @@ final class ImportRunner
         // the two hides genuine processing decisions behind the skip
         // counter — keep them strictly separate.
         $summary = [
-            'fetched'       => count( $items ),
+            'fetched'       => $fetchedCount,
             'new'           => count( $diff->new ),
             'update'        => count( $diff->update ),
             'update_stock'  => count( $diff->updateStock ),
@@ -166,7 +186,7 @@ final class ImportRunner
                     'run_id'   => $runId,
                     'cursor'   => [ 'index' => $i, 'run_id' => $runId ],
                     'summary'  => $summary,
-                    'warnings' => $fetch->warnings,
+                    'warnings' => $fetchWarnings,
                     'rows'     => array_slice( $rows, 0, 100 ),
                     'progress' => [ 'done' => $i, 'total' => $total ],
                 ];
@@ -366,16 +386,17 @@ final class ImportRunner
         }
 
         $this->runs->progress( $runId, $total, $summary['created'] + $summary['updated'] + $summary['stock_patched'], $summary['failed'] );
+        RunCache::clear( $runId );
         $this->runs->finish( $runId, 'done', [
             'summary'  => $summary,
-            'warnings' => $fetch->warnings,
+            'warnings' => $fetchWarnings,
         ] );
 
         return [
             'status'   => 'done',
             'run_id'   => $runId,
             'summary'  => $summary,
-            'warnings' => $fetch->warnings,
+            'warnings' => $fetchWarnings,
             'rows'     => array_slice( $rows, 0, 100 ),
             'progress' => [ 'done' => $total, 'total' => $total ],
         ];

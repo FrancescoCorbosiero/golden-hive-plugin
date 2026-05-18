@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace HiveSync\Sources;
 
+use HiveSync\Core\Source\Context;
 use HiveSync\Core\Source\FeedItem;
 
 /**
@@ -60,14 +61,47 @@ final class StockOnlyClassifier
      * Convenience wrapper for sources whose backend diff returns one
      * flat `update` bucket — splits it into [updateFull, updateStock].
      *
+     * Deadline-aware: each iteration calls wc_get_product() (full
+     * meta hydration, ~10-30ms). On a 2k-update bucket that's 20-60s
+     * — easy to exceed the diff's slice of the tick budget. When
+     * isOverDeadline trips mid-loop, the remaining items default to
+     * full-update (safe: full pipeline handles every change correctly;
+     * we only LOSE the fast-patch optimization, never lose data).
+     *
      * @param FeedItem[] $update
      * @return array{0: FeedItem[], 1: FeedItem[]}
      */
-    public static function split( array $update ): array
+    public static function split( array $update, ?Context $ctx = null ): array
     {
+        // Circuit breaker: when the update bucket is too large to
+        // classify within ANY reasonable tick budget (wc_get_product
+        // hydration at ~20ms × N items), short-circuit to all-full.
+        // The threshold is a heuristic — large enough that routine
+        // refresh runs (small update buckets) still get the
+        // fast-patch optimization, small enough that first-time
+        // imports against existing catalogs don't stall on the diff.
+        // Configurable via filter for operators with measurably
+        // faster wc_get_product (e.g. object-cache-backed).
+        $threshold = (int) apply_filters( 'hive_sync/diff/stock_classifier_threshold', 500 );
+        if ( $threshold > 0 && count( $update ) > $threshold ) {
+            return [ array_values( array_filter( $update, fn( $i ) => $i instanceof FeedItem ) ), [] ];
+        }
+
         $full = $stock = [];
+        $deadlineHit = false;
         foreach ( $update as $item ) {
             if ( ! $item instanceof FeedItem ) continue;
+            if ( $deadlineHit ) {
+                $full[] = $item;
+                continue;
+            }
+            // Check deadline before each WC hydration — the call itself
+            // is the expensive bit, so checking after wouldn't help.
+            if ( $ctx !== null && $ctx->isOverDeadline() ) {
+                $deadlineHit = true;
+                $full[] = $item;
+                continue;
+            }
             if ( self::isStockOnlyChange( $item ) ) $stock[] = $item;
             else                                    $full[]  = $item;
         }

@@ -66,6 +66,7 @@ return array(
     'HiveSync\\Sources\\CsvSource' => $baseDir . '/src/Sources/CsvSource.php',
     'HiveSync\\Sources\\JsonSource' => $baseDir . '/src/Sources/JsonSource.php',
     'HiveSync\\Sources\\MarkupResolver' => $baseDir . '/src/Sources/MarkupResolver.php',
+    'HiveSync\\Sources\\SkuLookup' => $baseDir . '/src/Sources/SkuLookup.php',
     'HiveSync\\Sources\\StockOnlyClassifier' => $baseDir . '/src/Sources/StockOnlyClassifier.php',
     'HiveSync\\Tools\\NuclearCleanup' => $baseDir . '/src/Tools/NuclearCleanup.php',
     'HiveSync\\Workflow\\Config\\ProjectApplier' => $baseDir . '/src/Workflow/Config/ProjectApplier.php',

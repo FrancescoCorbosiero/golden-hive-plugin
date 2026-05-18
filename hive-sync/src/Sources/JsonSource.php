@@ -452,7 +452,16 @@ final class JsonSource extends AbstractSource
     public function diff(array $items, Context $ctx): Diff
     {
         $new = $update = [];
-        $skuLookup = function_exists('wc_get_product_id_by_sku');
+
+        // Batch SKU → pid lookup. Replaces an O(N) loop of
+        // wc_get_product_id_by_sku() calls (each ~5ms) with one SQL
+        // round-trip. Required to keep diff under the 25s tick budget
+        // for catalogs >2k items.
+        $skus = [];
+        foreach ($items as $item) {
+            if ($item instanceof FeedItem && $item->sku !== '') $skus[] = $item->sku;
+        }
+        $existingMap = SkuLookup::mapSkusToIds($skus);
 
         foreach ($items as $item) {
             if (! $item instanceof FeedItem) continue;
@@ -460,7 +469,7 @@ final class JsonSource extends AbstractSource
                 $new[] = $item;
                 continue;
             }
-            $existingId = $skuLookup ? (int) \wc_get_product_id_by_sku($item->sku) : 0;
+            $existingId = (int) ($existingMap[$item->sku] ?? 0);
             if ($existingId > 0) {
                 $update[] = new FeedItem(
                     sku:  $item->sku,
@@ -472,7 +481,7 @@ final class JsonSource extends AbstractSource
             }
         }
 
-        [$updateFull, $updateStock] = StockOnlyClassifier::split($update);
+        [$updateFull, $updateStock] = StockOnlyClassifier::split($update, $ctx);
 
         return new Diff(
             new: $new,

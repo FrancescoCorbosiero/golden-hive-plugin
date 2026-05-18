@@ -426,7 +426,14 @@ final class CsvSource extends AbstractSource
     public function diff(array $items, Context $ctx): Diff
     {
         $new = $update = $unchanged = [];
-        $skuLookup = function_exists('wc_get_product_id_by_sku');
+
+        // Batch SKU → pid lookup; see JsonSource::diff for rationale.
+        // One SQL round-trip instead of N×wc_get_product_id_by_sku.
+        $skus = [];
+        foreach ($items as $item) {
+            if ($item instanceof FeedItem && $item->sku !== '') $skus[] = $item->sku;
+        }
+        $existingMap = SkuLookup::mapSkusToIds($skus);
 
         foreach ($items as $item) {
             if (! $item instanceof FeedItem) continue;
@@ -434,7 +441,7 @@ final class CsvSource extends AbstractSource
                 $new[] = $item;
                 continue;
             }
-            $existingId = $skuLookup ? (int) \wc_get_product_id_by_sku($item->sku) : 0;
+            $existingId = (int) ($existingMap[$item->sku] ?? 0);
             if ($existingId > 0) {
                 $update[] = new FeedItem(
                     sku: $item->sku,
@@ -448,8 +455,11 @@ final class CsvSource extends AbstractSource
 
         // Split `update` into full vs stock-only so a job tagged
         // buckets:['updateStock'] gets the cheap path. SF "refresh"
-        // jobs rely on this to stay sub-second per product.
-        [ $updateFull, $updateStock ] = StockOnlyClassifier::split( $update );
+        // jobs rely on this to stay sub-second per product. The split
+        // is deadline-aware: when the budget is gone, the remaining
+        // items default to full-update (safe choice; the fast-patch
+        // optimization only applies when classification finishes).
+        [ $updateFull, $updateStock ] = StockOnlyClassifier::split( $update, $ctx );
 
         return new Diff(
             new: $new,

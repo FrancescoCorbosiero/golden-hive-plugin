@@ -63,11 +63,30 @@ final class ImportRunner
             ? (int) $cursor['run_id']
             : $this->runs->start( 0, 'source.import', $source->id() );
 
-        // skip_media also propagates to ctx.meta.sideload=false so the
+        // Normalize the three-way run mode. UI exposes a segmented
+        // control "Completa | Solo dati | Solo media"; legacy
+        // skip_media=1 maps to data_only for back-compat.
+        //   full       — products + media in one pass (default)
+        //   data_only  — products, skip media.download + bridge sideload
+        //   media_only — pre-stage media into the preimport map as
+        //                orphan attachments, skip product writes
+        // The mapping invariant (URL → attachment_id in the preimport
+        // map) is identical in all three modes — only what work runs
+        // changes. Order-agnostic: media_only then full = full then
+        // media_only = identical end state.
+        $mode = isset( $options['mode'] ) ? (string) $options['mode'] : '';
+        if ( $mode === '' ) {
+            $mode = ! empty( $options['skip_media'] ) ? 'data_only' : 'full';
+        }
+        if ( ! in_array( $mode, [ 'full', 'data_only', 'media_only' ], true ) ) {
+            $mode = 'full';
+        }
+
+        // data_only also propagates to ctx.meta.sideload=false so the
         // GS/SF bridges skip their gh_*_sideload_images fallback path
         // (which would otherwise re-sideload anything missing from the
-        // pre-import map — exactly what skip_media is trying to avoid).
-        if ( ! empty( $options['skip_media'] ) ) {
+        // pre-import map — exactly what data_only is trying to avoid).
+        if ( $mode === 'data_only' ) {
             $meta['sideload'] = false;
         }
 
@@ -183,6 +202,103 @@ final class ImportRunner
         }
         $total = count( $process );
 
+        // ─── media_only branch ─────────────────────────────────────
+        // Pre-stage every item's image URLs into the preimport map
+        // as orphan attachments (no product attach, _gh_preimport_pending=1).
+        // A subsequent run in `full` mode resolves URL → attachment
+        // from the same map and attaches without re-downloading.
+        // Reuses the per-item cursor + cooperative deadline.
+        if ( $mode === 'media_only' ) {
+            $stats = $summary;
+            $stats['media_downloaded']     = $cursor['media_downloaded']     ?? 0;
+            $stats['media_skipped']        = $cursor['media_skipped']        ?? 0;
+            $stats['media_errors']         = $cursor['media_errors']         ?? 0;
+            $stats['items_without_images'] = $cursor['items_without_images'] ?? 0;
+
+            // Batch N items per inner round so each HTTP wave has
+            // enough URLs to fill the concurrency window (~50 items
+            // × 3 images = 150 URLs ≈ 6 sliding-window rounds at
+            // concurrency 24). Smaller batches waste connection
+            // setup; larger ones risk overshooting the deadline.
+            $batchSize = 50;
+            $i = $startIndex;
+            while ( $i < $total ) {
+                if ( $ctx->isOverDeadline() ) {
+                    $this->runs->progress( $runId, $total, $stats['media_downloaded'], $stats['media_errors'] );
+                    $this->runs->finish( $runId, 'continue', [
+                        'summary' => $stats,
+                        'cursor'  => [
+                            'index'                 => $i,
+                            'media_downloaded'      => $stats['media_downloaded'],
+                            'media_skipped'         => $stats['media_skipped'],
+                            'media_errors'          => $stats['media_errors'],
+                            'items_without_images'  => $stats['items_without_images'],
+                        ],
+                    ] );
+                    return [
+                        'status'   => 'continue',
+                        'run_id'   => $runId,
+                        'cursor'   => [
+                            'index'                 => $i,
+                            'run_id'                => $runId,
+                            'media_downloaded'      => $stats['media_downloaded'],
+                            'media_skipped'         => $stats['media_skipped'],
+                            'media_errors'          => $stats['media_errors'],
+                            'items_without_images'  => $stats['items_without_images'],
+                        ],
+                        'summary'  => $stats,
+                        'warnings' => $fetchWarnings,
+                        'rows'     => [],
+                        'progress' => [ 'done' => $i, 'total' => $total ],
+                    ];
+                }
+
+                $end       = min( $i + $batchSize, $total );
+                $batchUrls = [];
+                for ( $j = $i; $j < $end; $j++ ) {
+                    [ , $item ] = $process[ $j ];
+                    $urls = $source->imageUrls( $item );
+                    if ( empty( $urls ) ) {
+                        $stats['items_without_images']++;
+                        continue;
+                    }
+                    foreach ( $urls as $u ) $batchUrls[] = $u;
+                }
+                $batchUrls = array_values( array_unique( $batchUrls ) );
+
+                if ( ! empty( $batchUrls ) ) {
+                    $resolved = \function_exists( 'hsync_preimport_media_batch' )
+                        ? \hsync_preimport_media_batch( $batchUrls, [ 'mode' => 'media_only', 'run_id' => $runId ] )
+                        : [];
+                    $hit = count( $resolved );
+                    // Each input URL is either resolved (download success
+                    // or already-mapped skip) or errored. The bridge
+                    // doesn't distinguish in the return shape, so we
+                    // estimate: assume hits are downloads+skips, the
+                    // rest are errors. Good enough for a progress meter.
+                    $stats['media_downloaded'] += $hit;
+                    $stats['media_errors']     += max( 0, count( $batchUrls ) - $hit );
+                }
+
+                $i = $end;
+            }
+
+            $this->runs->progress( $runId, $total, $stats['media_downloaded'], $stats['media_errors'] );
+            RunCache::clear( $runId );
+            $this->runs->finish( $runId, 'done', [
+                'summary'  => $stats,
+                'warnings' => $fetchWarnings,
+            ] );
+            return [
+                'status'   => 'done',
+                'run_id'   => $runId,
+                'summary'  => $stats,
+                'warnings' => $fetchWarnings,
+                'rows'     => [],
+                'progress' => [ 'done' => $total, 'total' => $total ],
+            ];
+        }
+
         $rows = [];
 
         for ( $i = $startIndex; $i < $total; $i++ ) {
@@ -269,14 +385,15 @@ final class ImportRunner
             // ─── Import-rule operations (mutate the draft) ─────────
             $draft = $item->data;
             if ( $pipeline ) {
-                // options.skip_media disables the media.download step
-                // for fast first-pass imports (product data only, no
-                // image sideload). A subsequent run without the knob
-                // sweeps the existing products through the pipeline
-                // again — the diff sends them through `update` and
-                // media.download then sideloads. Halves wall-clock
-                // for the data layer on first imports.
-                $skipMedia = ! empty( $options['skip_media'] );
+                // mode=data_only drops the media.download step from
+                // the per-item pipeline (paired with ctx.meta.sideload=false
+                // upstream so bridges skip their fallback too). A
+                // later run in `full` mode sends the same products
+                // through `update` and media.download then resolves
+                // images — either from the preimport map (when a
+                // prior media_only pass pre-staged them) or by
+                // sideloading on-demand.
+                $skipMedia = $mode === 'data_only';
                 foreach ( $pipeline->importRuleSteps() as $step ) {
                     if ( $skipMedia && $step->refId === 'media.download' ) continue;
                     $op = Bootstrap::$operations?->get( $step->refId );

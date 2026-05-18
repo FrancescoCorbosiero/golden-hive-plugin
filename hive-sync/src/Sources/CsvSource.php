@@ -469,6 +469,26 @@ final class CsvSource extends AbstractSource
         );
     }
 
+    /**
+     * SF rows pack their image URLs into `_sf_images` (built in
+     * transformToWoo). Surfacing them here lets the `media_only` run
+     * mode pre-stage downloads into the preimport map before any
+     * products exist — a later products-pass then attaches via the
+     * URL → attachment lookup without re-downloading.
+     */
+    public function imageUrls(FeedItem $item): array
+    {
+        $raw = $item->data['_sf_images'] ?? [];
+        if (! is_array($raw)) return [];
+        $out = [];
+        foreach ($raw as $url) {
+            if (is_string($url) && $url !== '' && preg_match('#^https?://#i', $url)) {
+                $out[] = $url;
+            }
+        }
+        return array_values(array_unique($out));
+    }
+
     public function materialize(FeedItem $item, Context $ctx): MaterializeResult
     {
         if ($ctx->dryRun) {

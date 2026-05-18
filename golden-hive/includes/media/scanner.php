@@ -164,19 +164,31 @@ function rp_mm_build_usage_map(): array {
     //    ogni URL (che farebbe una query ciascuna).
     $inline_content = rp_mm_scan_inline_content_attachments();
 
+    // Orfani "preimport pending" — attachment scaricati da un media-only
+    // pre-stage che aspettano un products-pass per essere agganciati al
+    // prodotto giusto via il map URL→ID. Senza questo set, Safe Cleanup
+    // li tratterebbe come unmapped e li cancellerebbe esattamente
+    // quando servono. Il marker viene rimosso dal path di attach quando
+    // l'attachment entra in un ruolo prodotto reale.
+    $preimport_pending = function_exists( 'gh_preimport_pending_attachment_ids' )
+        ? gh_preimport_pending_attachment_ids()
+        : [];
+
     // Dedup locale (ogni sorgente) + unione globale
     $featured_products   = array_values( array_unique( $featured_products ) );
     $featured_variations = array_values( array_unique( $featured_variations ) );
     $gallery_products    = array_values( array_unique( $gallery_products ) );
     $featured_posts      = array_values( array_unique( $featured_posts ) );
     $inline_content      = array_values( array_unique( $inline_content ) );
+    $preimport_pending   = array_values( array_unique( $preimport_pending ) );
 
     $all_used = array_values( array_unique( array_merge(
         $featured_products,
         $featured_variations,
         $gallery_products,
         $featured_posts,
-        $inline_content
+        $inline_content,
+        $preimport_pending
     ) ) );
 
     return [
@@ -185,6 +197,7 @@ function rp_mm_build_usage_map(): array {
         'gallery_products'    => $gallery_products,
         'featured_posts'      => $featured_posts,
         'inline_content'      => $inline_content,
+        'preimport_pending'   => $preimport_pending,
         'all_used'            => $all_used,
     ];
 }

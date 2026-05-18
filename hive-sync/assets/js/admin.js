@@ -2760,13 +2760,13 @@
         const limit = limitInput ? Math.max(0, parseInt(limitInput.value, 10) || 0) : 0;
         const maxTicksInput = $('[data-field="run-max-ticks"]');
         const maxTicks = maxTicksInput ? Math.max(0, parseInt(maxTicksInput.value, 10) || 0) : 200;
-        const skipMediaEl = $('[data-field="run-skip-media"]');
-        const skipMedia = !!(skipMediaEl && skipMediaEl.checked);
+        const modeEl = document.querySelector('input[name="hsync-run-mode"]:checked');
+        const mode = modeEl ? String(modeEl.value || 'full') : 'full';
         const options = {};
         if (mapping)        options.mapping = mapping.config;
         if (pipelineSlug)   options.pipeline_slug = pipelineSlug;
         if (limit > 0)      options.limit = limit;
-        if (skipMedia)      options.skip_media = 1;
+        if (mode && mode !== 'full') options.mode = mode;
 
         await HSync.runImportTicked(sourceId, configSlug, config, options, dryRun, null, maxTicks);
     };

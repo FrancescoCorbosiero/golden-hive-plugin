@@ -2876,11 +2876,20 @@
                 const tickSummary = data.summary || {};
                 if (!accumulated.diffSnapshot) {
                     accumulated.diffSnapshot = {
-                        fetched:      tickSummary.fetched      || 0,
-                        new:          tickSummary.new          || 0,
-                        update:       tickSummary.update       || 0,
-                        update_stock: tickSummary.update_stock || 0,
-                        unchanged:    tickSummary.unchanged    || 0,
+                        fetched:        tickSummary.fetched        || 0,
+                        new:            tickSummary.new            || 0,
+                        update:         tickSummary.update         || 0,
+                        update_stock:   tickSummary.update_stock   || 0,
+                        unchanged:      tickSummary.unchanged      || 0,
+                        // Snapshot the force-recreate queue size so the
+                        // processing-pool math + reconciliation line
+                        // include the unchanged items the runner pulled
+                        // into the force queue. Without this snapshot
+                        // the pool reads as new + update + update_stock
+                        // only, leaving every recreated-from-unchanged
+                        // item looking like "extra accounted" instead
+                        // of accounted-against-pool.
+                        force_recreate: tickSummary.force_recreate || 0,
                     };
                 }
                 RESULT_KEYS.forEach(k => {

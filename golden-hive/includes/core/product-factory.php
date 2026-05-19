@@ -103,25 +103,17 @@ function gh_create_variation( int $parent_id, array $data ): int {
     $v = new WC_Product_Variation();
     $v->set_parent_id( $parent_id );
 
-    // Attributi — for taxonomy attributes, WooCommerce expects the term slug
+    // Attributi — for taxonomy attributes, WooCommerce expects the term slug.
+    // gh_resolve_attribute_term is request-memoized → re-used across every
+    // variation of every product in the same tick.
     $attrs = [];
     foreach ( $data['attributes'] ?? [] as $key => $val ) {
         $attr_key = str_starts_with( $key, 'attribute_' ) ? $key : 'attribute_' . $key;
         $taxonomy = str_replace( 'attribute_', '', $attr_key );
 
         if ( taxonomy_exists( $taxonomy ) ) {
-            // Ensure term exists and use its slug
-            $term = get_term_by( 'name', $val, $taxonomy );
-            if ( ! $term ) {
-                $term = get_term_by( 'slug', sanitize_title( $val ), $taxonomy );
-            }
-            if ( ! $term ) {
-                $inserted = wp_insert_term( $val, $taxonomy );
-                if ( ! is_wp_error( $inserted ) ) {
-                    $term = get_term( $inserted['term_id'], $taxonomy );
-                }
-            }
-            $attrs[ $attr_key ] = $term ? $term->slug : sanitize_title( $val );
+            $term = gh_resolve_attribute_term( $taxonomy, (string) $val );
+            $attrs[ $attr_key ] = $term instanceof WP_Term ? $term->slug : sanitize_title( (string) $val );
         } else {
             $attrs[ $attr_key ] = $val;
         }
@@ -227,18 +219,13 @@ function gh_build_wc_attributes( array $attrs_json ): array {
             // attribute calls wp_parse_id_list() which absint's every
             // option — '40.5' becomes 40, '42' stays 42 but now refers
             // to whichever term has the global term_id 42 (likely not
-            // a pa_taglia term at all). The downstream save() then
-            // calls wp_set_object_terms() with the absint'd "IDs",
-            // either attaching the wrong term (if 42 exists somewhere
-            // else) or dropping it silently → parent's pa_taglia ends
-            // up missing every integer-named size and any decimal that
-            // doesn't happen to collide with an existing term ID.
-            //
-            // Resolving names → real term_ids here means set_options
-            // receives proper IDs, wp_parse_id_list becomes a no-op,
-            // and WC's save() writes term_relationships for the actual
-            // terms (decimals included). Idempotent: re-running with
-            // the same names produces the same term IDs.
+            // a pa_taglia term at all). Resolving names → real term_ids
+            // here means set_options receives proper IDs, wp_parse_id_list
+            // becomes a no-op, and WC's save() writes term_relationships
+            // for the actual terms. Idempotent: re-running with the
+            // same names produces the same term IDs. The resolver is
+            // request-memoized so repeated sizes across products
+            // (every Nike has size 40) don't re-issue DB lookups.
             $resolved_term_ids = [];
             foreach ( $config['options'] ?? [] as $opt ) {
                 if ( is_int( $opt ) ) {
@@ -247,15 +234,8 @@ function gh_build_wc_attributes( array $attrs_json ): array {
                 }
                 $val = trim( (string) $opt );
                 if ( $val === '' ) continue;
-                $term = get_term_by( 'name', $val, $name );
-                if ( ! $term ) {
-                    $term = get_term_by( 'slug', sanitize_title( $val ), $name );
-                }
-                if ( ! $term ) {
-                    $inserted = wp_insert_term( $val, $name );
-                    if ( is_wp_error( $inserted ) ) continue;
-                    $resolved_term_ids[] = (int) $inserted['term_id'];
-                } else {
+                $term = gh_resolve_attribute_term( $name, $val );
+                if ( $term instanceof WP_Term ) {
                     $resolved_term_ids[] = (int) $term->term_id;
                 }
             }
@@ -325,7 +305,10 @@ function gh_attach_attribute_terms( int $product_id, array $attrs_json ): void {
         // integer ones are missing → variations show as Qualsiasi
         // Taglia". Only an actual PHP int counts as a term ID;
         // callers can still pass ints explicitly to bypass the
-        // name lookup.
+        // name lookup. The resolver is request-memoized so the
+        // same lookup made earlier by gh_build_wc_attributes for
+        // this product (or by ANY prior product in the same tick)
+        // is an O(1) array hit here.
         $term_ids = [];
         foreach ( $options as $opt ) {
             if ( is_int( $opt ) ) {
@@ -334,16 +317,8 @@ function gh_attach_attribute_terms( int $product_id, array $attrs_json ): void {
             }
             $name = trim( (string) $opt );
             if ( $name === '' ) continue;
-
-            $term = get_term_by( 'name', $name, $tax_name );
-            if ( ! $term ) {
-                $term = get_term_by( 'slug', sanitize_title( $name ), $tax_name );
-            }
-            if ( ! $term ) {
-                $inserted = wp_insert_term( $name, $tax_name );
-                if ( is_wp_error( $inserted ) ) continue;
-                $term_ids[] = (int) $inserted['term_id'];
-            } else {
+            $term = gh_resolve_attribute_term( $tax_name, $name );
+            if ( $term instanceof WP_Term ) {
                 $term_ids[] = (int) $term->term_id;
             }
         }
@@ -414,20 +389,7 @@ function gh_reset_variable_product_state( int $product_id ): void {
     // inheriting stale options.
     delete_post_meta( $product_id, '_product_attributes' );
 
-    // 4. Reset stock/price aggregation meta so WC doesn't show a
-    // stale "X in stock" while the new variations are still being
-    // written. Parent stock/price get recomputed by
-    // WC_Product_Variable::sync() at the end of the update path.
-    delete_post_meta( $product_id, '_stock' );
-    delete_post_meta( $product_id, '_price' );
-    delete_post_meta( $product_id, '_min_variation_price' );
-    delete_post_meta( $product_id, '_max_variation_price' );
-    delete_post_meta( $product_id, '_min_variation_regular_price' );
-    delete_post_meta( $product_id, '_max_variation_regular_price' );
-    delete_post_meta( $product_id, '_min_variation_sale_price' );
-    delete_post_meta( $product_id, '_max_variation_sale_price' );
-
-    // 5. Drop caches so the next wc_get_product() reload reflects
+    // 4. Drop caches so the next wc_get_product() reload reflects
     // the cleared state, not the stale in-process snapshot.
     clean_post_cache( $product_id );
     wp_cache_delete( $product_id, 'posts' );
@@ -435,6 +397,58 @@ function gh_reset_variable_product_state( int $product_id ): void {
     if ( function_exists( 'wc_delete_product_transients' ) ) {
         wc_delete_product_transients( $product_id );
     }
+}
+
+/**
+ * Per-request memoized resolution of an attribute taxonomy term by
+ * name. Returns the WP_Term so callers can read term_id (parent
+ * attribute attachment) OR slug (variation `attribute_pa_*` meta)
+ * from the same hot cache.
+ *
+ * Why this exists: gh_build_wc_attributes pre-resolves names → IDs
+ * for set_options(), gh_attach_attribute_terms resolves names → IDs
+ * for wp_set_object_terms(), gh_create_variation resolves names →
+ * slugs for the variation's attribute meta. Before this helper each
+ * of those independently issued get_term_by('name'), get_term_by('slug'),
+ * and (worst case) wp_insert_term for every option of every product —
+ * the term cache is per-query, so name lookup misses didn't cross
+ * function boundaries. On a 450-product force-recreate that compounded
+ * to ~30k redundant lookups per tick. Static cache here is per-request
+ * so once a tick resolves `pa_taglia|40`, every later product in
+ * the same tick is an O(1) array hit instead of a DB roundtrip.
+ *
+ * Inserts the term if missing — matches existing behaviour. Returns
+ * null when the taxonomy doesn't exist or wp_insert_term errored.
+ */
+function gh_resolve_attribute_term( string $taxonomy, string $value ): ?WP_Term {
+    static $cache = [];
+
+    $value = trim( $value );
+    if ( $value === '' || $taxonomy === '' ) return null;
+
+    $key = $taxonomy . '|' . $value;
+    if ( array_key_exists( $key, $cache ) ) {
+        return $cache[ $key ];
+    }
+
+    if ( ! taxonomy_exists( $taxonomy ) ) {
+        return $cache[ $key ] = null;
+    }
+
+    $term = get_term_by( 'name', $value, $taxonomy );
+    if ( ! $term ) {
+        $term = get_term_by( 'slug', sanitize_title( $value ), $taxonomy );
+    }
+    if ( $term instanceof WP_Term ) {
+        return $cache[ $key ] = $term;
+    }
+
+    $inserted = wp_insert_term( $value, $taxonomy );
+    if ( is_wp_error( $inserted ) || empty( $inserted['term_id'] ) ) {
+        return $cache[ $key ] = null;
+    }
+    $new = get_term( (int) $inserted['term_id'], $taxonomy );
+    return $cache[ $key ] = ( $new instanceof WP_Term ? $new : null );
 }
 
 /**

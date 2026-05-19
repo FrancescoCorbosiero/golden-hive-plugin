@@ -70,6 +70,7 @@ return array(
     'HiveSync\\Sources\\StockOnlyClassifier' => $baseDir . '/src/Sources/StockOnlyClassifier.php',
     'HiveSync\\Sources\\VariationLookup' => $baseDir . '/src/Sources/VariationLookup.php',
     'HiveSync\\Tools\\NuclearCleanup' => $baseDir . '/src/Tools/NuclearCleanup.php',
+    'HiveSync\\Tools\\VariationAttrRepair' => $baseDir . '/src/Tools/VariationAttrRepair.php',
     'HiveSync\\Workflow\\Config\\ProjectApplier' => $baseDir . '/src/Workflow/Config/ProjectApplier.php',
     'HiveSync\\Workflow\\Config\\ProjectExporter' => $baseDir . '/src/Workflow/Config/ProjectExporter.php',
     'HiveSync\\Workflow\\Export\\Exporter' => $baseDir . '/src/Workflow/Export/Exporter.php',

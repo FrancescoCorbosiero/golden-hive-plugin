@@ -85,6 +85,7 @@ class ComposerStaticInit8ec97cf8e32aa119124e2c238cc20b92
         'HiveSync\\Sources\\StockOnlyClassifier' => __DIR__ . '/../..' . '/src/Sources/StockOnlyClassifier.php',
         'HiveSync\\Sources\\VariationLookup' => __DIR__ . '/../..' . '/src/Sources/VariationLookup.php',
         'HiveSync\\Tools\\NuclearCleanup' => __DIR__ . '/../..' . '/src/Tools/NuclearCleanup.php',
+        'HiveSync\\Tools\\VariationAttrRepair' => __DIR__ . '/../..' . '/src/Tools/VariationAttrRepair.php',
         'HiveSync\\Workflow\\Config\\ProjectApplier' => __DIR__ . '/../..' . '/src/Workflow/Config/ProjectApplier.php',
         'HiveSync\\Workflow\\Config\\ProjectExporter' => __DIR__ . '/../..' . '/src/Workflow/Config/ProjectExporter.php',
         'HiveSync\\Workflow\\Export\\Exporter' => __DIR__ . '/../..' . '/src/Workflow/Export/Exporter.php',

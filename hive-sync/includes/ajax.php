@@ -976,6 +976,34 @@ add_action( 'wp_ajax_hsync_ajax_nuclear_delete_by_source', function () {
     wp_send_json_success( \HiveSync\Tools\NuclearCleanup::deleteBySource( $source ) );
 } );
 
+// ─── Variation attribute repair (GS slug bug remediation) ────────
+//
+// One-shot in-place fix for variations whose attribute_pa_* meta
+// holds the raw feed value (e.g. "33.5") instead of the term slug
+// ("33-5"). Caused by the pre-a6bd7b9 GS bridge update path that
+// inlined a stripped-down variation create skipping term resolution.
+// Symptom: storefront dropdown shows only integer sizes; decimal /
+// letter sizes silently vanish despite existing in the DB.
+//
+// Preview is read-only and idempotent; apply skips already-correct
+// rows. Both safe to re-run.
+add_action( 'wp_ajax_hsync_ajax_repair_variation_attrs_preview', function () {
+    hsync_ajax_admin_guard();
+    @set_time_limit( 120 );
+    wp_send_json_success( \HiveSync\Tools\VariationAttrRepair::preview() );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_repair_variation_attrs_apply', function () {
+    hsync_ajax_admin_guard();
+    if ( ! hsync_post_bool( 'confirm' ) ) {
+        wp_send_json_error( [ 'message' => 'Confirm flag mancante.' ] );
+    }
+    @set_time_limit( 300 );
+    $started = microtime( true );
+    $result  = \HiveSync\Tools\VariationAttrRepair::apply();
+    wp_send_json_success( $result + [ 'duration_s' => round( microtime( true ) - $started, 2 ) ] );
+} );
+
 // ─── Usage summary ───────────────────────────────────────────────
 //
 // Returns a map of which entities (source-configs, mappings,

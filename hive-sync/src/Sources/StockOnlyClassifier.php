@@ -66,6 +66,12 @@ final class StockOnlyClassifier
 
         // Phase 1: scalar non-stock comparison. Any mismatch → full update,
         // no point in checking stock (the full pipeline writes everything).
+        // Both sides go through normalizeFor() so round-trip artifacts
+        // (wp_kses_post stripping disallowed tags on save, CRLF→LF
+        // normalization, leading/trailing whitespace) don't surface as
+        // phantom diffs. Without this every SF item ends up in
+        // updateFull on every run because get_description returns the
+        // wp_kses_post'd form while the feed carries the raw form.
         foreach ( $item->data as $k => $v ) {
             if ( in_array( $k, self::STOCK_KEYS, true ) ) continue;
             if ( ! is_scalar( $v ) ) continue;
@@ -73,7 +79,9 @@ final class StockOnlyClassifier
             if ( $getter === null ) continue;
             $cur = $product->{$getter}();
             if ( ! is_scalar( $cur ) ) continue;
-            if ( (string) $cur !== (string) $v ) return 'updateFull';
+            if ( self::normalizeFor( (string) $k, (string) $v ) !== self::normalizeFor( (string) $k, (string) $cur ) ) {
+                return 'updateFull';
+            }
         }
 
         // Phase 2: stock/price comparison. Differs from before — now we
@@ -95,10 +103,12 @@ final class StockOnlyClassifier
                 // or the parent was just created mid-tick).
                 $existingMap = self::loadVariationsViaWcFallback( $pid );
             }
+            $incomingSkus = [];
             foreach ( $variations as $var_data ) {
                 if ( ! is_array( $var_data ) ) continue;
                 $vsku = (string) ( $var_data['sku'] ?? '' );
                 if ( $vsku === '' ) continue;
+                $incomingSkus[ $vsku ] = true;
                 $existing = $existingMap[ $vsku ] ?? null;
                 if ( $existing === null ) {
                     // New size in the feed that doesn't exist in Woo yet —
@@ -108,6 +118,18 @@ final class StockOnlyClassifier
                 }
                 if ( ! self::variationMatches( $var_data, $existing ) ) {
                     return 'updateStock';
+                }
+            }
+            // Size discontinued upstream — Woo has a variation that the
+            // feed no longer carries. The SF bridge's full-update path
+            // zeroes orphan-variation stock (line 469 of feed-stockfirmati);
+            // the fast-patch path doesn't. Route these to updateFull so
+            // the zeroing fires. For GS the bridge has no zeroing logic
+            // either way; routing to updateFull is a harmless no-op
+            // (full pipeline re-writes the same variation state).
+            foreach ( $existingMap as $existingSku => $_ ) {
+                if ( ! isset( $incomingSkus[ $existingSku ] ) ) {
+                    return 'updateFull';
                 }
             }
             return 'unchanged';
@@ -242,6 +264,41 @@ final class StockOnlyClassifier
             if ( (string) $incoming['stock_status'] !== $existing['stock_status'] ) return false;
         }
         return true;
+    }
+
+    /**
+     * Canonicalize a scalar field value so feed-side vs Woo-side
+     * comparison ignores artifacts that don't represent a real change:
+     *
+     *   - Line endings normalized to \n (CSV upstreams often use CRLF;
+     *     wp_insert_post can normalize on save but doesn't guarantee
+     *     either form across versions).
+     *   - Outer whitespace trimmed.
+     *   - description / short_description go through wp_kses_post —
+     *     matches what wp_filter_post_kses applies during save when
+     *     the running context lacks unfiltered_html (the typical
+     *     WP-Cron case). Both sides through the same filter means
+     *     wp_kses_post(feed) === wp_kses_post(get_description()) when
+     *     the input is semantically the same, regardless of which
+     *     side was stored under which capability.
+     *
+     * Idempotent: normalize(normalize(x)) === normalize(x).
+     */
+    private static function normalizeFor( string $field, string $value ): string
+    {
+        $value = str_replace( [ "\r\n", "\r" ], "\n", $value );
+        $value = trim( $value );
+        if ( $field === 'description' || $field === 'short_description' ) {
+            if ( function_exists( 'wp_kses_post' ) ) {
+                $value = \wp_kses_post( $value );
+                // wp_kses_post can leave trailing whitespace after
+                // stripping disallowed tags — re-trim defensively
+                // so a stripped <script> at end-of-string doesn't
+                // leave a phantom space behind.
+                $value = trim( $value );
+            }
+        }
+        return $value;
     }
 
     /**

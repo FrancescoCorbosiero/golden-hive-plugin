@@ -425,7 +425,7 @@ final class CsvSource extends AbstractSource
 
     public function diff(array $items, Context $ctx): Diff
     {
-        $new = $update = $unchanged = [];
+        $new = $update = [];
 
         // Batch SKU → pid lookup; see JsonSource::diff for rationale.
         // One SQL round-trip instead of N×wc_get_product_id_by_sku.
@@ -453,13 +453,13 @@ final class CsvSource extends AbstractSource
             }
         }
 
-        // Split `update` into full vs stock-only so a job tagged
-        // buckets:['updateStock'] gets the cheap path. SF "refresh"
-        // jobs rely on this to stay sub-second per product. The split
-        // is deadline-aware: when the budget is gone, the remaining
-        // items default to full-update (safe choice; the fast-patch
-        // optimization only applies when classification finishes).
-        [ $updateFull, $updateStock ] = StockOnlyClassifier::split( $update, $ctx );
+        // 3-way split: unchanged / stock / full. The `unchanged` bucket
+        // is what makes the diff idempotent — re-runs on a stable feed
+        // produce zero writes instead of looping through fast-patch
+        // no-ops. Deadline-aware: when budget is gone, remaining items
+        // default to full-update (safe choice; we only lose the
+        // optimization, never lose data).
+        [ $updateFull, $updateStock, $unchanged ] = StockOnlyClassifier::split( $update, $ctx );
 
         return new Diff(
             new: $new,

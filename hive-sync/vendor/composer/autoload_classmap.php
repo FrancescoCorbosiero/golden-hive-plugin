@@ -68,6 +68,7 @@ return array(
     'HiveSync\\Sources\\MarkupResolver' => $baseDir . '/src/Sources/MarkupResolver.php',
     'HiveSync\\Sources\\SkuLookup' => $baseDir . '/src/Sources/SkuLookup.php',
     'HiveSync\\Sources\\StockOnlyClassifier' => $baseDir . '/src/Sources/StockOnlyClassifier.php',
+    'HiveSync\\Sources\\VariationLookup' => $baseDir . '/src/Sources/VariationLookup.php',
     'HiveSync\\Tools\\NuclearCleanup' => $baseDir . '/src/Tools/NuclearCleanup.php',
     'HiveSync\\Workflow\\Config\\ProjectApplier' => $baseDir . '/src/Workflow/Config/ProjectApplier.php',
     'HiveSync\\Workflow\\Config\\ProjectExporter' => $baseDir . '/src/Workflow/Config/ProjectExporter.php',

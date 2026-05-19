@@ -481,12 +481,19 @@ final class JsonSource extends AbstractSource
             }
         }
 
-        [$updateFull, $updateStock] = StockOnlyClassifier::split($update, $ctx);
+        // 3-way split: every existing SKU is one of unchanged / stock
+        // / full. Without the `unchanged` path, the diff was reporting
+        // every existing item as work to do on every run — the
+        // "4 full / 435 stock at each run with no actual feed change"
+        // symptom. The classifier now compares per-variation stock
+        // against Woo (via batched VariationLookup) so a stable feed
+        // produces an empty update bucket and zero writes.
+        [$updateFull, $updateStock, $unchanged] = StockOnlyClassifier::split($update, $ctx);
 
         return new Diff(
             new: $new,
             update: $updateFull,
-            unchanged: [],
+            unchanged: $unchanged,
             updateStock: $updateStock,
         );
     }

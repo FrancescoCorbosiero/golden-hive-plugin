@@ -221,17 +221,51 @@ function gh_build_wc_attributes( array $attrs_json ): array {
         if ( $tax_id ) {
             $attr->set_id( $tax_id );
             $attr->set_name( $name );
-            foreach ( $config['options'] ?? [] as $term_name ) {
-                if ( ! term_exists( $term_name, $name ) ) {
-                    wp_insert_term( $term_name, $name );
+
+            // Pre-resolve option NAMES → term IDs before set_options.
+            // WC's WC_Product_Attribute::set_options() on a taxonomy
+            // attribute calls wp_parse_id_list() which absint's every
+            // option — '40.5' becomes 40, '42' stays 42 but now refers
+            // to whichever term has the global term_id 42 (likely not
+            // a pa_taglia term at all). The downstream save() then
+            // calls wp_set_object_terms() with the absint'd "IDs",
+            // either attaching the wrong term (if 42 exists somewhere
+            // else) or dropping it silently → parent's pa_taglia ends
+            // up missing every integer-named size and any decimal that
+            // doesn't happen to collide with an existing term ID.
+            //
+            // Resolving names → real term_ids here means set_options
+            // receives proper IDs, wp_parse_id_list becomes a no-op,
+            // and WC's save() writes term_relationships for the actual
+            // terms (decimals included). Idempotent: re-running with
+            // the same names produces the same term IDs.
+            $resolved_term_ids = [];
+            foreach ( $config['options'] ?? [] as $opt ) {
+                if ( is_int( $opt ) ) {
+                    $resolved_term_ids[] = $opt;
+                    continue;
+                }
+                $val = trim( (string) $opt );
+                if ( $val === '' ) continue;
+                $term = get_term_by( 'name', $val, $name );
+                if ( ! $term ) {
+                    $term = get_term_by( 'slug', sanitize_title( $val ), $name );
+                }
+                if ( ! $term ) {
+                    $inserted = wp_insert_term( $val, $name );
+                    if ( is_wp_error( $inserted ) ) continue;
+                    $resolved_term_ids[] = (int) $inserted['term_id'];
+                } else {
+                    $resolved_term_ids[] = (int) $term->term_id;
                 }
             }
+            $attr->set_options( $resolved_term_ids );
         } else {
             $attr->set_id( 0 );
             $attr->set_name( $name );
+            $attr->set_options( $config['options'] ?? [] );
         }
 
-        $attr->set_options( $config['options'] ?? [] );
         $attr->set_visible( $config['visible'] ?? true );
         $attr->set_variation( $config['variation'] ?? true );
         $attr->set_position( $position++ );
@@ -279,13 +313,23 @@ function gh_attach_attribute_terms( int $product_id, array $attrs_json ): void {
 
         if ( ! taxonomy_exists( $tax_name ) ) continue;
 
-        // Resolve each option (string or term-ID) to an existing
-        // term ID. Insert if missing so we don't lose data on a
-        // freshly-registered taxonomy.
+        // Resolve each option to a term ID. NOTE: numeric STRINGS
+        // ("40", "42") are NAMES not term IDs — feeds carry size
+        // names, not WP term IDs. Treating them as IDs (the old
+        // ctype_digit shortcut) silently mis-attached: term ID 42
+        // in pa_taglia rarely exists, or if it does it points to
+        // an unrelated term. Result: integer-named sizes from the
+        // feed (40, 42, 44, 45, 46…) never landed on the parent,
+        // while decimal-named sizes (40.5, 41.5…) did — the exact
+        // pattern users see as "8 of 10 sizes attached, the 4
+        // integer ones are missing → variations show as Qualsiasi
+        // Taglia". Only an actual PHP int counts as a term ID;
+        // callers can still pass ints explicitly to bypass the
+        // name lookup.
         $term_ids = [];
         foreach ( $options as $opt ) {
-            if ( is_int( $opt ) || ctype_digit( (string) $opt ) ) {
-                $term_ids[] = (int) $opt;
+            if ( is_int( $opt ) ) {
+                $term_ids[] = $opt;
                 continue;
             }
             $name = trim( (string) $opt );

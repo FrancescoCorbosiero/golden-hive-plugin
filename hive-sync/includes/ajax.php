@@ -59,14 +59,29 @@ function hsync_arm_fatal_guard(): void {
     if ( $armed ) return;
     $armed = true;
 
+    // Open our own output buffer NOW, at handler entry. The shutdown
+    // cleaner below can only drop HTML it can still reach via
+    // ob_end_clean() — and WordPress's own fatal handler
+    // (WP_Fatal_Error_Handler, registered during core bootstrap) emits
+    // its "critical error" HTML page with `exit => false`, so it writes
+    // into whatever buffer is on top of the stack at shutdown. Without a
+    // buffer of ours open, that HTML is flushed straight to the client
+    // and our JSON envelope below just gets appended after it — which is
+    // exactly the "risposta non-JSON: <p>Si è verificato un errore…"
+    // the tick loop reports. With the buffer open, the HTML lands in it
+    // and the cleaner discards it before we emit clean JSON.
+    if ( function_exists( 'ob_start' ) ) {
+        ob_start();
+    }
+
     register_shutdown_function( static function (): void {
         $err = error_get_last();
         if ( ! $err ) return;
         $fatalTypes = E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR | E_USER_ERROR | E_RECOVERABLE_ERROR;
         if ( ! ( $err['type'] & $fatalTypes ) ) return;
 
-        // If the buffer already holds HTML (PHP error page), drop it so
-        // the client gets ONLY our JSON envelope.
+        // Drop EVERY buffer level — ours plus WordPress's HTML error
+        // page — so the client gets ONLY our JSON envelope.
         while ( ob_get_level() > 0 ) {
             @ob_end_clean();
         }
@@ -85,11 +100,48 @@ function hsync_arm_fatal_guard(): void {
                     basename( (string) $err['file'] ),
                     (int) $err['line']
                 ),
-                'fatal'   => true,
+                'fatal'       => true,
+                // Let the JS tick loop offer "Riprendi da qui" with the
+                // cursor it already holds — same contract as the
+                // handler's \Throwable catch. A deterministic fatal
+                // (OOM/timeout) won't recover by retry, but the user
+                // sees the real PHP message instead of an HTML wall.
+                'recoverable' => true,
             ],
         ];
         echo wp_json_encode( $payload );
     } );
+}
+
+/**
+ * Give heavy import ticks the headroom the legacy feed handlers had.
+ *
+ * The old golden-hive bridge (gh_ajax_fc_apply / rp_rc_ajax_gs_fetch)
+ * opened every batch with `@set_time_limit(300)` + `wp_raise_memory_limit`.
+ * The hive-sync run handler dropped both, relying solely on the 25s
+ * cooperative deadline. But that deadline only bounds the per-item
+ * PROCESSING loop — tick 1 fetches + transforms + diffs the ENTIRE feed
+ * before the loop is reached. On a multi-thousand-row SF/GS feed that
+ * one-shot phase blows the default PHP max_execution_time / memory_limit
+ * and dies with an UNCATCHABLE fatal (try/catch can't trap OOM or a
+ * timeout), surfacing as WordPress's HTML "critical error" page — the
+ * "Tick 1 … HTTP 500 risposta non-JSON" the operator reported.
+ *
+ * 300s matches the proven legacy value: ample for tick 1's one-shot
+ * fetch+transform+diff (tens of seconds even on a 10k-row feed) while
+ * staying under typical FastCGI/reverse-proxy timeouts, so a genuinely
+ * runaway tick still fails fast instead of hanging the worker. Normal
+ * ticks never approach it — the 25s cooperative deadline yields the
+ * processing loop long before. The memory raise lifts to
+ * WP_MAX_MEMORY_LIMIT for the duration of the request.
+ */
+function hsync_raise_limits(): void {
+    if ( function_exists( 'set_time_limit' ) ) {
+        @set_time_limit( 300 );
+    }
+    if ( function_exists( 'wp_raise_memory_limit' ) ) {
+        wp_raise_memory_limit( 'admin' );
+    }
 }
 
 // ─── Sources ───────────────────────────────────────────────────────
@@ -460,6 +512,7 @@ add_action( 'wp_ajax_hsync_ajax_taxonomy_terms', function () {
 add_action( 'wp_ajax_hsync_ajax_run_now', function () {
     hsync_ajax_guard();
     hsync_arm_fatal_guard();
+    hsync_raise_limits();
 
     $sourceId   = hsync_post_text( 'source_id' );
     $configSlug = hsync_post_text( 'config_slug' );
@@ -554,6 +607,8 @@ add_action( 'wp_ajax_hsync_ajax_job_delete', function () {
 
 add_action( 'wp_ajax_hsync_ajax_job_run_now', function () {
     hsync_ajax_guard();
+    hsync_arm_fatal_guard();
+    hsync_raise_limits();
     $id = (int) hsync_post_text( 'id' );
     if ( $id <= 0 ) wp_send_json_error( [ 'message' => 'id richiesto.' ] );
     $runner = new \HiveSync\Workflow\Schedule\JobRunner(
@@ -568,6 +623,8 @@ add_action( 'wp_ajax_hsync_ajax_job_run_now', function () {
 
 add_action( 'wp_ajax_hsync_ajax_jobs_tick_now', function () {
     hsync_ajax_guard();
+    hsync_arm_fatal_guard();
+    hsync_raise_limits();
     wp_send_json_success( hsync_run_tick() );
 } );
 

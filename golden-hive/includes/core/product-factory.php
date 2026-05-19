@@ -221,17 +221,51 @@ function gh_build_wc_attributes( array $attrs_json ): array {
         if ( $tax_id ) {
             $attr->set_id( $tax_id );
             $attr->set_name( $name );
-            foreach ( $config['options'] ?? [] as $term_name ) {
-                if ( ! term_exists( $term_name, $name ) ) {
-                    wp_insert_term( $term_name, $name );
+
+            // Pre-resolve option NAMES → term IDs before set_options.
+            // WC's WC_Product_Attribute::set_options() on a taxonomy
+            // attribute calls wp_parse_id_list() which absint's every
+            // option — '40.5' becomes 40, '42' stays 42 but now refers
+            // to whichever term has the global term_id 42 (likely not
+            // a pa_taglia term at all). The downstream save() then
+            // calls wp_set_object_terms() with the absint'd "IDs",
+            // either attaching the wrong term (if 42 exists somewhere
+            // else) or dropping it silently → parent's pa_taglia ends
+            // up missing every integer-named size and any decimal that
+            // doesn't happen to collide with an existing term ID.
+            //
+            // Resolving names → real term_ids here means set_options
+            // receives proper IDs, wp_parse_id_list becomes a no-op,
+            // and WC's save() writes term_relationships for the actual
+            // terms (decimals included). Idempotent: re-running with
+            // the same names produces the same term IDs.
+            $resolved_term_ids = [];
+            foreach ( $config['options'] ?? [] as $opt ) {
+                if ( is_int( $opt ) ) {
+                    $resolved_term_ids[] = $opt;
+                    continue;
+                }
+                $val = trim( (string) $opt );
+                if ( $val === '' ) continue;
+                $term = get_term_by( 'name', $val, $name );
+                if ( ! $term ) {
+                    $term = get_term_by( 'slug', sanitize_title( $val ), $name );
+                }
+                if ( ! $term ) {
+                    $inserted = wp_insert_term( $val, $name );
+                    if ( is_wp_error( $inserted ) ) continue;
+                    $resolved_term_ids[] = (int) $inserted['term_id'];
+                } else {
+                    $resolved_term_ids[] = (int) $term->term_id;
                 }
             }
+            $attr->set_options( $resolved_term_ids );
         } else {
             $attr->set_id( 0 );
             $attr->set_name( $name );
+            $attr->set_options( $config['options'] ?? [] );
         }
 
-        $attr->set_options( $config['options'] ?? [] );
         $attr->set_visible( $config['visible'] ?? true );
         $attr->set_variation( $config['variation'] ?? true );
         $attr->set_position( $position++ );
@@ -279,13 +313,23 @@ function gh_attach_attribute_terms( int $product_id, array $attrs_json ): void {
 
         if ( ! taxonomy_exists( $tax_name ) ) continue;
 
-        // Resolve each option (string or term-ID) to an existing
-        // term ID. Insert if missing so we don't lose data on a
-        // freshly-registered taxonomy.
+        // Resolve each option to a term ID. NOTE: numeric STRINGS
+        // ("40", "42") are NAMES not term IDs — feeds carry size
+        // names, not WP term IDs. Treating them as IDs (the old
+        // ctype_digit shortcut) silently mis-attached: term ID 42
+        // in pa_taglia rarely exists, or if it does it points to
+        // an unrelated term. Result: integer-named sizes from the
+        // feed (40, 42, 44, 45, 46…) never landed on the parent,
+        // while decimal-named sizes (40.5, 41.5…) did — the exact
+        // pattern users see as "8 of 10 sizes attached, the 4
+        // integer ones are missing → variations show as Qualsiasi
+        // Taglia". Only an actual PHP int counts as a term ID;
+        // callers can still pass ints explicitly to bypass the
+        // name lookup.
         $term_ids = [];
         foreach ( $options as $opt ) {
-            if ( is_int( $opt ) || ctype_digit( (string) $opt ) ) {
-                $term_ids[] = (int) $opt;
+            if ( is_int( $opt ) ) {
+                $term_ids[] = $opt;
                 continue;
             }
             $name = trim( (string) $opt );
@@ -307,6 +351,89 @@ function gh_attach_attribute_terms( int $product_id, array $attrs_json ): void {
         if ( ! empty( $term_ids ) ) {
             wp_set_object_terms( $product_id, $term_ids, $tax_name, false );
         }
+    }
+}
+
+/**
+ * Wipes a variable product's variation set, pa_* term assignments, and
+ * _product_attributes meta — leaving the parent post (and its ID, SKU,
+ * brand, category, gallery) intact. A subsequent update call then
+ * writes the full shape from scratch, exactly the same way a first
+ * create would.
+ *
+ * Use case: force-recreate. The operator hit "Forza ricreazione" because
+ * a regular re-sync didn't converge — the parent's pa_taglia options
+ * drifted from the feed, variations show as "Qualsiasi Taglia", and
+ * the self-heal path didn't land. This reset zeroes the corrupt parts
+ * deterministically so the follow-up write isn't fighting stale state.
+ *
+ * Doesn't touch (so historical context isn't lost):
+ *   - The parent post itself (preserving the WC product ID — historical
+ *     orders + permalinks stay valid).
+ *   - product_brand, product_cat, product_tag (the feed re-asserts
+ *     these on every sync anyway, so wiping them buys nothing).
+ *   - Featured image / gallery (media re-sideload is the expensive
+ *     half of a sync; the URL→attachment map already keeps these
+ *     correct via skip-if-set semantics).
+ *   - Non-pa_* postmeta the operator may have set manually.
+ *
+ * Idempotent: re-running on an already-reset product is a no-op (no
+ * children to delete, no terms to clear, no meta to drop).
+ *
+ * @param int $product_id
+ */
+function gh_reset_variable_product_state( int $product_id ): void {
+    if ( $product_id <= 0 ) return;
+
+    // 1. Delete variation children. force=true bypasses trash so the
+    // update path's SKU lookup (wc_get_product_id_by_sku) doesn't
+    // resurrect a trashed variation and overwrite the freshly-created
+    // one — the duplicate-SKU corner case that re-imports of force-
+    // recreated products would otherwise hit.
+    $product = function_exists( 'wc_get_product' ) ? wc_get_product( $product_id ) : null;
+    if ( $product && method_exists( $product, 'get_children' ) ) {
+        foreach ( (array) $product->get_children() as $vid ) {
+            wp_delete_post( (int) $vid, true );
+        }
+    }
+
+    // 2. Clear pa_* term assignments. Walks every taxonomy currently
+    // attached to the product (not just well-known pa_taglia) so
+    // any non-standard pa_* slot the operator added is also wiped.
+    // wp_set_object_terms with [] + append=false drops the term-
+    // relationships row.
+    $object_taxonomies = get_object_taxonomies( 'product' );
+    foreach ( $object_taxonomies as $tax ) {
+        if ( ! is_string( $tax ) ) continue;
+        if ( ! str_starts_with( $tax, 'pa_' ) ) continue;
+        wp_set_object_terms( $product_id, [], $tax, false );
+    }
+
+    // 3. Drop the _product_attributes meta entirely. The next
+    // set_attributes() call writes a fresh meta blob without
+    // inheriting stale options.
+    delete_post_meta( $product_id, '_product_attributes' );
+
+    // 4. Reset stock/price aggregation meta so WC doesn't show a
+    // stale "X in stock" while the new variations are still being
+    // written. Parent stock/price get recomputed by
+    // WC_Product_Variable::sync() at the end of the update path.
+    delete_post_meta( $product_id, '_stock' );
+    delete_post_meta( $product_id, '_price' );
+    delete_post_meta( $product_id, '_min_variation_price' );
+    delete_post_meta( $product_id, '_max_variation_price' );
+    delete_post_meta( $product_id, '_min_variation_regular_price' );
+    delete_post_meta( $product_id, '_max_variation_regular_price' );
+    delete_post_meta( $product_id, '_min_variation_sale_price' );
+    delete_post_meta( $product_id, '_max_variation_sale_price' );
+
+    // 5. Drop caches so the next wc_get_product() reload reflects
+    // the cleared state, not the stale in-process snapshot.
+    clean_post_cache( $product_id );
+    wp_cache_delete( $product_id, 'posts' );
+    wp_cache_delete( $product_id, 'post_meta' );
+    if ( function_exists( 'wc_delete_product_transients' ) ) {
+        wc_delete_product_transients( $product_id );
     }
 }
 

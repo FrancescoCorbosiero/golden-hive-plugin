@@ -516,6 +516,52 @@ function gh_sf_update_product( array $data ): array {
     }
 }
 
+/**
+ * Force-recreate path for SF. Mirror of rp_rc_gs_force_recreate_product —
+ * resets the existing variable product's children + pa_* terms +
+ * _product_attributes meta, then delegates to gh_sf_update_product so
+ * the full SF transform writes a fresh shape. See the GS variant for
+ * the full rationale.
+ *
+ * @param array $data
+ * @param bool  $sideload   Only honored on the create-fallback branch.
+ * @return array
+ */
+function gh_sf_force_recreate_product( array $data, bool $sideload = true ): array {
+
+    $sku        = (string) ( $data['sku'] ?? '' );
+    $product_id = (int) ( $data['_existing_id'] ?? 0 );
+
+    if ( $product_id === 0 && $sku !== '' && function_exists( 'wc_get_product_id_by_sku' ) ) {
+        $product_id = (int) wc_get_product_id_by_sku( $sku );
+    }
+
+    if ( $product_id === 0 ) {
+        return gh_sf_create_product( $data, $sideload );
+    }
+
+    try {
+        if ( function_exists( 'gh_reset_variable_product_state' ) ) {
+            gh_reset_variable_product_state( $product_id );
+        }
+
+        $data['_existing_id'] = $product_id;
+        $result = gh_sf_update_product( $data );
+
+        if ( ($result['action'] ?? '') === 'updated' ) {
+            $result['action'] = 'recreated';
+        }
+        return $result;
+    } catch ( \Throwable $e ) {
+        return [
+            'action' => 'error',
+            'sku'    => $sku,
+            'name'   => $data['name'] ?? '?',
+            'reason' => $e->getMessage(),
+        ];
+    }
+}
+
 // ── Taxonomy helpers ───────────────────────────────────────
 
 /**

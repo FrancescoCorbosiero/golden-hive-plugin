@@ -335,6 +335,9 @@ function hsync_render_admin_page(): void {
                         Max tick
                         <input type="number" data-field="run-max-ticks" min="0" step="1" value="200" style="width:5em;">
                     </label>
+                    <label class="hsync-dryrun" title="Per OGNI prodotto già esistente in Woo: cancella varianti + termini pa_* + meta _product_attributes, poi riscrive tutto da feed come fosse un primo import. L'ID del prodotto (e quindi gli ordini storici) viene preservato; le varianti vengono ricreate da zero — gli ID delle varianti cambiano. Da usare quando una sync normale non converge sui dati corretti (es. attributo Taglia corrotto). UN colpo solo, non lasciare attivo sui cron job.">
+                        <input type="checkbox" data-field="run-force-recreate"> Forza ricreazione
+                    </label>
                     <button class="button button-primary" data-action="run-now">Importa adesso</button>
                 </div>
             </div>

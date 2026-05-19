@@ -2762,11 +2762,32 @@
         const maxTicks = maxTicksInput ? Math.max(0, parseInt(maxTicksInput.value, 10) || 0) : 200;
         const modeEl = document.querySelector('input[name="hsync-run-mode"]:checked');
         const mode = modeEl ? String(modeEl.value || 'full') : 'full';
+        const forceRecreateEl = $('[data-field="run-force-recreate"]');
+        const forceRecreate = forceRecreateEl ? !!forceRecreateEl.checked : false;
         const options = {};
         if (mapping)        options.mapping = mapping.config;
         if (pipelineSlug)   options.pipeline_slug = pipelineSlug;
         if (limit > 0)      options.limit = limit;
         if (mode && mode !== 'full') options.mode = mode;
+        if (forceRecreate)  options.force_recreate = true;
+
+        // Force-recreate is destructive on the variation set — confirm
+        // before kicking off a non-dry run. Skip the prompt in dry-run
+        // mode (no writes happen) and when there's a saved cursor (the
+        // user already confirmed for this run; resuming doesn't re-ask).
+        if (forceRecreate && ! dryRun) {
+            const limitLabel = limit > 0 ? ' Limite: ' + limit + '.' : '';
+            const ok = confirm(
+                'Forza ricreazione attiva.\n\n' +
+                'Per OGNI prodotto esistente nel feed corrente verranno cancellate' +
+                ' tutte le varianti, i termini pa_* e il meta _product_attributes,' +
+                ' poi tutto sarà riscritto dal feed come fosse un primo import.\n\n' +
+                'L\'ID del prodotto viene preservato (gli ordini storici restano' +
+                ' validi). Gli ID delle VARIANTI cambiano.' + limitLabel + '\n\n' +
+                'Continuare?'
+            );
+            if (! ok) return;
+        }
 
         await HSync.runImportTicked(sourceId, configSlug, config, options, dryRun, null, maxTicks);
     };
@@ -2796,7 +2817,7 @@
         //     done by the run, not just the last tick's slice.
         // Server-side each tick still resets its own summary; the JS
         // is the system of record for cross-tick aggregation.
-        const RESULT_KEYS = ['created', 'updated', 'stock_patched', 'skipped', 'failed', 'pre_blocked', 'post_blocked'];
+        const RESULT_KEYS = ['created', 'updated', 'recreated', 'stock_patched', 'skipped', 'failed', 'pre_blocked', 'post_blocked'];
         const accumulated = {
             rows: [], warnings: [], runId: null,
             diffSnapshot: null,
@@ -2975,8 +2996,19 @@
         // accounted total. update_stock + stock_patched are first-class
         // here (the fast-stock-patch path can dwarf new+update on big
         // refresh runs).
-        const processingPool = (s.new || 0) + (s.update || 0) + (s.update_stock || 0);
-        const accounted = (s.created || 0) + (s.updated || 0) + (s.stock_patched || 0)
+        const processingPool = (s.new || 0) + (s.update || 0) + (s.update_stock || 0)
+                        // Force-recreate pulls `unchanged` into the
+                        // processing pool too — they're not unchanged
+                        // when the operator explicitly asked for a
+                        // rewrite. summary.force_recreate is the
+                        // override count; if present, it replaces the
+                        // sum of update + update_stock since they got
+                        // re-bucketed into one combined queue.
+                        + ((s.force_recreate || 0) > 0
+                            ? Math.max(0, (s.force_recreate || 0) - ((s.update || 0) + (s.update_stock || 0)))
+                            : 0);
+        const accounted = (s.created || 0) + (s.updated || 0) + (s.recreated || 0)
+                        + (s.stock_patched || 0)
                         + (s.skipped || 0) + (s.failed || 0)
                         + (s.pre_blocked || 0) + (s.post_blocked || 0);
         const inFlight = Math.max(0, processingPool - accounted);
@@ -3000,6 +3032,7 @@
             +   '<div class="hsync-summary">'
             +     stat('Created',           s.created,       (s.created       || 0) > 0 ? 'is-good' : '')
             +     stat('Updated',           s.updated,       (s.updated       || 0) > 0 ? 'is-good' : '')
+            +     stat('Recreated',         s.recreated,     (s.recreated     || 0) > 0 ? 'is-good' : '')
             +     stat('Stock patched',     s.stock_patched, (s.stock_patched || 0) > 0 ? 'is-good' : '')
             +     stat('Skipped',           s.skipped,       (s.skipped       || 0) > 0 ? 'is-dim'  : '')
             +     stat('Failed',            s.failed,        (s.failed        || 0) > 0 ? 'is-bad'  : '')

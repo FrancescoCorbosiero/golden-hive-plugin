@@ -572,25 +572,31 @@ function rp_rc_gs_update_product( array $data ): array {
                         $v->save();
                     }
                 } else {
-                    // Nuova variante: crea
-                    $v = new WC_Product_Variation();
-                    $v->set_parent_id( $product_id );
-                    $attrs = [];
-                    foreach ( $var_data['attributes'] ?? [] as $key => $val ) {
-                        $attrs[ str_starts_with( $key, 'attribute_' ) ? $key : 'attribute_' . $key ] = $val;
+                    // Nuova taglia nel feed → crea la variante.
+                    // Delega a gh_create_variation (la stessa che usa il
+                    // path di CREATE) invece di duplicare la logica
+                    // inline qui. Il duplicato precedente passava il
+                    // raw value a set_attributes invece dello slug del
+                    // termine — risultato: la variante veniva creata
+                    // ma Woo non riusciva a collegarla al termine
+                    // tassonomico del padre (es. attribute_pa_taglia="42 EU"
+                    // anziché "42-eu") e spariva dal dropdown sul
+                    // frontend. Per taglie numeriche pure (42, 43)
+                    // sanitize_title era no-op così il bug era
+                    // invisibile; per taglie con spazi/decimali/lettere
+                    // sparivano. gh_create_variation fa già il
+                    // lookup-or-create del termine + risoluzione slug,
+                    // identico a quanto succede al primo import.
+                    // Mirrors SF's bridge (feed-stockfirmati:459).
+                    if ( function_exists( 'gh_create_variation' ) ) {
+                        gh_create_variation( $product_id, $var_data );
                     }
-                    $v->set_attributes( $attrs );
-                    if ( $var_sku )                             $v->set_sku( $var_sku );
-                    if ( isset( $var_data['regular_price'] ) )  $v->set_regular_price( $var_data['regular_price'] );
-                    if ( isset( $var_data['sale_price'] ) )     $v->set_sale_price( $var_data['sale_price'] );
-                    if ( isset( $var_data['manage_stock'] ) )   $v->set_manage_stock( $var_data['manage_stock'] );
-                    if ( isset( $var_data['stock_quantity'] ) )  $v->set_stock_quantity( (int) $var_data['stock_quantity'] );
-                    if ( isset( $var_data['stock_status'] ) )   $v->set_stock_status( $var_data['stock_status'] );
-                    $v->set_status( 'publish' );
-                    $v->save();
                 }
             }
             WC_Product_Variable::sync( $product_id );
+            if ( function_exists( 'gh_fix_variable_stock_status' ) ) {
+                gh_fix_variable_stock_status( $product_id );
+            }
         }
 
         return [

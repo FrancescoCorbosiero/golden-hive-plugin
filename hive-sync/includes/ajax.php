@@ -1004,6 +1004,28 @@ add_action( 'wp_ajax_hsync_ajax_repair_variation_attrs_apply', function () {
     wp_send_json_success( $result + [ 'duration_s' => round( microtime( true ) - $started, 2 ) ] );
 } );
 
+// ─── Feed-vs-Woo diagnostic (GS misalignment investigation) ─────
+//
+// Fetches the upstream feed once, groups flat rows by SKU, compares
+// each product's feed sizes against the corresponding Woo product's
+// variations. Output answers four questions in one pass:
+//   1. Did the upstream return rows? How many? With what shape?
+//   2. Did the SKU grouping work? (distinct_skus vs total rows)
+//   3. For products that DO exist in Woo, do the size sets match?
+//   4. Which sizes are missing from Woo vs the feed?
+//
+// Read-only. No writes, no cache mutation. Pure diagnostic.
+add_action( 'wp_ajax_hsync_ajax_feed_diagnostic', function () {
+    hsync_ajax_admin_guard();
+    $configSlug = hsync_post_text( 'config_slug' );
+    if ( $configSlug === '' ) {
+        wp_send_json_error( [ 'message' => 'config_slug richiesto.' ] );
+    }
+    $sampleSize = isset( $_POST['sample_size'] ) ? max( 1, min( 500, (int) $_POST['sample_size'] ) ) : 50;
+    @set_time_limit( 180 );
+    wp_send_json_success( \HiveSync\Tools\FeedDiagnostic::run( $configSlug, $sampleSize ) );
+} );
+
 // ─── Usage summary ───────────────────────────────────────────────
 //
 // Returns a map of which entities (source-configs, mappings,

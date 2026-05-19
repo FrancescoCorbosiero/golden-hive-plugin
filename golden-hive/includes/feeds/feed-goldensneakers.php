@@ -526,6 +526,26 @@ function rp_rc_gs_update_product( array $data ): array {
             gh_attach_attribute_terms( $product_id, $data['attributes'] );
         }
 
+        // Refresh the parent's `_product_attributes` meta so the
+        // options list reflects the current feed sizes. Without this,
+        // sizes added upstream after the first import land as variations
+        // BUT the parent's pa_taglia options stays at whatever was
+        // captured on day-one. Woo can't link variations to non-existent
+        // options → those variations show as "Qualsiasi Taglia" in
+        // admin and never appear in the storefront size dropdown.
+        // Symptom: products with 6 sizes upstream display only 2 to
+        // customers; admin Variations panel shows N variations but
+        // 4 of them are stuck at "any" because the parent doesn't
+        // know those sizes exist.
+        //
+        // gh_build_wc_attributes is idempotent — re-running with the
+        // same data is a no-op. It also ensures any missing pa_*
+        // terms get wp_insert_term'd so the taxonomy is complete.
+        if ( $product->is_type( 'variable' ) && ! empty( $data['attributes'] ) && function_exists( 'gh_build_wc_attributes' ) ) {
+            $product->set_attributes( gh_build_wc_attributes( $data['attributes'] ) );
+            $product->save();
+        }
+
         // Sync parent status from the incoming payload. Same posture
         // as gh_sf_update_product: flipping import_status on the
         // source-config and re-syncing promotes existing products

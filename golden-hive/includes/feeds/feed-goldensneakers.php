@@ -574,9 +574,11 @@ function rp_rc_gs_update_product( array $data ): array {
 
         // Aggiorna varianti
         if ( $product->is_type( 'variable' ) && ! empty( $data['variations'] ) ) {
+            $seen_skus = [];
             foreach ( $data['variations'] as $var_data ) {
                 $var_sku = $var_data['sku'] ?? '';
                 if ( ! $var_sku ) continue;
+                $seen_skus[ $var_sku ] = true;
 
                 $var_id = wc_get_product_id_by_sku( $var_sku );
                 if ( $var_id ) {
@@ -613,6 +615,41 @@ function rp_rc_gs_update_product( array $data ): array {
                     }
                 }
             }
+
+            // Varianti che il feed non porta più: azzera stock invece di
+            // eliminarle. Preserva l'ID per non rompere ordini storici
+            // / report keyed by variation ID; toglie il prodotto dal
+            // dropdown storefront (qty=0 + OOS). Mirror diretto di
+            // gh_sf_update_product (feed-stockfirmati:481-490).
+            //
+            // Senza questo blocco: una taglia dismessa lato fornitore
+            // restava in Woo con il vecchio stock + il parent's pa_taglia
+            // perdeva il termine (lo update di set_attributes appena
+            // sopra usa replace-semantics) → la variante orfana
+            // appariva come "Qualsiasi Taglia" nell'admin e (peggio)
+            // con il vecchio stock disponibile. Stessa class di bug
+            // della force-recreate ma in direzione opposta.
+            //
+            // Idempotente: una variante già a qty=0+OOS viene
+            // shortcircuited senza save() inutile (evita le ~5 query
+            // per variante che il WC data-store fa anche per no-op).
+            foreach ( $product->get_children() as $existing_var_id ) {
+                $existing_var = wc_get_product( (int) $existing_var_id );
+                if ( ! $existing_var || ! $existing_var->is_type( 'variation' ) ) continue;
+                $existing_sku = (string) $existing_var->get_sku();
+                if ( $existing_sku === '' || isset( $seen_skus[ $existing_sku ] ) ) continue;
+                // Already zeroed? No write needed.
+                $cur_qty    = $existing_var->get_stock_quantity();
+                $cur_status = (string) $existing_var->get_stock_status();
+                if ( $cur_status === 'outofstock' && ( $cur_qty === null || (int) $cur_qty === 0 ) ) {
+                    continue;
+                }
+                $existing_var->set_manage_stock( true );
+                $existing_var->set_stock_quantity( 0 );
+                $existing_var->set_stock_status( 'outofstock' );
+                $existing_var->save();
+            }
+
             WC_Product_Variable::sync( $product_id );
             if ( function_exists( 'gh_fix_variable_stock_status' ) ) {
                 gh_fix_variable_stock_status( $product_id );

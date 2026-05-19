@@ -310,6 +310,23 @@ function hsync_render_admin_page(): void {
                     <label class="hsync-dryrun">
                         <input type="checkbox" data-field="run-dry-run" checked> Solo prova
                     </label>
+                    <div class="hsync-mode" role="radiogroup" aria-label="Modalità di esecuzione" data-field="run-mode-group" title="Cosa fa questa esecuzione. La mappatura SKU+URL è la stessa nelle tre modalità: l'ordine non conta, nessun duplicato, nessun disallineamento.">
+                        <input type="radio" id="hsync-mode-full" name="hsync-run-mode" value="full" checked>
+                        <label for="hsync-mode-full" title="Pipeline standard: crea i prodotti e scarica le immagini in una passata. Più lento ma autocontenuto.">
+                            <span class="hsync-mode__dot" aria-hidden="true"></span>
+                            <span class="hsync-mode__label">Completa</span>
+                        </label>
+                        <input type="radio" id="hsync-mode-data" name="hsync-run-mode" value="data_only">
+                        <label for="hsync-mode-data" title="Crea i prodotti con nome/prezzo/tassonomie/varianti, salta media.download + bridge sideload. Una passata successiva in Completa riempie le immagini.">
+                            <span class="hsync-mode__dot" aria-hidden="true"></span>
+                            <span class="hsync-mode__label">Solo dati</span>
+                        </label>
+                        <input type="radio" id="hsync-mode-media" name="hsync-run-mode" value="media_only">
+                        <label for="hsync-mode-media" title="Pre-scarica le immagini come allegati orfani indicizzati dal map URL→ID. Nessun prodotto viene creato. Un import in Completa o Solo dati successivo aggancia tutto via lookup senza ri-scaricare.">
+                            <span class="hsync-mode__dot" aria-hidden="true"></span>
+                            <span class="hsync-mode__label">Solo media</span>
+                        </label>
+                    </div>
                     <label class="hsync-limit" title="Limita il numero di prodotti processati in questo run (0 = nessun limite). Utile per testare su un feed grande senza importare tutto.">
                         Max prodotti
                         <input type="number" data-field="run-limit" min="0" step="1" value="0" style="width:6em;">

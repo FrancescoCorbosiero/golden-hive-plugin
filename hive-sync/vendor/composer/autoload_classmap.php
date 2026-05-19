@@ -76,6 +76,7 @@ return array(
     'HiveSync\\Workflow\\Mapping\\Template' => $baseDir . '/src/Workflow/Mapping/Template.php',
     'HiveSync\\Workflow\\Migration\\LegacyImporter' => $baseDir . '/src/Workflow/Migration/LegacyImporter.php',
     'HiveSync\\Workflow\\Run\\ImportRunner' => $baseDir . '/src/Workflow/Run/ImportRunner.php',
+    'HiveSync\\Workflow\\Run\\RunCache' => $baseDir . '/src/Workflow/Run/RunCache.php',
     'HiveSync\\Workflow\\Schedule\\CronExpr' => $baseDir . '/src/Workflow/Schedule/CronExpr.php',
     'HiveSync\\Workflow\\Schedule\\JobRunner' => $baseDir . '/src/Workflow/Schedule/JobRunner.php',
     'HiveSync\\Workflow\\Seed\\Defaults' => $baseDir . '/src/Workflow/Seed/Defaults.php',

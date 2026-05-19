@@ -87,6 +87,26 @@ final class UsageIndex
         // 3. Inline <img src> / <a href> in post content / excerpt.
         self::scanInlineContentInto($index);
 
+        // 4. Preimport-pending orphans — attachments downloaded by a
+        // media-only pre-stage that haven't been claimed by a product
+        // yet. Without this, Safe Cleanup would mark them as unmapped
+        // and delete exactly what a follow-up products-pass needs.
+        // The marker (_gh_preimport_pending=1) is cleared by the
+        // attach path the moment the attachment gets a product role,
+        // so this set self-empties as imports complete. Role 'preimport_pending'
+        // surfaces in the Media Library so the operator can see the
+        // pending pool at a glance.
+        $pendingRows = $wpdb->get_col("
+            SELECT post_id FROM {$wpdb->postmeta}
+            WHERE meta_key = '_gh_preimport_pending' AND meta_value = '1'
+        ");
+        foreach ($pendingRows ?: [] as $idStr) {
+            $aid = (int) $idStr;
+            if ($aid > 0) {
+                $index[$aid][] = ['pid' => 0, 'role' => 'preimport_pending'];
+            }
+        }
+
         set_transient(self::TRANSIENT_KEY, $index, self::TRANSIENT_TTL);
         return $index;
     }

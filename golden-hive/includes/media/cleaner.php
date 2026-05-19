@@ -91,6 +91,14 @@ function rp_mm_bulk_delete( array $attachment_ids ): array {
  */
 function rp_mm_is_used( int $attachment_id ): bool {
 
+    // Preimport-pending orphan — a media-only pre-stage downloaded
+    // this attachment expecting a later products-pass to claim it.
+    // Treat as "in use" so the cleaner doesn't nuke the pre-staged
+    // pool. The marker is auto-cleared when the attach path runs.
+    if ( get_post_meta( $attachment_id, '_gh_preimport_pending', true ) === '1' ) {
+        return true;
+    }
+
     // Featured image
     $as_thumb = get_posts( [
         'post_type'      => [ 'product', 'product_variation', 'post', 'page' ],

@@ -160,6 +160,21 @@ function gh_preimport_download_batch( array $urls, int $concurrency = 10 ): arra
                     $error_urls[] = $h['url'];
                 } else {
                     $map[ $h['url'] ] = (int) $att_id;
+                    // Orphan attachment (no product_id): mark as
+                    // "preimport pending" so Safe Cleanup knows it's
+                    // intentionally floating in the media library
+                    // waiting for a later products-pass to claim it
+                    // via the URL → attachment map lookup. The
+                    // attach path (gh_parallel_sideload_to_product)
+                    // clears this meta when the attachment is given
+                    // a product role. Also stamp the source URL so
+                    // a future maintenance tool can show where the
+                    // orphan came from.
+                    update_post_meta( (int) $att_id, '_gh_preimport_pending', '1' );
+                    update_post_meta( (int) $att_id, '_gh_preimport_source_url', $h['url'] );
+                    if ( ! empty( $h['sku'] ) ) {
+                        update_post_meta( (int) $att_id, '_gh_preimport_sku', (string) $h['sku'] );
+                    }
                     $downloaded++;
                 }
             }
@@ -326,6 +341,10 @@ function gh_parallel_sideload_to_product( int $product_id, array $urls, string $
         } elseif ( $rest_gallery ) {
             $gallery[] = $att_id;
         }
+        // Attachment now has a product role — clear the orphan marker
+        // that a previous media-only pass may have set. Idempotent:
+        // delete_post_meta is a no-op when the key is absent.
+        delete_post_meta( (int) $att_id, '_gh_preimport_pending' );
     }
 
     if ( $gallery ) {
@@ -335,6 +354,25 @@ function gh_parallel_sideload_to_product( int $product_id, array $urls, string $
             $product->save();
         }
     }
+}
+
+// ── ORPHAN HELPERS (media-only pre-stage) ────────────────────────────────────
+
+/**
+ * Returns ids of attachments that are currently in "preimport pending"
+ * state — downloaded by a media-only pre-stage but not yet claimed by a
+ * product. Used by the hive-sync UsageIndex to keep Safe Cleanup from
+ * deleting them while a later products-pass is pending.
+ *
+ * @return int[]
+ */
+function gh_preimport_pending_attachment_ids(): array {
+    global $wpdb;
+    $rows = $wpdb->get_col( "
+        SELECT post_id FROM {$wpdb->postmeta}
+        WHERE meta_key = '_gh_preimport_pending' AND meta_value = '1'
+    " );
+    return array_values( array_unique( array_map( 'intval', $rows ?: [] ) ) );
 }
 
 // ── MAP UTILS ────────────────────────────────────────────────────────────────

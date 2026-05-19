@@ -36,6 +36,26 @@ abstract class AbstractSource implements Source
 
     abstract public function materialize(FeedItem $item, Context $ctx): MaterializeResult;
 
+    /**
+     * Image URLs this item wants attached as featured + gallery. Used by
+     * the `media_only` run mode (Importa tab → "Solo media") to pre-stage
+     * downloads into the preimport map BEFORE any products exist. A later
+     * products-pass then resolves URL → attachment via the same map and
+     * attaches without re-downloading. Order-agnostic by construction —
+     * the map IS the contract.
+     *
+     * Default returns []. Sources that produce images override this. The
+     * base impl is a no-op so a `media_only` run against a feed that
+     * doesn't expose its images at this level cleanly reports zero work
+     * (rather than fataling).
+     *
+     * @return string[]
+     */
+    public function imageUrls(FeedItem $item): array
+    {
+        return [];
+    }
+
     // ─── Helpers ───────────────────────────────────────────────────
 
     /**

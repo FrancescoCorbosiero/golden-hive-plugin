@@ -91,6 +91,7 @@ class ComposerStaticInit8ec97cf8e32aa119124e2c238cc20b92
         'HiveSync\\Workflow\\Mapping\\Template' => __DIR__ . '/../..' . '/src/Workflow/Mapping/Template.php',
         'HiveSync\\Workflow\\Migration\\LegacyImporter' => __DIR__ . '/../..' . '/src/Workflow/Migration/LegacyImporter.php',
         'HiveSync\\Workflow\\Run\\ImportRunner' => __DIR__ . '/../..' . '/src/Workflow/Run/ImportRunner.php',
+        'HiveSync\\Workflow\\Run\\RunCache' => __DIR__ . '/../..' . '/src/Workflow/Run/RunCache.php',
         'HiveSync\\Workflow\\Schedule\\CronExpr' => __DIR__ . '/../..' . '/src/Workflow/Schedule/CronExpr.php',
         'HiveSync\\Workflow\\Schedule\\JobRunner' => __DIR__ . '/../..' . '/src/Workflow/Schedule/JobRunner.php',
         'HiveSync\\Workflow\\Seed\\Defaults' => __DIR__ . '/../..' . '/src/Workflow/Seed/Defaults.php',

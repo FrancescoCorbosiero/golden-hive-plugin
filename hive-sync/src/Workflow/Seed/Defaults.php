@@ -276,8 +276,8 @@ final class Defaults
                     [
                         'kind'   => 'import_rule',
                         'ref_id' => 'media.download',
-                        'params' => [ 'concurrency' => 10, 'skip_if_set' => true ],
-                        'note'   => 'Parallel curl_multi sideload (host adapter)',
+                        'params' => [ 'concurrency' => 24, 'skip_if_set' => true ],
+                        'note'   => 'Parallel curl_multi sideload (host adapter). Bumped from 10→24 — media is the dominant per-item cost; concurrency is network-bound and most VPS configurations have headroom. Bridge caps at 32; raise via the pipeline editor if your network can sustain it.',
                     ],
                     [
                         'kind'   => 'import_rule',

@@ -3360,6 +3360,8 @@
         if (t.matches('[data-action="tools-execute"]'))       return HSync.toolsExecute();
         if (t.matches('[data-action="tools-source-count"]'))  return HSync.toolsSourceCount();
         if (t.matches('[data-action="tools-source-delete"]')) return HSync.toolsSourceDelete();
+        if (t.matches('[data-action="tools-repair-attrs-preview"]')) return HSync.toolsRepairAttrsPreview();
+        if (t.matches('[data-action="tools-repair-attrs-apply"]'))   return HSync.toolsRepairAttrsApply();
 
         // Config-as-code
         if (t.matches('[data-action="config-export"]'))       return HSync.configExport();
@@ -3746,6 +3748,56 @@
             const data = await HSync.ajax('nuclear_delete_by_source', { source: source, confirm: '1' });
             out.innerHTML = '<p>Eliminati <strong>' + data.deleted + '</strong> parent + <strong>'
                 + data.variations + '</strong> varianti.</p>';
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+        }
+    };
+
+    HSync.toolsRepairAttrsPreview = async function () {
+        const out = $('[data-region="tools-repair-attrs-output"]');
+        const apply = $('[data-action="tools-repair-attrs-apply"]');
+        out.innerHTML = '<p class="hsync-loading">Scansione varianti…</p>';
+        if (apply) apply.disabled = true;
+        try {
+            const d = await HSync.ajax('repair_variation_attrs_preview', {});
+            let html = '<div class="hsync-tools-preview">';
+            html += '<p><strong>' + (d.scanned || 0) + '</strong> righe meta scansionate · '
+                  + '<strong>' + (d.already_ok || 0) + '</strong> già corrette · '
+                  + '<strong>' + (d.broken || 0) + '</strong> da riparare · '
+                  + '<strong>' + (d.missing_term || 0) + '</strong> senza termine corrispondente</p>';
+            if (d.broken > 0 && d.samples && d.samples.length) {
+                html += '<details open><summary>Campioni (primi ' + d.samples.length + ')</summary>';
+                html += '<table class="hsync-table"><thead><tr><th>VID</th><th>Parent</th><th>SKU</th><th>Tassonomia</th><th>Attuale</th><th>→ Corretto</th></tr></thead><tbody>';
+                d.samples.forEach(function (s) {
+                    html += '<tr><td>' + s.vid + '</td><td>' + s.parent_id + '</td><td>'
+                          + esc(s.sku) + '</td><td><code>' + esc(s.taxonomy) + '</code></td><td><code>'
+                          + esc(s.current) + '</code></td><td><code>' + esc(s.correct) + '</code></td></tr>';
+                });
+                html += '</tbody></table></details>';
+                if (apply) apply.disabled = false;
+            } else if (d.broken === 0) {
+                html += '<p class="hsync-ok">Nessuna riparazione necessaria.</p>';
+            }
+            html += '</div>';
+            out.innerHTML = html;
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+        }
+    };
+
+    HSync.toolsRepairAttrsApply = async function () {
+        if (!confirm('Riscrivere i meta delle varianti rotte? Idempotente, ma fai un backup DB se preferisci.')) return;
+        const out = $('[data-region="tools-repair-attrs-output"]');
+        const apply = $('[data-action="tools-repair-attrs-apply"]');
+        out.innerHTML = '<p class="hsync-loading">Riparazione in corso…</p>';
+        if (apply) apply.disabled = true;
+        try {
+            const d = await HSync.ajax('repair_variation_attrs_apply', { confirm: '1' });
+            out.innerHTML = '<p class="hsync-ok">Riparate <strong>' + (d.repaired || 0) + '</strong> varianti su '
+                          + '<strong>' + (d.parents_touched || 0) + '</strong> prodotti padre in '
+                          + (d.duration_s || 0) + 's.'
+                          + (d.missing_term ? ' (' + d.missing_term + ' meta senza termine, lasciati invariati)' : '')
+                          + '</p>';
         } catch (e) {
             out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
         }

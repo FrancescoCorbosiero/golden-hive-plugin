@@ -3362,6 +3362,7 @@
         if (t.matches('[data-action="tools-source-delete"]')) return HSync.toolsSourceDelete();
         if (t.matches('[data-action="tools-repair-attrs-preview"]')) return HSync.toolsRepairAttrsPreview();
         if (t.matches('[data-action="tools-repair-attrs-apply"]'))   return HSync.toolsRepairAttrsApply();
+        if (t.matches('[data-action="tools-feed-diagnostic"]'))      return HSync.toolsFeedDiagnostic();
 
         // Config-as-code
         if (t.matches('[data-action="config-export"]'))       return HSync.configExport();
@@ -3777,6 +3778,55 @@
                 if (apply) apply.disabled = false;
             } else if (d.broken === 0) {
                 html += '<p class="hsync-ok">Nessuna riparazione necessaria.</p>';
+            }
+            html += '</div>';
+            out.innerHTML = html;
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+        }
+    };
+
+    HSync.toolsFeedDiagnostic = async function () {
+        const slug = ($('[data-field="diag-config-slug"]') || {}).value || '';
+        const size = parseInt(($('[data-field="diag-sample-size"]') || {}).value || '50', 10);
+        const out = $('[data-region="tools-feed-diagnostic-output"]');
+        if (!slug) { out.innerHTML = '<div class="hsync-warning">Inserisci uno slug config.</div>'; return; }
+        out.innerHTML = '<p class="hsync-loading">Fetch + confronto in corso…</p>';
+        try {
+            const d = await HSync.ajax('feed_diagnostic', { config_slug: slug, sample_size: String(size) });
+            if (d.error) { out.innerHTML = '<div class="hsync-error">' + esc(d.error) + '</div>'; return; }
+            let html = '<div class="hsync-tools-preview">';
+            html += '<h4>Feed</h4>';
+            html += '<ul>'
+                  + '<li><strong>' + d.feed_total_rows + '</strong> righe totali dall\'upstream</li>'
+                  + '<li><strong>' + d.feed_distinct_skus + '</strong> SKU distinti dopo grouping</li>'
+                  + '<li>' + d.feed_rows_without_sku + ' righe senza SKU (scartate dal grouper)</li>'
+                  + '<li>' + d.feed_rows_without_size + ' righe senza size_eu (scartate dal grouper)</li>'
+                  + '</ul>';
+            html += '<h4>Campione di righe grezze (prime 2)</h4>';
+            html += '<pre style="background:#f6f7f7;padding:10px;border-radius:4px;overflow:auto;max-height:240px;font-size:11px;">'
+                  + esc(JSON.stringify(d.sample_raw_rows, null, 2)) + '</pre>';
+            html += '<h4>Confronto sui primi ' + d.sample_size + ' SKU del feed</h4>';
+            html += '<ul>'
+                  + '<li><strong>' + d.perfect + '</strong> prodotti perfettamente allineati</li>'
+                  + '<li><strong>' + d.mismatches.length + '</strong> prodotti con disallineamento (mostrati i 25 peggiori)</li>'
+                  + '<li><strong>' + d.not_in_woo + '</strong> SKU nel feed ma NON in Woo (mai creati)</li>'
+                  + '<li><strong>' + d.missing_in_woo_total + '</strong> taglie totali presenti nel feed ma mancanti in Woo</li>'
+                  + '<li><strong>' + d.extra_in_woo_total + '</strong> taglie in Woo ma assenti dal feed (size discontinuate)</li>'
+                  + '</ul>';
+            if (d.mismatches.length) {
+                html += '<table class="hsync-table"><thead><tr><th>SKU</th><th>Feed</th><th>Woo</th><th>Δ</th><th>Mancanti in Woo</th><th>Extra in Woo</th></tr></thead><tbody>';
+                d.mismatches.forEach(function (m) {
+                    html += '<tr>'
+                          + '<td><code>' + esc(m.sku) + '</code></td>'
+                          + '<td>' + m.feed_sizes + '</td>'
+                          + '<td>' + m.woo_variations + '</td>'
+                          + '<td>' + (m.gap > 0 ? '+' + m.gap : m.gap) + '</td>'
+                          + '<td>' + esc(m.missing_in_woo.join(', ')) + '</td>'
+                          + '<td>' + esc(m.extra_in_woo.join(', ')) + '</td>'
+                          + '</tr>';
+                });
+                html += '</tbody></table>';
             }
             html += '</div>';
             out.innerHTML = html;

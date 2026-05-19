@@ -428,6 +428,23 @@ function hsync_render_admin_page(): void {
             <div data-region="tools-repair-attrs-output"></div>
         </section>
 
+        <section class="hsync-section">
+            <h3>Diagnostica feed vs Woo</h3>
+            <p class="hsync-muted">
+                Confronta cosa l'upstream sta servendo <strong>adesso</strong> con cosa esiste in Woo,
+                per-prodotto. Utile quando "sembra che mancano varianti" — risponde a 4 domande:
+                il feed risponde? il raggruppamento per SKU funziona? per i prodotti già in Woo,
+                le taglie combaciano? quali taglie mancano vs feed?
+                Pura lettura, nessuna scrittura, nessuna cache.
+            </p>
+            <div class="hsync-actions">
+                <input type="text" data-field="diag-config-slug" placeholder="config slug (es. gs-prod)" style="width:18em;">
+                <input type="number" data-field="diag-sample-size" value="50" min="1" max="500" style="width:6em;" title="Quanti prodotti del feed confrontare">
+                <button class="button button-primary" data-action="tools-feed-diagnostic">Esegui diagnostica</button>
+            </div>
+            <div data-region="tools-feed-diagnostic-output"></div>
+        </section>
+
         <section class="hsync-panel" data-panel="config">
             <div class="hsync-tab-intro">
                 <strong>📋 Configurazione come codice.</strong>

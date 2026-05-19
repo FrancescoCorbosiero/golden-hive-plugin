@@ -69,6 +69,7 @@ return array(
     'HiveSync\\Sources\\SkuLookup' => $baseDir . '/src/Sources/SkuLookup.php',
     'HiveSync\\Sources\\StockOnlyClassifier' => $baseDir . '/src/Sources/StockOnlyClassifier.php',
     'HiveSync\\Sources\\VariationLookup' => $baseDir . '/src/Sources/VariationLookup.php',
+    'HiveSync\\Tools\\FeedDiagnostic' => $baseDir . '/src/Tools/FeedDiagnostic.php',
     'HiveSync\\Tools\\NuclearCleanup' => $baseDir . '/src/Tools/NuclearCleanup.php',
     'HiveSync\\Tools\\VariationAttrRepair' => $baseDir . '/src/Tools/VariationAttrRepair.php',
     'HiveSync\\Workflow\\Config\\ProjectApplier' => $baseDir . '/src/Workflow/Config/ProjectApplier.php',

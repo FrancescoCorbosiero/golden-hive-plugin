@@ -261,7 +261,13 @@ add_filter( 'hive_sync/host/source/gs/diff', function ( $resp, array $items_data
 
 /**
  * GS materialize: route to legacy create/update by presence of
- * _existing_id (or SKU lookup fallback).
+ * _existing_id (or SKU lookup fallback). When the per-item marker
+ * `_gh_force_recreate` is set (injected by the runner when the
+ * operator picked "Forza ricreazione"), route to the
+ * recreate function instead — wipe the existing product's
+ * variations + attributes + pa_* terms, then re-write the same shape
+ * as a first-time create. Preserves the product ID so historical
+ * orders/permalinks stay valid.
  */
 add_filter( 'hive_sync/host/source/gs/materialize', function ( $resp, array $item_data, bool $dry_run, bool $sideload ) {
     if ( $resp !== null ) return $resp;
@@ -275,8 +281,13 @@ add_filter( 'hive_sync/host/source/gs/materialize', function ( $resp, array $ite
         $existing = (int) wc_get_product_id_by_sku( (string) $item_data['sku'] );
     }
 
+    $force_recreate = ! empty( $item_data['_gh_force_recreate'] );
+
     if ( $existing > 0 ) {
         $item_data['_existing_id'] = $existing;
+        if ( $force_recreate && function_exists( 'rp_rc_gs_force_recreate_product' ) ) {
+            return rp_rc_gs_force_recreate_product( $item_data, $sideload );
+        }
         return rp_rc_gs_update_product( $item_data );
     }
     return rp_rc_gs_create_product( $item_data, $sideload );
@@ -303,8 +314,13 @@ add_filter( 'hive_sync/host/source/sf/materialize', function ( $resp, array $ite
         $existing = (int) wc_get_product_id_by_sku( (string) $item_data['sku'] );
     }
 
+    $force_recreate = ! empty( $item_data['_gh_force_recreate'] );
+
     if ( $existing > 0 ) {
         $item_data['_existing_id'] = $existing;
+        if ( $force_recreate && function_exists( 'gh_sf_force_recreate_product' ) ) {
+            return gh_sf_force_recreate_product( $item_data, $sideload );
+        }
         return gh_sf_update_product( $item_data );
     }
     return gh_sf_create_product( $item_data, $sideload );

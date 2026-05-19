@@ -355,6 +355,89 @@ function gh_attach_attribute_terms( int $product_id, array $attrs_json ): void {
 }
 
 /**
+ * Wipes a variable product's variation set, pa_* term assignments, and
+ * _product_attributes meta — leaving the parent post (and its ID, SKU,
+ * brand, category, gallery) intact. A subsequent update call then
+ * writes the full shape from scratch, exactly the same way a first
+ * create would.
+ *
+ * Use case: force-recreate. The operator hit "Forza ricreazione" because
+ * a regular re-sync didn't converge — the parent's pa_taglia options
+ * drifted from the feed, variations show as "Qualsiasi Taglia", and
+ * the self-heal path didn't land. This reset zeroes the corrupt parts
+ * deterministically so the follow-up write isn't fighting stale state.
+ *
+ * Doesn't touch (so historical context isn't lost):
+ *   - The parent post itself (preserving the WC product ID — historical
+ *     orders + permalinks stay valid).
+ *   - product_brand, product_cat, product_tag (the feed re-asserts
+ *     these on every sync anyway, so wiping them buys nothing).
+ *   - Featured image / gallery (media re-sideload is the expensive
+ *     half of a sync; the URL→attachment map already keeps these
+ *     correct via skip-if-set semantics).
+ *   - Non-pa_* postmeta the operator may have set manually.
+ *
+ * Idempotent: re-running on an already-reset product is a no-op (no
+ * children to delete, no terms to clear, no meta to drop).
+ *
+ * @param int $product_id
+ */
+function gh_reset_variable_product_state( int $product_id ): void {
+    if ( $product_id <= 0 ) return;
+
+    // 1. Delete variation children. force=true bypasses trash so the
+    // update path's SKU lookup (wc_get_product_id_by_sku) doesn't
+    // resurrect a trashed variation and overwrite the freshly-created
+    // one — the duplicate-SKU corner case that re-imports of force-
+    // recreated products would otherwise hit.
+    $product = function_exists( 'wc_get_product' ) ? wc_get_product( $product_id ) : null;
+    if ( $product && method_exists( $product, 'get_children' ) ) {
+        foreach ( (array) $product->get_children() as $vid ) {
+            wp_delete_post( (int) $vid, true );
+        }
+    }
+
+    // 2. Clear pa_* term assignments. Walks every taxonomy currently
+    // attached to the product (not just well-known pa_taglia) so
+    // any non-standard pa_* slot the operator added is also wiped.
+    // wp_set_object_terms with [] + append=false drops the term-
+    // relationships row.
+    $object_taxonomies = get_object_taxonomies( 'product' );
+    foreach ( $object_taxonomies as $tax ) {
+        if ( ! is_string( $tax ) ) continue;
+        if ( ! str_starts_with( $tax, 'pa_' ) ) continue;
+        wp_set_object_terms( $product_id, [], $tax, false );
+    }
+
+    // 3. Drop the _product_attributes meta entirely. The next
+    // set_attributes() call writes a fresh meta blob without
+    // inheriting stale options.
+    delete_post_meta( $product_id, '_product_attributes' );
+
+    // 4. Reset stock/price aggregation meta so WC doesn't show a
+    // stale "X in stock" while the new variations are still being
+    // written. Parent stock/price get recomputed by
+    // WC_Product_Variable::sync() at the end of the update path.
+    delete_post_meta( $product_id, '_stock' );
+    delete_post_meta( $product_id, '_price' );
+    delete_post_meta( $product_id, '_min_variation_price' );
+    delete_post_meta( $product_id, '_max_variation_price' );
+    delete_post_meta( $product_id, '_min_variation_regular_price' );
+    delete_post_meta( $product_id, '_max_variation_regular_price' );
+    delete_post_meta( $product_id, '_min_variation_sale_price' );
+    delete_post_meta( $product_id, '_max_variation_sale_price' );
+
+    // 5. Drop caches so the next wc_get_product() reload reflects
+    // the cleared state, not the stale in-process snapshot.
+    clean_post_cache( $product_id );
+    wp_cache_delete( $product_id, 'posts' );
+    wp_cache_delete( $product_id, 'post_meta' );
+    if ( function_exists( 'wc_delete_product_transients' ) ) {
+        wc_delete_product_transients( $product_id );
+    }
+}
+
+/**
  * Ensures a WooCommerce attribute taxonomy exists, creating it if needed.
  *
  * @param string $taxonomy_name Taxonomy name (e.g. "pa_taglia").

@@ -1100,8 +1100,10 @@ final class CsvSource extends AbstractSource
                 productId: $pid > 0 ? $pid : null,
             );
         }
-        return $action === 'updated'
-            ? MaterializeResult::updated($pid, $r)
-            : MaterializeResult::created($pid, $r);
+        return match ($action) {
+            'updated'   => MaterializeResult::updated($pid, $r),
+            'recreated' => MaterializeResult::recreated($pid, $r),
+            default     => MaterializeResult::created($pid, $r),
+        };
     }
 }

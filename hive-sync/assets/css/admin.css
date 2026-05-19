@@ -272,10 +272,11 @@
     display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px;
     text-transform: uppercase; font-weight: 600;
 }
-.hsync-wrap .hsync-action-pill.is-created { background: #d1f4d6; color: #1e4022; }
-.hsync-wrap .hsync-action-pill.is-updated { background: #d2e8f5; color: #194a6b; }
-.hsync-wrap .hsync-action-pill.is-failed  { background: #fbd0d2; color: #7a1d20; }
-.hsync-wrap .hsync-action-pill.is-skipped { background: #f0f0f1; color: #50575e; }
+.hsync-wrap .hsync-action-pill.is-created   { background: #d1f4d6; color: #1e4022; }
+.hsync-wrap .hsync-action-pill.is-updated   { background: #d2e8f5; color: #194a6b; }
+.hsync-wrap .hsync-action-pill.is-recreated { background: #ffe5d2; color: #7a3b14; }
+.hsync-wrap .hsync-action-pill.is-failed    { background: #fbd0d2; color: #7a1d20; }
+.hsync-wrap .hsync-action-pill.is-skipped   { background: #f0f0f1; color: #50575e; }
 .hsync-wrap .hsync-action-pill.is-pre_blocked,
 .hsync-wrap .hsync-action-pill.is-post_blocked { background: #fff3cd; color: #664d03; }
 

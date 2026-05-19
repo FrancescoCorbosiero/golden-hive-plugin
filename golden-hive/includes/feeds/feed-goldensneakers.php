@@ -631,6 +631,74 @@ function rp_rc_gs_update_product( array $data ): array {
     }
 }
 
+/**
+ * Force-recreate path for GS — used when the operator explicitly asks
+ * for a "Forza ricreazione" pass on an existing product. Resets the
+ * variable-state (drops all variations + pa_* term assignments +
+ * _product_attributes meta) so the subsequent update writes the same
+ * shape it would on a first-create, without having to fight any drift
+ * the regular update path failed to converge.
+ *
+ * Trade-off vs. delete + create:
+ *   - Preserves the product ID → historical orders + customer wishlists
+ *     + permalinks stay valid.
+ *   - Preserves brand / category / tag assignments + featured image →
+ *     no media re-sideload, no taxonomy churn.
+ *   - Loses the variation IDs → past stock-movement reports keyed by
+ *     variation ID will lose their target (this is the explicit price
+ *     of "fresh new version"; the operator opted in).
+ *
+ * For a missing-from-Woo SKU this is identical to plain create —
+ * the reset is a no-op.
+ *
+ * @param array $data     Transformed Woo-shape product data (same shape
+ *                        rp_rc_gs_create/update_product consume).
+ * @param bool  $sideload Honored only on the create-fallback branch
+ *                        (existing-product branch never sideloads —
+ *                        the URL→attachment map keeps featured image
+ *                        in sync without a re-download).
+ * @return array { action: 'created'|'recreated'|'error', id, sku, name, reason? }
+ */
+function rp_rc_gs_force_recreate_product( array $data, bool $sideload = true ): array {
+
+    $sku        = (string) ( $data['sku'] ?? '' );
+    $product_id = (int) ( $data['_existing_id'] ?? 0 );
+
+    if ( $product_id === 0 && $sku !== '' && function_exists( 'wc_get_product_id_by_sku' ) ) {
+        $product_id = (int) wc_get_product_id_by_sku( $sku );
+    }
+
+    // No existing product → plain create. force-recreate is a no-op
+    // for items that don't exist in Woo yet.
+    if ( $product_id === 0 ) {
+        return rp_rc_gs_create_product( $data, $sideload );
+    }
+
+    try {
+        if ( function_exists( 'gh_reset_variable_product_state' ) ) {
+            gh_reset_variable_product_state( $product_id );
+        }
+
+        $data['_existing_id'] = $product_id;
+        $result = rp_rc_gs_update_product( $data );
+
+        // Surface the recreate path in the audit trail so the operator
+        // can tell "this product was rewritten from scratch" apart from
+        // a vanilla update in the Storico tab.
+        if ( ($result['action'] ?? '') === 'updated' ) {
+            $result['action'] = 'recreated';
+        }
+        return $result;
+    } catch ( \Exception $e ) {
+        return [
+            'action' => 'error',
+            'sku'    => $sku,
+            'name'   => $data['name'] ?? '?',
+            'reason' => $e->getMessage(),
+        ];
+    }
+}
+
 // ── Brand / Model helpers ───────────────────────────────────
 
 /**

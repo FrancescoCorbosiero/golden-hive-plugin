@@ -160,6 +160,7 @@ final class ImportRunner
             'unchanged'     => count( $diff->unchanged ),
             'created'       => 0,
             'updated'       => 0,
+            'recreated'     => 0,
             'stock_patched' => 0,
             'skipped'       => 0,
             'failed'        => 0,
@@ -173,20 +174,57 @@ final class ImportRunner
         // 'updateStock'. The fast-patch path runs ONLY on 'updateStock'.
         $allowedBuckets = self::normalizeBuckets( $options['buckets'] ?? null );
 
+        // `options.force_recreate` is the operator's escape hatch when
+        // the idempotent re-sync didn't converge: every existing SKU is
+        // pushed through the bridge's recreate path (wipe variations +
+        // pa_* terms + _product_attributes, then re-write from feed).
+        // The classifier's "unchanged" / "updateStock" verdicts are
+        // overridden — those items also enter the full materialize
+        // path so the reset fires. Each item gets a `_gh_force_recreate`
+        // marker the bridge filters on. `new` items aren't affected
+        // (no existing product to reset) and the marker is harmless on
+        // them anyway. This is a one-shot operator action — never set
+        // it on a cron job, that's what conflict rules + the
+        // self-heal classifier are for.
+        $forceRecreate = ! empty( $options['force_recreate'] );
+
         // Build the processing queue as [bucket, item] pairs so we can
         // dispatch differently per bucket within the same loop. Order is
         // intentional: fast stock patches first (they're cheap and the
         // operator gets quick feedback), then full updates, then
         // creations (heaviest, last in case the deadline trips).
         $process = [];
-        if ( in_array( 'updateStock', $allowedBuckets, true ) ) {
-            foreach ( $diff->updateStock as $item ) $process[] = [ 'updateStock', $item ];
-        }
-        if ( in_array( 'update', $allowedBuckets, true ) ) {
-            foreach ( $diff->update as $item ) $process[] = [ 'update', $item ];
-        }
-        if ( in_array( 'new', $allowedBuckets, true ) ) {
-            foreach ( $diff->new as $item ) $process[] = [ 'new', $item ];
+        if ( $forceRecreate ) {
+            // Skip the fast-patch path entirely — recreate needs the
+            // full bridge flow, the variation IDs are about to be
+            // discarded anyway. Re-bucket everything into `update` so
+            // the loop hits the materialize branch. `unchanged` items
+            // are pulled in too — that's the whole point: nothing
+            // "looks unchanged" when the operator asked for a rewrite.
+            $forceQueue = [];
+            foreach ( $diff->update as $item )      $forceQueue[] = $item;
+            foreach ( $diff->updateStock as $item ) $forceQueue[] = $item;
+            foreach ( $diff->unchanged as $item )   $forceQueue[] = $item;
+
+            if ( in_array( 'update', $allowedBuckets, true ) ) {
+                foreach ( $forceQueue as $item ) {
+                    $process[] = [ 'update', self::stampForceRecreate( $item ) ];
+                }
+            }
+            if ( in_array( 'new', $allowedBuckets, true ) ) {
+                foreach ( $diff->new as $item ) $process[] = [ 'new', $item ];
+            }
+            $summary['force_recreate'] = count( $forceQueue );
+        } else {
+            if ( in_array( 'updateStock', $allowedBuckets, true ) ) {
+                foreach ( $diff->updateStock as $item ) $process[] = [ 'updateStock', $item ];
+            }
+            if ( in_array( 'update', $allowedBuckets, true ) ) {
+                foreach ( $diff->update as $item ) $process[] = [ 'update', $item ];
+            }
+            if ( in_array( 'new', $allowedBuckets, true ) ) {
+                foreach ( $diff->new as $item ) $process[] = [ 'new', $item ];
+            }
         }
 
         // `options.limit` caps the processing pool to the first N items
@@ -303,7 +341,7 @@ final class ImportRunner
 
         for ( $i = $startIndex; $i < $total; $i++ ) {
             if ( $ctx->isOverDeadline() ) {
-                $this->runs->progress( $runId, $total, $summary['created'] + $summary['updated'], $summary['failed'] );
+                $this->runs->progress( $runId, $total, $summary['created'] + $summary['updated'] + $summary['recreated'], $summary['failed'] );
                 $this->runs->finish( $runId, 'continue', [ 'summary' => $summary, 'cursor' => [ 'index' => $i ] ] );
                 return [
                     'status'   => 'continue',
@@ -492,10 +530,11 @@ final class ImportRunner
                 $rowTrace['written'] = $writtenShape;
             }
             switch ( $r->action ) {
-                case 'created': $summary['created']++; break;
-                case 'updated': $summary['updated']++; break;
-                case 'failed':  $summary['failed']++;  break;
-                case 'skipped': $summary['skipped']++; break;
+                case 'created':   $summary['created']++;   break;
+                case 'updated':   $summary['updated']++;   break;
+                case 'recreated': $summary['recreated']++; break;
+                case 'failed':    $summary['failed']++;    break;
+                case 'skipped':   $summary['skipped']++;   break;
             }
 
             // ─── Post-import checks ────────────────────────────────
@@ -519,7 +558,7 @@ final class ImportRunner
             $rows[] = $rowTrace;
         }
 
-        $this->runs->progress( $runId, $total, $summary['created'] + $summary['updated'] + $summary['stock_patched'], $summary['failed'] );
+        $this->runs->progress( $runId, $total, $summary['created'] + $summary['updated'] + $summary['recreated'] + $summary['stock_patched'], $summary['failed'] );
         RunCache::clear( $runId );
         $this->runs->finish( $runId, 'done', [
             'summary'  => $summary,
@@ -558,6 +597,19 @@ final class ImportRunner
             $params['percent'] = (float) $runOptions['markup_percent_override'];
         }
         return $params;
+    }
+
+    /**
+     * Stamp the `_gh_force_recreate` marker on a FeedItem so the host
+     * bridge (gs/sf) routes through the recreate path instead of the
+     * regular update. Returns a new FeedItem — the original is left
+     * alone because FeedItem is readonly.
+     */
+    private static function stampForceRecreate( FeedItem $item ): FeedItem
+    {
+        $data = $item->data;
+        $data['_gh_force_recreate'] = true;
+        return new FeedItem( sku: $item->sku, data: $data, raw: $item->raw );
     }
 
     /**

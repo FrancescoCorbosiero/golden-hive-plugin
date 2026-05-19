@@ -399,6 +399,18 @@ function gh_sf_update_product( array $data ): array {
             gh_attach_attribute_terms( $product_id, $data['attributes'] );
         }
 
+        // Refresh parent's `_product_attributes` meta so the options
+        // list tracks the current feed sizes — mirrors the GS bridge
+        // fix. Without this, sizes added upstream after the first
+        // import become variations BUT the parent's pa_taglia options
+        // list stays at first-import state, leaving the new variations
+        // as "Qualsiasi Taglia" (orphan) in admin and invisible on
+        // the storefront dropdown.
+        if ( $product->is_type( 'variable' ) && ! empty( $data['attributes'] ) && function_exists( 'gh_build_wc_attributes' ) ) {
+            $product->set_attributes( gh_build_wc_attributes( $data['attributes'] ) );
+            $product->save();
+        }
+
         // Parent fields — sempre aggiornabili a prescindere dal type
         if ( isset( $data['name'] ) )              $product->set_name( $data['name'] );
         if ( isset( $data['description'] ) )       $product->set_description( $data['description'] );

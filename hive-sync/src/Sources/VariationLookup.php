@@ -83,4 +83,51 @@ final class VariationLookup
         }
         return $out;
     }
+
+    /**
+     * Batch-load the term slugs attached to each parent for a given
+     * taxonomy (typically `pa_taglia`). This is what Woo's storefront
+     * reads to know "which sizes does this product support?". When a
+     * variation's `attribute_pa_taglia` meta references a slug that
+     * ISN'T in this set, Woo can't link the variation to the parent
+     * and renders it as "Qualsiasi Taglia" — invisible on the size
+     * dropdown.
+     *
+     * Single SQL join (relationships → term_taxonomy → terms) per
+     * chunk of 500 parents. Standard WP indexes cover it.
+     *
+     * @param int[] $parentIds
+     * @return array<int, array<string, true>> parent_id → set of slugs
+     */
+    public static function loadParentTaxonomyTermSlugs(array $parentIds, string $taxonomy): array
+    {
+        global $wpdb;
+        if (! isset($wpdb) || ! is_object($wpdb)) return [];
+
+        $parentIds = array_values(array_unique(array_filter(array_map('intval', $parentIds), fn($v) => $v > 0)));
+        if (! $parentIds || $taxonomy === '') return [];
+
+        $out = [];
+        foreach (array_chunk($parentIds, 500) as $chunk) {
+            $placeholders = implode(',', array_fill(0, count($chunk), '%d'));
+            $sql = "SELECT tr.object_id AS parent_id, t.slug AS term_slug
+                    FROM {$wpdb->term_relationships} tr
+                    INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+                    INNER JOIN {$wpdb->terms} t           ON t.term_id          = tt.term_id
+                    WHERE tt.taxonomy = %s
+                      AND tr.object_id IN ($placeholders)";
+            $params   = array_merge([ $taxonomy ], $chunk);
+            $prepared = $wpdb->prepare($sql, $params);
+            $rows     = $wpdb->get_results($prepared, ARRAY_A);
+            if (! is_array($rows)) continue;
+            foreach ($rows as $row) {
+                $pid  = (int) ($row['parent_id'] ?? 0);
+                $slug = (string) ($row['term_slug'] ?? '');
+                if ($pid <= 0 || $slug === '') continue;
+                if (! isset($out[$pid])) $out[$pid] = [];
+                $out[$pid][$slug] = true;
+            }
+        }
+        return $out;
+    }
 }

@@ -49,14 +49,17 @@ final class StockOnlyClassifier
     ];
 
     /**
-     * Three-way classification. $variationLookup is the output of
-     * VariationLookup::mapParentsToVariations() — needed to compare
-     * per-variation stock without N×wc_get_product hydrations.
+     * Three-way classification. $variationLookup + $parentTermSlugs are
+     * the outputs of VariationLookup::mapParentsToVariations() and
+     * loadParentTaxonomyTermSlugs() respectively — both needed to
+     * compare per-variation stock + parent attribute term coverage
+     * without N×wc_get_product hydrations.
      *
      * @param array<int, array<string, array{regular_price:string, sale_price:string, stock:?int, stock_status:string}>> $variationLookup
+     * @param array<int, array<string, true>> $parentTermSlugs
      * @return string 'unchanged' | 'updateStock' | 'updateFull'
      */
-    public static function classify(FeedItem $item, array $variationLookup = []): string
+    public static function classify(FeedItem $item, array $variationLookup = [], array $parentTermSlugs = []): string
     {
         if ( ! function_exists( 'wc_get_product_id_by_sku' ) ) return 'updateFull';
         $pid = \wc_get_product_id_by_sku( $item->sku );
@@ -132,6 +135,43 @@ final class StockOnlyClassifier
                     return 'updateFull';
                 }
             }
+
+            // Broken-parent detection: the parent's pa_taglia term set
+            // must cover every incoming size, otherwise Woo can't link
+            // variations to the parent and renders them as "Qualsiasi
+            // Taglia" (admin) / hidden (storefront). The bridge update
+            // paths previously didn't refresh the parent's
+            // _product_attributes meta when sizes were added upstream
+            // — variations existed in DB but the parent didn't "know"
+            // about the new sizes. Route to updateFull so the now-fixed
+            // bridge re-writes the parent attributes + term set.
+            //
+            // Comparison is slug-based (sanitize_title) because the
+            // term taxonomy is what Woo uses internally for linking.
+            // For pure-integer sizes sanitize_title is a no-op; for
+            // sizes with spaces / decimals / letters the slug form
+            // ("38 2/3" → "38-2-3") is the one stored.
+            $parentSlugSet = $parentTermSlugs[ $pid ] ?? null;
+            if ( is_array( $parentSlugSet ) ) {
+                foreach ( $variations as $var_data ) {
+                    if ( ! is_array( $var_data ) ) continue;
+                    $attrs = $var_data['attributes'] ?? [];
+                    if ( ! is_array( $attrs ) ) continue;
+                    foreach ( $attrs as $taxKey => $value ) {
+                        // Only enforce coverage for the variation
+                        // attribute. Other pa_* slots are facet-only
+                        // and don't gate variation linking.
+                        if ( ! is_string( $taxKey ) || $taxKey !== 'pa_taglia' ) continue;
+                        $expected = function_exists( 'sanitize_title' )
+                            ? \sanitize_title( (string) $value )
+                            : strtolower( (string) $value );
+                        if ( $expected === '' ) continue;
+                        if ( ! isset( $parentSlugSet[ $expected ] ) ) {
+                            return 'updateFull';
+                        }
+                    }
+                }
+            }
             return 'unchanged';
         }
 
@@ -166,16 +206,19 @@ final class StockOnlyClassifier
             return [ array_values( array_filter( $update, fn( $i ) => $i instanceof FeedItem ) ), [], [] ];
         }
 
-        // Batch-load every parent's variation meta in ONE SQL — replaces
-        // N×wc_get_product() hydration. This is the perf win that makes
-        // 3-way classification affordable for variable-product catalogs.
+        // Batch-load every parent's variation meta + variation-attribute
+        // term coverage in two SQLs — replaces N×wc_get_product()
+        // hydration + N×wp_get_object_terms. This is the perf win that
+        // makes 3-way classification + broken-parent detection
+        // affordable for variable-product catalogs.
         $parentIds = [];
         foreach ( $update as $item ) {
             if ( ! $item instanceof FeedItem ) continue;
             $pid = (int) ( $item->data['_existing_id'] ?? 0 );
             if ( $pid > 0 ) $parentIds[] = $pid;
         }
-        $variationLookup = VariationLookup::mapParentsToVariations( $parentIds );
+        $variationLookup  = VariationLookup::mapParentsToVariations( $parentIds );
+        $parentTermSlugs  = VariationLookup::loadParentTaxonomyTermSlugs( $parentIds, 'pa_taglia' );
 
         $full = $stock = $unchanged = [];
         $deadlineHit = false;
@@ -190,7 +233,7 @@ final class StockOnlyClassifier
                 $full[] = $item;
                 continue;
             }
-            $verdict = self::classify( $item, $variationLookup );
+            $verdict = self::classify( $item, $variationLookup, $parentTermSlugs );
             if ( $verdict === 'unchanged' )       $unchanged[] = $item;
             elseif ( $verdict === 'updateStock' ) $stock[]     = $item;
             else                                  $full[]      = $item;

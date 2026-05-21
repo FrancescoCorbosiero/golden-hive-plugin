@@ -103,6 +103,24 @@ final class JobRepository
         );
     }
 
+    /**
+     * Patch only the config JSON (used to stash/clear the cooperative
+     * resume cursor between ticks without disturbing schedule columns).
+     */
+    public function updateConfig( int $jobId, array $config ): void
+    {
+        global $wpdb;
+        if ( ! isset( $wpdb ) ) return;
+        $wpdb->update(
+            \hsync_table( 'jobs' ),
+            [
+                'config'     => wp_json_encode( $config ),
+                'updated_at' => gmdate( 'Y-m-d H:i:s' ),
+            ],
+            [ 'id' => $jobId ],
+        );
+    }
+
     public function delete( int $id ): bool
     {
         global $wpdb;

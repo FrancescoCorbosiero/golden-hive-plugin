@@ -139,6 +139,14 @@ final class JobRunner
         if ( str_contains( $ref, '/' ) ) {
             [ $sourceId, $configSlug ] = explode( '/', $ref, 2 );
         }
+        // The Automatizza job editor sets runnable_ref to the source id
+        // alone and stores the chosen saved-config in config.config_slug
+        // (the "Crea automazione" button bakes it into the ref instead).
+        // Honor both — without this, editor-built jobs dispatch with an
+        // empty config and fetch nothing, silently.
+        if ( $configSlug === '' && ! empty( $jobConfig['config_slug'] ) ) {
+            $configSlug = (string) $jobConfig['config_slug'];
+        }
 
         if ( ! Bootstrap::$sources ) {
             return [ 'status' => 'failed', 'error' => 'bootstrap_not_initialized' ];
@@ -151,7 +159,13 @@ final class JobRunner
         $config = (array) ( $jobConfig['inline_config'] ?? [] );
         if ( $configSlug !== '' ) {
             $stored = $this->sourceConfigs->find( $configSlug );
-            if ( $stored ) $config = (array) $stored['config'];
+            // Fail loudly: a job pointing at a missing config used to run
+            // with an empty config (no url/token) and report "done / 0",
+            // indistinguishable from a healthy no-op. Surface it instead.
+            if ( ! $stored ) {
+                return [ 'status' => 'failed', 'error' => 'source_config_not_found:' . $configSlug ];
+            }
+            $config = (array) $stored['config'];
         }
         $options = (array) ( $jobConfig['options'] ?? [] );
 

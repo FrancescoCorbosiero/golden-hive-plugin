@@ -107,7 +107,16 @@ final class ImportRunner
         // × 200 ticks first-import = ~30 min of pure repetition
         // eliminated). On miss (tick 1, or cache evicted), fall
         // through to the normal fetch+diff path and re-populate.
-        $cached       = $startIndex > 0 ? RunCache::get( $runId ) : null;
+        //
+        // Consult the cache whenever it exists — NOT only when
+        // startIndex>0. When fetch+diff alone consumes the whole 25s
+        // budget (a large SF/GS feed: multi-MB download + parse), the
+        // item loop trips the deadline at index 0 and yields
+        // cursor.index=0. Gating the cache on startIndex>0 would then
+        // re-fetch on every resumed tick and never advance past the
+        // first item — a permanent stall. A fresh tick-1 run has just
+        // minted its run_id so the lookup misses and we fetch normally.
+        $cached       = RunCache::get( $runId );
         $fetchWarnings = [];
         $fetchedCount  = 0;
 

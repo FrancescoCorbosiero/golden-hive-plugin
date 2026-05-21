@@ -99,14 +99,40 @@ final class JobRunner
      */
     public function dispatch( array $job ): array
     {
-        $type = (string) ( $job['runnable_type'] ?? '' );
-        $ref  = (string) ( $job['runnable_ref']  ?? '' );
+        $jobId  = (int) $job['id'];
+        $type   = (string) ( $job['runnable_type'] ?? '' );
+        $ref    = (string) ( $job['runnable_ref']  ?? '' );
+        $config = (array) ( $job['config'] ?? [] );
 
         $envelope = match ( true ) {
-            $type === 'source.import' => $this->dispatchSourceImport( $ref, (array) ( $job['config'] ?? [] ) ),
+            $type === 'source.import' => $this->dispatchSourceImport( $ref, $config ),
             $type === 'rule'          => $this->dispatchRule( $ref ),
             default                   => [ 'status' => 'skipped', 'reason' => 'unknown_kind:' . $type ],
         };
+
+        $status = (string) ( $envelope['status'] ?? 'failed' );
+
+        // Cooperative resume. A source.import that trips its 25s deadline
+        // yields status=continue + a cursor. The scheduled path has no
+        // client loop to drive it (unlike the Run tab), so persist the
+        // cursor on the job and make it due on the very next tick.
+        // Without this the partial run is abandoned and the next cron
+        // occurrence restarts from index 0 — a large first import would
+        // never finish. The cursor carries run_id, so the resume reuses
+        // the warm RunCache (2h TTL) and skips the re-fetch+diff.
+        if ( $type === 'source.import' && $status === 'continue' && ! empty( $envelope['cursor'] ) ) {
+            $config['_resume_cursor'] = (array) $envelope['cursor'];
+            $this->jobs->updateConfig( $jobId, $config );
+            $this->jobs->recordRun( $jobId, $status, gmdate( 'Y-m-d H:i:s', time() ) );
+            return $envelope;
+        }
+
+        // Terminal (done / failed / skipped): drop any stale resume
+        // cursor and fall back to the normal cron schedule.
+        if ( isset( $config['_resume_cursor'] ) ) {
+            unset( $config['_resume_cursor'] );
+            $this->jobs->updateConfig( $jobId, $config );
+        }
 
         $cron = (string) ( $job['cron_expr'] ?? '' );
         $nextRunAt = null;
@@ -114,7 +140,7 @@ final class JobRunner
             $nextTs = CronExpr::nextRun( $cron, time() );
             if ( $nextTs !== null ) $nextRunAt = gmdate( 'Y-m-d H:i:s', $nextTs );
         }
-        $this->jobs->recordRun( (int) $job['id'], (string) ( $envelope['status'] ?? 'failed' ), $nextRunAt );
+        $this->jobs->recordRun( $jobId, $status, $nextRunAt );
 
         return $envelope;
     }
@@ -181,6 +207,10 @@ final class JobRunner
 
         $deadline = time() + 25;
 
+        // Resume from where the previous tick yielded, if any (set by
+        // dispatch() when the last run returned status=continue).
+        $cursor = ! empty( $jobConfig['_resume_cursor'] ) ? (array) $jobConfig['_resume_cursor'] : null;
+
         $importer = new ImportRunner( $this->runs );
         return $importer->run(
             source: $src,
@@ -189,6 +219,7 @@ final class JobRunner
             meta: [ 'trigger' => 'scheduled' ],
             dryRun: false,
             deadline: $deadline,
+            cursor: $cursor,
         );
     }
 

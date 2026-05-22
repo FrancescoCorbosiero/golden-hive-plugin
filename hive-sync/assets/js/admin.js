@@ -3248,6 +3248,7 @@
         const tabBtn = e.target.closest && e.target.closest('.hsync-tab');
         if (tabBtn) return HSync.switchTab(tabBtn.dataset.tab);
         const t = e.target;
+        if (t.matches('[data-action="goto-run"]'))      return HSync.switchTab('run');
         if (t.matches('[data-action="cockpit-tick"]')) return HSync.cockpitTickNow();
         if (t.matches('[data-action="runs-purge-all"]'))    return HSync.purgeRunsAll();
         if (t.matches('[data-action="runs-purge-older"]'))  return HSync.purgeRunsOlder(t.dataset.days);

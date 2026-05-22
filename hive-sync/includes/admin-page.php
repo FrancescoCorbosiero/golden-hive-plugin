@@ -209,6 +209,17 @@ function hsync_render_admin_page(): void {
                 Usa <em>Esegui ora</em> se vuoi forzare un giro adesso, e
                 <em>Stato del motore</em> se sospetti che qualcosa sia bloccato.
             </div>
+            <div class="hsync-firstrun-callout" role="note">
+                <span class="hsync-firstrun-icon dashicons dashicons-controls-play" aria-hidden="true"></span>
+                <div class="hsync-firstrun-body">
+                    <strong>Primo caricamento del catalogo? Fallo dal tab <button type="button" class="hsync-firstrun-link" data-action="goto-run">Importa</button>.</strong>
+                    Le automazioni qui sotto servono per il <em>mantenimento</em> quotidiano (i prezzi e
+                    lo stock che cambiano), dove ogni giro dura un attimo. Il <strong>primo import</strong>
+                    di migliaia di prodotti, invece, gira molto più veloce dal tab Importa: lì il browser
+                    concatena i cicli senza pause. Lasciato al cron si completa comunque, ma a piccoli
+                    blocchi — un pezzo per ogni passaggio — e può richiedere ore.
+                </div>
+            </div>
             <div class="hsync-toolbar">
                 <button class="button button-primary" data-action="job-new">+ Nuova automazione</button>
                 <button class="button" data-action="json-paste" data-section="jobs" title="Incolla un job in formato JSON">📋 Importa JSON</button>

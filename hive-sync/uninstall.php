@@ -33,6 +33,7 @@ $tables = [
     'runs',
     'checks',
     'source_configs',
+    'kicksdb_cache',
 ];
 foreach ( $tables as $name ) {
     $wpdb->query( "DROP TABLE IF EXISTS `{$wpdb->prefix}hsync_{$name}`" );

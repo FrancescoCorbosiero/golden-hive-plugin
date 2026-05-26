@@ -51,6 +51,12 @@ foreach ( $options as $opt ) {
     delete_site_option( $opt );  // multisite safety
 }
 
+// 2b. Delete dynamically-keyed cursor options from KicksDB woo_catalog
+// discovery. Keys are `hsync_kicksdb_catalog_cursor_<12-char-md5>` —
+// one per (market, sku_pattern) combination — so they can't be
+// enumerated up front.
+$wpdb->query( "DELETE FROM `{$wpdb->options}` WHERE option_name LIKE 'hsync_kicksdb_catalog_cursor_%'" );
+
 // 3. Delete transients (caches + cron lock).
 $transients = [
     'hsync_media_usage_index_v1',

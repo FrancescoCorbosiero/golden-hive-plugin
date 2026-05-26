@@ -86,15 +86,31 @@ final class Enricher
      * draft (idempotent: re-running with the same inputs is a no-op
      * on the merged output).
      *
-     * @param array $draft   feed draft (e.g. GS item.data), may be empty
-     * @param array $payload raw KicksDB payload from lookup()
+     * @param array  $draft   feed draft (e.g. GS item.data), may be empty
+     * @param array  $payload raw KicksDB payload from lookup()
+     * @param string $mode    'overwrite' (default) — KicksDB wins for
+     *                        every non-empty product-level field. Used
+     *                        by the GS-pipeline ImportRule, where the
+     *                        GS draft is mostly placeholder.
+     *                        'preserve' — KicksDB only fills draft
+     *                        slots that are empty. Used by the Woo-
+     *                        catalog discovery mode so a hand-curated
+     *                        description/gallery on an existing product
+     *                        is not clobbered. Variants are merged
+     *                        unconditionally in both modes — the whole
+     *                        point of the integration is to overlay
+     *                        the full size run + tiered pricing.
      */
-    public function merge( array $draft, array $payload ): array
+    public function merge( array $draft, array $payload, string $mode = 'overwrite' ): array
     {
         if ( ! is_array( $payload ) || ! empty( $payload['_miss'] ) ) return $draft;
 
+        $preserve = $mode === 'preserve';
+
         // ─── Product-level fields ───────────────────────────────────
-        // KicksDB wins where it has a non-empty value. GS fills blanks.
+        // KicksDB wins where non-empty UNLESS preserve mode is on (in
+        // which case it only fills empty draft slots). GS fallback is
+        // implicit — the GS-derived draft just stays untouched.
         $title     = self::firstNonEmpty( $payload['title'] ?? null, $payload['name'] ?? null, $payload['product_name'] ?? null );
         $brand     = self::firstNonEmpty( $payload['brand'] ?? null, $payload['brand_name'] ?? null );
         $colorway  = self::firstNonEmpty( $payload['colorway'] ?? null, $payload['color'] ?? null, $payload['traits']['colorway'] ?? null );
@@ -103,24 +119,46 @@ final class Enricher
         $releaseDt = self::firstNonEmpty( $payload['release_date'] ?? null, $payload['traits']['release_date'] ?? null );
         $images    = self::extractImages( $payload );
 
-        if ( $title    !== '' ) $draft['name']     = $title;
-        if ( $brand    !== '' ) { $draft['brand']  = $brand; $draft['pa_brand'] = $brand; }
-        if ( $title    !== '' ) $draft['pa_model'] = $title;
-        if ( $colorway !== '' ) $draft['pa_color']    = $colorway;
-        if ( $gender   !== '' ) $draft['pa_gender']   = $gender;
-        if ( $material !== '' ) $draft['pa_material'] = $material;
-        if ( $releaseDt !== '' ) $draft['pa_release_date'] = $releaseDt;
+        $set = function ( string $key, string $value ) use ( &$draft, $preserve ) {
+            if ( $value === '' ) return;
+            if ( $preserve && ! empty( $draft[ $key ] ) ) return;
+            $draft[ $key ] = $value;
+        };
+
+        $set( 'name', $title );
+        if ( $brand !== '' ) {
+            $set( 'brand', $brand );
+            $set( 'pa_brand', $brand );
+        }
+        $set( 'pa_model', $title );
+        $set( 'pa_color', $colorway );
+        $set( 'pa_gender', $gender );
+        $set( 'pa_material', $material );
+        $set( 'pa_release_date', $releaseDt );
 
         if ( ! empty( $images ) ) {
-            // Feature the first; gallery merges all without duplicates.
-            $draft['image_url']      = $draft['image_url']      ?? $images[0];
-            $draft['featured_image'] = $draft['featured_image'] ?? $images[0];
-            $draft['gallery_urls']   = array_values( array_unique( array_merge(
-                (array) ( $draft['gallery_urls'] ?? [] ),
-                $images,
-            ) ) );
+            // In preserve mode, leave the operator's chosen feature image
+            // alone. Otherwise overwrite with the KicksDB hero.
+            if ( ! $preserve || empty( $draft['image_url'] ) ) {
+                $draft['image_url'] = $images[0];
+            }
+            if ( ! $preserve || empty( $draft['featured_image'] ) ) {
+                $draft['featured_image'] = $images[0];
+            }
+            // In preserve mode, don't append to a non-empty gallery — the
+            // operator may have curated it; KicksDB additions would feel
+            // arbitrary. Overwrite mode merges (union, dedup).
+            if ( ! $preserve || empty( $draft['gallery_urls'] ) ) {
+                $draft['gallery_urls'] = array_values( array_unique( array_merge(
+                    (array) ( $draft['gallery_urls'] ?? [] ),
+                    $images,
+                ) ) );
+            }
         }
 
+        // Description fields: these were already preserve-by-default
+        // (only filled empties) before the mode flag existed — keep
+        // that behaviour for both modes.
         if ( empty( $draft['description'] ) && ! empty( $payload['description'] ) ) {
             $draft['description'] = (string) $payload['description'];
         }
@@ -129,6 +167,8 @@ final class Enricher
         }
 
         // ─── Variant merge ──────────────────────────────────────────
+        // ALWAYS run regardless of mode — the full size run + tiered
+        // pricing are the value the integration brings.
         $draft['variations'] = $this->mergeVariations( $draft, $payload );
         $draft['type']       = 'variable';
 

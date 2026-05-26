@@ -34,64 +34,81 @@ final class StockOnlyClassifier
     public const STOCK_KEYS = [ 'regular_price', 'sale_price', 'stock_quantity', 'stock_status' ];
 
     /**
-     * Comparable scalar, non-stock fields the bridge typically writes.
-     * If a feed mutates one of these, the row is full-update territory.
-     * Anything outside this allowlist is ignored (treated as unknown).
-     *
-     * Map: feed-key → WC_Product getter.
+     * Comparable scalar, non-stock feed fields. A mutation in any of
+     * these routes the row to updateFull. Other feed keys are ignored
+     * (treated as unknown — the classifier doesn't have an opinion).
+     * Names mirror the keys ParentScalarLookup exposes so the
+     * classifier reads them straight off the pre-loaded snapshot.
      */
-    private const COMPARABLE_FIELDS = [
-        'name'              => 'get_name',
-        'sku'               => 'get_sku',
-        'description'       => 'get_description',
-        'short_description' => 'get_short_description',
-        'status'            => 'get_status',
-    ];
+    private const COMPARABLE_FIELDS = [ 'name', 'sku', 'description', 'short_description', 'status' ];
 
     /**
-     * Three-way classification. $variationLookup + $parentTermSlugs are
-     * the outputs of VariationLookup::mapParentsToVariations() and
-     * loadParentTaxonomyTermSlugs() respectively — both needed to
-     * compare per-variation stock + parent attribute term coverage
-     * without N×wc_get_product hydrations.
+     * Three-way classification. $variationLookup + $parentTermSlugs +
+     * $parentScalars are the outputs of VariationLookup +
+     * ParentScalarLookup — together they let the classifier do its
+     * job without a single wc_get_product() hydration per item.
      *
      * @param array<int, array<string, array{regular_price:string, sale_price:string, stock:?int, stock_status:string}>> $variationLookup
      * @param array<int, array<string, true>> $parentTermSlugs
+     * @param array<int, array{name:string,description:string,short_description:string,status:string,sku:string,regular_price:string,sale_price:string,stock:?int,stock_status:string,is_variable:bool}> $parentScalars
      * @return string 'unchanged' | 'updateStock' | 'updateFull'
      */
-    public static function classify(FeedItem $item, array $variationLookup = [], array $parentTermSlugs = []): string
-    {
-        if ( ! function_exists( 'wc_get_product_id_by_sku' ) ) return 'updateFull';
-        $pid = \wc_get_product_id_by_sku( $item->sku );
-        if ( ! $pid ) return 'updateFull';
-        $product = \wc_get_product( $pid );
-        if ( ! $product ) return 'updateFull';
+    public static function classify(
+        FeedItem $item,
+        array $variationLookup = [],
+        array $parentTermSlugs = [],
+        array $parentScalars   = [],
+    ): string {
+        // diff() stamps _existing_id on every item it routes here, so
+        // trust that and skip the per-item wc_get_product_id_by_sku
+        // roundtrip. Fallback to the SKU lookup only when missing
+        // (back-compat for callers that build a FeedItem by hand —
+        // e.g. the isStockOnlyChange() shim).
+        $pid = (int) ( $item->data['_existing_id'] ?? 0 );
+        if ( $pid <= 0 ) {
+            if ( ! function_exists( 'wc_get_product_id_by_sku' ) ) return 'updateFull';
+            $pid = (int) \wc_get_product_id_by_sku( $item->sku );
+            if ( $pid <= 0 ) return 'updateFull';
+        }
 
-        // Phase 1: scalar non-stock comparison. Any mismatch → full update,
-        // no point in checking stock (the full pipeline writes everything).
-        // Both sides go through normalizeFor() so round-trip artifacts
-        // (wp_kses_post stripping disallowed tags on save, CRLF→LF
-        // normalization, leading/trailing whitespace) don't surface as
-        // phantom diffs. Without this every SF item ends up in
-        // updateFull on every run because get_description returns the
-        // wp_kses_post'd form while the feed carries the raw form.
+        // Pre-loaded scalar snapshot keeps the per-item path to zero
+        // wc_get_product() hydrations — the difference between this
+        // running for 10k items in <1s and blowing the 25s deadline.
+        // Fallback hydration only fires on a real lookup miss (the
+        // parent vanished between split() and here, or a caller
+        // didn't pass the lookup at all).
+        $scalar = $parentScalars[ $pid ] ?? null;
+        if ( $scalar === null ) {
+            if ( ! function_exists( 'wc_get_product' ) ) return 'updateFull';
+            $product = \wc_get_product( $pid );
+            if ( ! $product ) return 'updateFull';
+            $scalar = self::scalarFromProduct( $product );
+        }
+
+        // Phase 1: scalar non-stock comparison. Any mismatch → full
+        // update, no point in checking stock (the full pipeline writes
+        // everything). Both sides go through normalizeFor() so
+        // round-trip artifacts (wp_kses_post stripping disallowed
+        // tags on save, CRLF→LF normalization, leading/trailing
+        // whitespace) don't surface as phantom diffs. Without this
+        // every SF item ends up in updateFull on every run because
+        // get_description returns the wp_kses_post'd form while the
+        // feed carries the raw form.
         foreach ( $item->data as $k => $v ) {
             if ( in_array( $k, self::STOCK_KEYS, true ) ) continue;
             if ( ! is_scalar( $v ) ) continue;
-            $getter = self::COMPARABLE_FIELDS[ $k ] ?? null;
-            if ( $getter === null ) continue;
-            $cur = $product->{$getter}();
+            if ( ! in_array( $k, self::COMPARABLE_FIELDS, true ) ) continue;
+            $cur = $scalar[ $k ] ?? '';
             if ( ! is_scalar( $cur ) ) continue;
             if ( self::normalizeFor( (string) $k, (string) $v ) !== self::normalizeFor( (string) $k, (string) $cur ) ) {
                 return 'updateFull';
             }
         }
 
-        // Phase 2: stock/price comparison. Differs from before — now we
-        // actually check whether the feed differs from Woo, so a re-run
-        // on a stable feed produces zero writes (the user-visible fix
-        // for "4 full / 435 stock at every run with no actual diff").
-        if ( $product->is_type( 'variable' ) ) {
+        // Phase 2: stock/price comparison. Variable vs simple branches
+        // on the type read from the pre-loaded scalar snapshot, so we
+        // never hydrate the WC_Product just to call is_type().
+        if ( $scalar['is_variable'] ) {
             $variations = $item->data['variations'] ?? null;
             if ( ! is_array( $variations ) || $variations === [] ) {
                 // Can't compare per-variation without the incoming
@@ -125,11 +142,8 @@ final class StockOnlyClassifier
             }
             // Size discontinued upstream — Woo has a variation that the
             // feed no longer carries. The SF bridge's full-update path
-            // zeroes orphan-variation stock (line 469 of feed-stockfirmati);
-            // the fast-patch path doesn't. Route these to updateFull so
-            // the zeroing fires. For GS the bridge has no zeroing logic
-            // either way; routing to updateFull is a harmless no-op
-            // (full pipeline re-writes the same variation state).
+            // zeroes orphan-variation stock; the fast-patch path doesn't.
+            // Route to updateFull so the zeroing fires.
             foreach ( $existingMap as $existingSku => $_ ) {
                 if ( ! isset( $incomingSkus[ $existingSku ] ) ) {
                     return 'updateFull';
@@ -139,12 +153,9 @@ final class StockOnlyClassifier
             // Broken-parent detection: the parent's pa_taglia term set
             // must cover every incoming size, otherwise Woo can't link
             // variations to the parent and renders them as "Qualsiasi
-            // Taglia" (admin) / hidden (storefront). The bridge update
-            // paths previously didn't refresh the parent's
-            // _product_attributes meta when sizes were added upstream
-            // — variations existed in DB but the parent didn't "know"
-            // about the new sizes. Route to updateFull so the now-fixed
-            // bridge re-writes the parent attributes + term set.
+            // Taglia" (admin) / hidden (storefront). Route to updateFull
+            // so the bridge re-writes the parent's _product_attributes
+            // meta + term set.
             //
             // Comparison is slug-based (sanitize_title) because the
             // term taxonomy is what Woo uses internally for linking.
@@ -175,8 +186,9 @@ final class StockOnlyClassifier
             return 'unchanged';
         }
 
-        // Simple product: compare parent-level fields directly.
-        return self::simpleMatches( $item->data, $product ) ? 'unchanged' : 'updateStock';
+        // Simple product: compare parent-level price + stock fields
+        // against the pre-loaded snapshot.
+        return self::simpleMatches( $item->data, $scalar ) ? 'unchanged' : 'updateStock';
     }
 
     /**
@@ -196,27 +208,29 @@ final class StockOnlyClassifier
      */
     public static function split( array $update, ?Context $ctx = null ): array
     {
-        // Circuit breaker: when the update bucket is too large to
-        // classify within ANY reasonable tick budget, short-circuit
-        // to all-full. The threshold is a heuristic — large enough
-        // that routine refresh runs still get the optimization,
-        // small enough that first-time imports don't stall.
-        $threshold = (int) apply_filters( 'hive_sync/diff/stock_classifier_threshold', 500 );
+        // Circuit breaker. The threshold is now high (50k) because
+        // classify() runs against pre-loaded scalar + variation
+        // snapshots — no per-item wc_get_product() hydration. The
+        // old default (500) was the practical ceiling of the
+        // hydration-based classifier; with batched lookups, tens of
+        // thousands of items classify in well under a second of CPU.
+        // Override via the filter for catalogs beyond that scale.
+        $threshold = (int) apply_filters( 'hive_sync/diff/stock_classifier_threshold', 50000 );
         if ( $threshold > 0 && count( $update ) > $threshold ) {
             return [ array_values( array_filter( $update, fn( $i ) => $i instanceof FeedItem ) ), [], [] ];
         }
 
-        // Batch-load every parent's variation meta + variation-attribute
-        // term coverage in two SQLs — replaces N×wc_get_product()
-        // hydration + N×wp_get_object_terms. This is the perf win that
-        // makes 3-way classification + broken-parent detection
-        // affordable for variable-product catalogs.
+        // Three batched lookups in ~four SQLs total — parent scalars
+        // + product_type, variation meta, parent pa_taglia term set.
+        // Together these eliminate every WC_Product hydration the
+        // classifier used to do per item.
         $parentIds = [];
         foreach ( $update as $item ) {
             if ( ! $item instanceof FeedItem ) continue;
             $pid = (int) ( $item->data['_existing_id'] ?? 0 );
             if ( $pid > 0 ) $parentIds[] = $pid;
         }
+        $parentScalars    = ParentScalarLookup::load( $parentIds );
         $variationLookup  = VariationLookup::mapParentsToVariations( $parentIds );
         $parentTermSlugs  = VariationLookup::loadParentTaxonomyTermSlugs( $parentIds, 'pa_taglia' );
 
@@ -233,7 +247,7 @@ final class StockOnlyClassifier
                 $full[] = $item;
                 continue;
             }
-            $verdict = self::classify( $item, $variationLookup, $parentTermSlugs );
+            $verdict = self::classify( $item, $variationLookup, $parentTermSlugs, $parentScalars );
             if ( $verdict === 'unchanged' )       $unchanged[] = $item;
             elseif ( $verdict === 'updateStock' ) $stock[]     = $item;
             else                                  $full[]      = $item;
@@ -256,31 +270,59 @@ final class StockOnlyClassifier
     }
 
     /**
-     * Simple-product field-by-field comparison. Returns true when feed
-     * and Woo are byte-equal across all four stock-tier fields.
+     * Simple-product field-by-field comparison against the pre-loaded
+     * scalar snapshot. Returns true when feed and Woo are byte-equal
+     * across all four stock-tier fields.
+     *
+     * @param array<string, mixed> $data
+     * @param array{regular_price:string,sale_price:string,stock:?int,stock_status:string} $scalar
      */
-    private static function simpleMatches( array $data, \WC_Product $product ): bool
+    private static function simpleMatches( array $data, array $scalar ): bool
     {
         if ( array_key_exists( 'regular_price', $data ) ) {
-            if ( ! self::priceEquals( (string) $data['regular_price'], (string) $product->get_regular_price() ) ) {
+            if ( ! self::priceEquals( (string) $data['regular_price'], (string) $scalar['regular_price'] ) ) {
                 return false;
             }
         }
         if ( array_key_exists( 'sale_price', $data ) ) {
-            if ( ! self::priceEquals( (string) $data['sale_price'], (string) $product->get_sale_price() ) ) {
+            if ( ! self::priceEquals( (string) $data['sale_price'], (string) $scalar['sale_price'] ) ) {
                 return false;
             }
         }
         if ( array_key_exists( 'stock_quantity', $data ) ) {
             $a = (int) $data['stock_quantity'];
-            $b = $product->get_stock_quantity();
-            $b = $b === null ? -1 : (int) $b;
+            $b = $scalar['stock'] === null ? -1 : (int) $scalar['stock'];
             if ( $a !== $b ) return false;
         }
         if ( array_key_exists( 'stock_status', $data ) ) {
-            if ( (string) $data['stock_status'] !== (string) $product->get_stock_status() ) return false;
+            if ( (string) $data['stock_status'] !== (string) $scalar['stock_status'] ) return false;
         }
         return true;
+    }
+
+    /**
+     * Build a scalar snapshot for the cache-miss fallback path —
+     * mirrors the shape ParentScalarLookup::load() produces so the
+     * classifier has one code path regardless of where the snapshot
+     * came from.
+     *
+     * @return array{name:string,description:string,short_description:string,status:string,sku:string,regular_price:string,sale_price:string,stock:?int,stock_status:string,is_variable:bool}
+     */
+    private static function scalarFromProduct( \WC_Product $product ): array
+    {
+        $stockRaw = $product->get_stock_quantity();
+        return [
+            'name'              => (string) $product->get_name(),
+            'description'       => (string) $product->get_description(),
+            'short_description' => (string) $product->get_short_description(),
+            'status'            => (string) $product->get_status(),
+            'sku'               => (string) $product->get_sku(),
+            'regular_price'     => (string) $product->get_regular_price(),
+            'sale_price'        => (string) $product->get_sale_price(),
+            'stock'             => $stockRaw === null ? null : (int) $stockRaw,
+            'stock_status'      => (string) $product->get_stock_status(),
+            'is_variable'       => $product->is_type( 'variable' ),
+        ];
     }
 
     /**

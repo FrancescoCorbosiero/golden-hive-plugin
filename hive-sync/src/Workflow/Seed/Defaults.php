@@ -526,6 +526,20 @@ final class Defaults
                 'cron'          => '0 */2 * * *',
                 'config'        => [ 'options' => $syncOptions( 'sf-default' ) ],
             ],
+            // KicksDB price refresh — uses the batch /stockx/prices
+            // endpoint (50 SKU/call) to patch per-variant regular_price
+            // on tracked products without hitting the heavy
+            // products/{sku} endpoint. Disabled by default; operator
+            // points runnable_ref at the actual kicksdb source-config
+            // slug in Automatizza tab and enables.
+            [
+                '_seed_id'      => 'kicksdb-refresh-prices',
+                'label'         => 'KicksDB — Refresh prezzi tracked (ogni 6h)',
+                'runnable_type' => 'kicksdb.refresh_prices',
+                'runnable_ref'  => 'kicksdb-prod',
+                'cron'          => '0 */6 * * *',
+                'config'        => [ 'max_per_tick' => 500 ],
+            ],
         ];
     }
 

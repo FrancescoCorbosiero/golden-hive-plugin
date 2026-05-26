@@ -105,9 +105,10 @@ final class JobRunner
         $config = (array) ( $job['config'] ?? [] );
 
         $envelope = match ( true ) {
-            $type === 'source.import' => $this->dispatchSourceImport( $ref, $config ),
-            $type === 'rule'          => $this->dispatchRule( $ref ),
-            default                   => [ 'status' => 'skipped', 'reason' => 'unknown_kind:' . $type ],
+            $type === 'source.import'          => $this->dispatchSourceImport( $ref, $config ),
+            $type === 'rule'                   => $this->dispatchRule( $ref ),
+            $type === 'kicksdb.refresh_prices' => $this->dispatchKicksDbRefreshPrices( $ref, $config ),
+            default                            => [ 'status' => 'skipped', 'reason' => 'unknown_kind:' . $type ],
         };
 
         $status = (string) ( $envelope['status'] ?? 'failed' );
@@ -287,6 +288,77 @@ final class JobRunner
                 // failed without having to dig into per-product traces.
                 'error_samples' => $result->errorSamples,
             ],
+        ];
+    }
+
+    /**
+     * runnable_ref = saved kicksdb source-config slug (e.g. 'kicksdb-prod').
+     * config can carry { max_per_tick: int }. Defaults to 500.
+     *
+     * No fetch/diff/materialize — the refresher is a focused batch
+     * patcher that bypasses the import pipeline entirely. It reads
+     * the kicksdb_cache for tracked SKUs, batches /stockx/prices, and
+     * patches per-variant regular_price via the WC API.
+     *
+     * Cooperative resume: returns status=continue when the 25s deadline
+     * hits, and rotation order (post meta _hsync_kicksdb_last_price_sync)
+     * ensures the next tick picks up the un-refreshed SKUs naturally.
+     * No explicit cursor needed.
+     */
+    private function dispatchKicksDbRefreshPrices( string $configSlug, array $jobConfig ): array
+    {
+        if ( $configSlug === '' ) {
+            return [ 'status' => 'failed', 'error' => 'missing_kicksdb_config_slug' ];
+        }
+        $row = $this->sourceConfigs->find( $configSlug );
+        if ( ! $row ) {
+            return [ 'status' => 'failed', 'error' => 'kicksdb_config_not_found:' . $configSlug ];
+        }
+        $config = (array) $row['config'];
+
+        // Honor the global enabled toggle on the source-config. Same
+        // switch that gates the enricher + the discovery source — one
+        // place to disable everything KicksDB.
+        if ( ( $config['enabled'] ?? 'yes' ) === 'no' ) {
+            return [ 'status' => 'skipped', 'reason' => 'kicksdb_disabled' ];
+        }
+        $apiKey = (string) ( $config['api_key'] ?? '' );
+        if ( $apiKey === '' ) {
+            return [ 'status' => 'skipped', 'reason' => 'no_api_key' ];
+        }
+
+        $client = new \HiveSync\KicksDb\Client(
+            apiKey:  $apiKey,
+            baseUrl: (string) ( $config['base_url'] ?? 'https://api.kicks.dev/v3' ),
+            timeout: 30,
+        );
+        $markupCfg = (array) ( $config['markup'] ?? [] );
+        $markupCfg['vat_percent'] = (float) ( $config['vat_percent']
+            ?? $markupCfg['vat_percent']
+            ?? 22.0 );
+        $calc      = \HiveSync\KicksDb\MarkupCalculator::fromConfig( $markupCfg );
+        $cache     = new \HiveSync\Core\Repo\KicksDbCacheRepository();
+        $market    = (string) ( $config['market'] ?? 'IT' );
+        $refresher = new \HiveSync\KicksDb\PriceRefresher(
+            client: $client,
+            cache:  $cache,
+            calc:   $calc,
+            market: $market,
+        );
+
+        $maxPerTick = max( 50, (int) ( $jobConfig['max_per_tick'] ?? 500 ) );
+        $deadline   = time() + 25;
+
+        $runId = $this->runs->start( 0, 'kicksdb.refresh_prices', $configSlug );
+        $result = $refresher->run( $maxPerTick, $deadline );
+
+        $status = (string) ( $result['status'] ?? 'done' );
+        $this->runs->finish( $runId, $status, $result );
+
+        return [
+            'status' => $status,
+            'run_id' => $runId,
+            'report' => $result,
         ];
     }
 

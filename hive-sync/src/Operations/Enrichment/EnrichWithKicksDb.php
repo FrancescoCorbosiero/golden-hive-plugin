@@ -123,6 +123,10 @@ final class EnrichWithKicksDb implements ImportRule
         }
         if ( ! $row ) return null;
         $config = (array) ( $row['config'] ?? [] );
+        // Global toggle on the source-config: when disabled, the
+        // enricher is a no-op everywhere without losing API key/markup
+        // settings. One switch in Connetti turns the whole proxy off.
+        if ( ( $config['enabled'] ?? 'yes' ) === 'no' ) return null;
         $apiKey = (string) ( $config['api_key'] ?? '' );
         if ( $apiKey === '' ) return null;
 

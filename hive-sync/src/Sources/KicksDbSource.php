@@ -65,6 +65,16 @@ final class KicksDbSource extends AbstractSource
     public function configSchema(): array
     {
         return [
+            'enabled' => [
+                'type' => 'enum', 'label' => 'Proxy KicksDB attivo',
+                'options' => [ 'yes', 'no' ],
+                'option_labels' => [
+                    'yes' => 'Attivo — KicksDB arricchisce i prodotti come configurato',
+                    'no'  => 'Disattivato — KicksDB ignorato ovunque (no-op)',
+                ],
+                'default' => 'yes',
+                'description' => 'Toggle globale: quando "Disattivato", sia il Source KicksDB (tab Importa) che l\'ImportRule kicksdb.enrich nella pipeline GS diventano no-op silenziosi. API key, markup tiers, cursor discovery: tutto resta salvato — puoi riattivare in un click.',
+            ],
             'api_key' => [
                 'type' => 'secret', 'label' => 'API key KicksDB',
                 'required' => true, 'max' => 512,
@@ -134,6 +144,9 @@ final class KicksDbSource extends AbstractSource
     public function fetch( FetchRequest $request, Context $ctx ): FetchResult
     {
         $config = $request->config;
+        if ( ( $config['enabled'] ?? 'yes' ) === 'no' ) {
+            return new FetchResult( items: [], warnings: [ 'KicksDB proxy disattivato nella source-config (campo "enabled").' ] );
+        }
         $apiKey = (string) ( $config['api_key'] ?? '' );
         if ( $apiKey === '' ) {
             return new FetchResult( items: [], warnings: [ 'KicksDB API key non configurata.' ] );

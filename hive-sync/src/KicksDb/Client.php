@@ -16,7 +16,10 @@ namespace HiveSync\KicksDb;
  * response carries variants inline for the IT market).
  *
  * Retry: exponential backoff (1s, 2s, 4s) on 429 / 5xx / network
- * failures. Hard ceiling at 3 attempts to keep one tick budget sane.
+ * failures across 4 attempts (3 retries after the initial). Worst-case
+ * latency budget for one call is ~7s + 4 × timeout (default 30s), so
+ * the caller's 25s deadline can still tolerate at least one full
+ * exhausted retry cycle.
  * Rate-limit politeness: a 200ms sleep between batch /prices calls
  * (mirrors woo-importer's polite-client behaviour).
  *
@@ -27,7 +30,7 @@ namespace HiveSync\KicksDb;
 final class Client
 {
     private const DEFAULT_BASE_URL = 'https://api.kicks.dev/v3';
-    private const MAX_RETRIES      = 3;
+    private const MAX_RETRIES      = 4;
     private const BATCH_DELAY_US   = 200_000;  // 200ms
 
     private string $lastError = '';

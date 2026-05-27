@@ -62,15 +62,26 @@ final class EnrichWithKicksDb implements ImportRule
 
     public function applyDuringImport( FeedItem $item, array &$draft, array $params, OperationContext $ctx ): void
     {
-        // Cache the Enricher per (slug, request) so a run with 10k
-        // items doesn't rebuild the client + cache repo per call.
-        static $cached = null;
-        static $cachedSlug = null;
+        // Cache the Enricher per (slug, config-version) so a 10k-item
+        // run doesn't rebuild the client + cache repo per call.
+        //
+        // PHP statics persist across requests in long-lived FPM workers,
+        // so we MUST invalidate when the saved source-config changes
+        // (api_key rotation, markup edits, enabled=no toggle). Keying
+        // on slug alone meant a worker with a cached Enricher would
+        // serve every request with the OLD config until the worker
+        // recycled. We resolve the row's updated_at on every call
+        // (~0.2ms — cheap indexed lookup) and rebuild when it changes;
+        // skips the heavier Enricher reconstruction on cache hits.
+        static $cached    = null;
+        static $cachedKey = null;
 
-        $slug = (string) ( $params['config_slug'] ?? '' );
-        if ( $cached === null || $cachedSlug !== $slug ) {
-            $cached     = self::buildEnricher( $slug );
-            $cachedSlug = $slug;
+        $slug   = (string) ( $params['config_slug'] ?? '' );
+        $rowKey = self::resolveCacheKey( $slug );
+
+        if ( $cached === null || $cachedKey !== $rowKey ) {
+            $cached    = self::buildEnricher( $slug );
+            $cachedKey = $rowKey;
         }
         if ( $cached === null ) {
             // No config / no API key → silent no-op. Tag the draft so
@@ -104,6 +115,25 @@ final class EnrichWithKicksDb implements ImportRule
         // (admin.js o.is_import_rule), so this branch shouldn't actually
         // be reached — defensive only.
         return OperationResult::noop();
+    }
+
+    /**
+     * Resolve a cache-invalidation key for the slug: returns the row's
+     * updated_at if it exists, or a 'missing' marker. The memo key
+     * combines slug + this signature, so saving a config change in
+     * Connetti (which touches updated_at) propagates to the next call
+     * inside the same FPM worker without needing a php-fpm reload.
+     */
+    private static function resolveCacheKey( string $slug ): string
+    {
+        $repo = new SourceConfigRepository();
+        $row  = $slug !== '' ? $repo->find( $slug ) : null;
+        if ( ! $row ) {
+            $all = $repo->all( 'kicksdb' );
+            $row = $all[0] ?? null;
+        }
+        if ( ! $row ) return $slug . '|missing';
+        return ( $row['slug'] ?? $slug ) . '|' . ( $row['updated_at'] ?? '' );
     }
 
     /**

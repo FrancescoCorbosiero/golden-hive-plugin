@@ -107,7 +107,7 @@ final class JobRunner
         $envelope = match ( true ) {
             $type === 'source.import'          => $this->dispatchSourceImport( $ref, $config ),
             $type === 'rule'                   => $this->dispatchRule( $ref ),
-            $type === 'kicksdb.refresh_prices' => $this->dispatchKicksDbRefreshPrices( $ref, $config ),
+            $type === 'kicksdb.refresh_prices' => $this->dispatchKicksDbRefreshPrices( $ref, $config, $jobId ),
             default                            => [ 'status' => 'skipped', 'reason' => 'unknown_kind:' . $type ],
         };
 
@@ -124,6 +124,21 @@ final class JobRunner
         if ( $type === 'source.import' && $status === 'continue' && ! empty( $envelope['cursor'] ) ) {
             $config['_resume_cursor'] = (array) $envelope['cursor'];
             $this->jobs->updateConfig( $jobId, $config );
+            $this->jobs->recordRun( $jobId, $status, gmdate( 'Y-m-d H:i:s', time() ) );
+            return $envelope;
+        }
+
+        // Same cooperative-resume posture for kicksdb.refresh_prices.
+        // The refresher returns status=continue when its 25s deadline
+        // hits mid-batch (e.g. max_per_tick=2000 + slow API). Without
+        // this branch, recordRun() would push next_run_at to the cron's
+        // next firing (+6h on the default schedule) — the unfinished
+        // batch would stall for 6 hours instead of resuming on the
+        // very next 5-min tick. No cursor to persist: rotation order
+        // (oldest _hsync_kicksdb_last_price_sync first) means the
+        // un-refreshed SKUs naturally come back to the head of the
+        // queue on the next tick.
+        if ( $type === 'kicksdb.refresh_prices' && $status === 'continue' ) {
             $this->jobs->recordRun( $jobId, $status, gmdate( 'Y-m-d H:i:s', time() ) );
             return $envelope;
         }
@@ -305,14 +320,22 @@ final class JobRunner
      * ensures the next tick picks up the un-refreshed SKUs naturally.
      * No explicit cursor needed.
      */
-    private function dispatchKicksDbRefreshPrices( string $configSlug, array $jobConfig ): array
+    private function dispatchKicksDbRefreshPrices( string $configSlug, array $jobConfig, int $jobId = 0 ): array
     {
-        if ( $configSlug === '' ) {
-            return [ 'status' => 'failed', 'error' => 'missing_kicksdb_config_slug' ];
-        }
-        $row = $this->sourceConfigs->find( $configSlug );
+        // Resolve the kicksdb config row. Try the explicit
+        // runnable_ref first; if missing (e.g. the seeded job ships
+        // with runnable_ref='kicksdb-prod' but the operator saved
+        // their config under a different slug), fall back to the
+        // FIRST saved kicksdb config — matches what the
+        // EnrichWithKicksDb ImportRule does so the two surfaces are
+        // forgiving in the same way.
+        $row = $configSlug !== '' ? $this->sourceConfigs->find( $configSlug ) : null;
         if ( ! $row ) {
-            return [ 'status' => 'failed', 'error' => 'kicksdb_config_not_found:' . $configSlug ];
+            $all = $this->sourceConfigs->all( 'kicksdb' );
+            $row = $all[0] ?? null;
+        }
+        if ( ! $row ) {
+            return [ 'status' => 'skipped', 'reason' => 'no_kicksdb_config_saved' ];
         }
         $config = (array) $row['config'];
 
@@ -346,10 +369,21 @@ final class JobRunner
             market: $market,
         );
 
-        $maxPerTick = max( 50, (int) ( $jobConfig['max_per_tick'] ?? 500 ) );
+        // Read max_per_tick from BOTH the root config and config.options
+        // — the seeded job nests it under config.options now (so the
+        // project.json exporter roundtrips correctly), but legacy or
+        // hand-built jobs may place it at the root.
+        $maxPerTick = max( 50, (int) (
+            $jobConfig['max_per_tick']
+            ?? ( $jobConfig['options']['max_per_tick'] ?? 500 )
+        ) );
         $deadline   = time() + 25;
 
-        $runId = $this->runs->start( 0, 'kicksdb.refresh_prices', $configSlug );
+        // Pass the real $jobId so the wp_hsync_runs row is linked
+        // back to its originating job — Storico tab + cockpit
+        // "last run" badge use this association.
+        $resolvedSlug = (string) ( $row['slug'] ?? $configSlug );
+        $runId = $this->runs->start( $jobId, 'kicksdb.refresh_prices', $resolvedSlug );
         $result = $refresher->run( $maxPerTick, $deadline );
 
         $status = (string) ( $result['status'] ?? 'done' );

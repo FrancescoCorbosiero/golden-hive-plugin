@@ -156,8 +156,16 @@ final class PriceRefresher
             return [ 'sku' => $sku, 'pid' => $pid, 'action' => 'failed', 'reason' => 'wc_get_product_null' ];
         }
 
-        // Simple product path — set parent regular_price.
-        if ( ! $product->is_type( 'variable' ) ) {
+        // `is_type('variable')` checks exact string equality with
+        // get_type() — so a WC_Product_Variable_Subscription returns
+        // 'variable-subscription' and would fall into the simple-product
+        // path, clobbering the parent's regular_price instead of
+        // patching variations. Use the class hierarchy: any subclass
+        // of WC_Product_Variable (Subscriptions, custom extensions)
+        // takes the variable branch.
+        $isVariable = $product instanceof \WC_Product_Variable
+                      || $product->is_type( 'variable' );
+        if ( ! $isVariable ) {
             $best = $this->bestStandardPrice( $priceData );
             if ( $best <= 0 ) {
                 return [ 'sku' => $sku, 'pid' => $pid, 'action' => 'skipped', 'reason' => 'no_standard_price' ];
@@ -224,8 +232,13 @@ final class PriceRefresher
         $out = [];
         foreach ( $variants as $v ) {
             if ( ! is_array( $v ) ) continue;
-            $type = (string) ( $v['type'] ?? 'standard' );
-            if ( $type !== 'standard' ) continue;
+            // Require an EXPLICIT 'standard' type tag. Defaulting to
+            // 'standard' for missing fields means any future variant
+            // kind that doesn't tag itself would be accepted as spot
+            // pricing — silent contamination of the markup pipeline.
+            // The legacy normalizer's GOTCHA is exactly about
+            // filtering out express_shipping et al; be strict.
+            if ( ( $v['type'] ?? null ) !== 'standard' ) continue;
             $size = (string) ( $v['size_eu'] ?? $v['size'] ?? '' );
             if ( $size === '' ) continue;
             $price = (float) ( $v['lowest_ask'] ?? $v['last_sale'] ?? $v['market_price'] ?? $v['price'] ?? 0 );
@@ -274,9 +287,14 @@ final class PriceRefresher
             ORDER BY (pm_sync.meta_value IS NULL) DESC, pm_sync.meta_value ASC
             LIMIT %d
         ";
-        // payload NOT LIKE '%\"_miss\":true%' — exclude negative cache.
+        // Exclude negative-cache rows. The `_` inside `_miss` is a
+        // SQL LIKE wildcard (any single char) — without esc_like the
+        // pattern would also match payloads containing `"Xmiss":true`
+        // for any single char X, dropping unrelated rows. esc_like
+        // converts `_` → `\_` so we match the literal underscore.
+        $likePattern = '%' . $wpdb->esc_like( '"_miss":true' ) . '%';
         $rows = $wpdb->get_results(
-            $wpdb->prepare( $sql, $this->market, '%"_miss":true%', $limit ),
+            $wpdb->prepare( $sql, $this->market, $likePattern, $limit ),
             ARRAY_A,
         );
         if ( ! is_array( $rows ) ) return [];

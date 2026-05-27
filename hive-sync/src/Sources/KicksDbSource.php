@@ -220,10 +220,20 @@ final class KicksDbSource extends AbstractSource
                     if ( count( $payloads ) >= $limit ) break;
                     $sku = (string) ( $hit['sku'] ?? $hit['style_id'] ?? '' );
                     if ( $sku === '' || isset( $payloads[ $sku ] ) ) continue;
-                    // Warm the cache with the search hit so a subsequent
-                    // per-sku lookup skips the API roundtrip entirely.
-                    $cache->put( $sku, $market, $hit, $cacheTtl );
-                    $payloads[ $sku ] = $hit;
+                    // Resolve the SKU to its full product payload before
+                    // caching — the search endpoint returns SUMMARY
+                    // records without inline variants/sizes/prices, and
+                    // caching those as if they were full responses
+                    // poisons subsequent Enricher::lookup() callers
+                    // (the EnrichWithKicksDb ImportRule + PriceRefresher
+                    // would read the partial payload, find no variants,
+                    // and emit broken variable products for $cacheTtl
+                    // hours). Enricher::lookup handles the cache-first
+                    // pattern and only writes a full payload to the
+                    // cache, so go through it.
+                    $full = $enricher->lookup( $sku );
+                    if ( $full === null || ! empty( $full['_miss'] ) ) continue;
+                    $payloads[ $sku ] = $full;
                 }
                 if ( count( $hits ) < $perPage ) break;
                 $page++;
@@ -279,8 +289,15 @@ final class KicksDbSource extends AbstractSource
         }
 
         $skuPattern = trim( (string) ( $config['sku_pattern'] ?? '' ) );
+        // Cursor key must discriminate between distinct kicksdb
+        // source-configs even when they share market + sku_pattern
+        // (e.g. a 'kicksdb-prod' and 'kicksdb-staging' both on IT
+        // with empty pattern). Hashing the api_key into the key
+        // makes two configs unambiguous — they almost always have
+        // distinct keys.
+        $apiKey     = (string) ( $config['api_key'] ?? '' );
         $cursorKey  = 'hsync_kicksdb_catalog_cursor_'
-                    . substr( md5( $market . '|' . $skuPattern ), 0, 12 );
+                    . substr( md5( $apiKey . '|' . $market . '|' . $skuPattern ), 0, 12 );
         $cursor     = (int) get_option( $cursorKey, 0 );
 
         // Over-fetch to leave room for SKU-pattern filtering + KicksDB
@@ -317,8 +334,14 @@ final class KicksDbSource extends AbstractSource
         $missed   = 0;
 
         foreach ( $rows as $row ) {
-            $maxId = max( $maxId, (int) $row['ID'] );
+            // Honor the per-run limit BEFORE consuming this row.
+            // Advancing $maxId past a row we never process would
+            // permanently skip it on the next run (cursor moves
+            // forward, row never comes back until end-of-catalog
+            // auto-reset). With this ordering, $maxId only advances
+            // through rows we actually examined.
             if ( count( $items ) >= $limit ) break;
+            $maxId = max( $maxId, (int) $row['ID'] );
             $scanned++;
 
             $sku = (string) $row['sku'];
@@ -457,14 +480,26 @@ final class KicksDbSource extends AbstractSource
         }
         // Same Woo-shape as the GS flavor (variable + pa_taglia +
         // variations[]), so the GS bridge handles materialize.
+        // function_exists() is always true here — host-adapter.php
+        // declares hsync_gs_materialize unconditionally — so it can't
+        // tell us whether the bridge filter is actually bound. A null
+        // return from the function IS the "bridge unavailable" signal
+        // (the filter returned null because no handler is wired).
         if ( ! function_exists( 'hsync_gs_materialize' ) ) {
-            return MaterializeResult::failed( 'Bridge GS non disponibile per KicksDB materialize.' );
+            return MaterializeResult::failed( 'host_adapter_missing' );
         }
         $sideload = (bool) ( $ctx->meta['sideload'] ?? true );
         try {
             $r = \hsync_gs_materialize( $item->data, false, $sideload );
         } catch ( \Throwable $e ) {
             return MaterializeResult::failed( $e->getMessage() );
+        }
+        if ( $r === null ) {
+            // Bridge filter not bound — hive-sync is running standalone
+            // without golden-hive's bridge. Surface clearly so the
+            // operator knows what to fix instead of a misleading
+            // "unexpected_response" string.
+            return MaterializeResult::failed( 'gs_bridge_not_bound — install/activate golden-hive or wire hive_sync/host/source/gs/materialize' );
         }
         if ( is_int( $r ) && $r > 0 ) {
             return MaterializeResult::updated( $r );

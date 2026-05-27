@@ -529,16 +529,25 @@ final class Defaults
             // KicksDB price refresh — uses the batch /stockx/prices
             // endpoint (50 SKU/call) to patch per-variant regular_price
             // on tracked products without hitting the heavy
-            // products/{sku} endpoint. Disabled by default; operator
-            // points runnable_ref at the actual kicksdb source-config
-            // slug in Automatizza tab and enables.
+            // products/{sku} endpoint. Disabled by default.
+            //
+            // runnable_ref is empty so the dispatcher falls back to
+            // "first saved kicksdb source-config" — matches the
+            // EnrichWithKicksDb ImportRule's fallback, so the seeded
+            // job works regardless of what slug the operator chose
+            // (kicksdb-prod, my-kicksdb, etc.). To target a specific
+            // config, the operator edits runnable_ref in Automatizza.
+            //
+            // max_per_tick lives under options so ProjectExporter
+            // emits it in the exported project.json (the exporter
+            // serializes config.options as a separate key).
             [
                 '_seed_id'      => 'kicksdb-refresh-prices',
                 'label'         => 'KicksDB — Refresh prezzi tracked (ogni 6h)',
                 'runnable_type' => 'kicksdb.refresh_prices',
-                'runnable_ref'  => 'kicksdb-prod',
+                'runnable_ref'  => '',
                 'cron'          => '0 */6 * * *',
-                'config'        => [ 'max_per_tick' => 500 ],
+                'config'        => [ 'options' => [ 'max_per_tick' => 500 ] ],
             ],
         ];
     }

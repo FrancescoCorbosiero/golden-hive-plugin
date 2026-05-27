@@ -103,7 +103,7 @@ final class Enricher
      */
     public function merge( array $draft, array $payload, string $mode = 'overwrite' ): array
     {
-        if ( ! is_array( $payload ) || ! empty( $payload['_miss'] ) ) return $draft;
+        if ( ! empty( $payload['_miss'] ) ) return $draft;
 
         $preserve = $mode === 'preserve';
 
@@ -135,6 +135,21 @@ final class Enricher
         $set( 'pa_gender', $gender );
         $set( 'pa_material', $material );
         $set( 'pa_release_date', $releaseDt );
+
+        // Legacy GS bridge markers. The bridge wired at
+        // hive_sync/host/source/gs/materialize (rp_rc_gs_create_product /
+        // _update_product in golden-hive) keys brand/category/image
+        // assignment on these specific underscore-prefixed fields —
+        // NOT on `pa_brand` / `image_url`. Without them, KicksDb-
+        // originated products materialize with no product_brand
+        // taxonomy and no featured image. Set them here so they flow
+        // through both the EnrichWithKicksDb ImportRule (overwrite mode)
+        // AND the KicksDbSource direct path. In preserve mode (woo_catalog
+        // backfill) we still fill empties so existing products that
+        // never got the markers get them backfilled.
+        $set( '_gs_brand',     $brand );
+        $set( '_gs_model',     $title );
+        $set( '_gs_image_url', $images[0] ?? '' );
 
         if ( ! empty( $images ) ) {
             // In preserve mode, leave the operator's chosen feature image
@@ -169,19 +184,25 @@ final class Enricher
         // ─── Variant merge ──────────────────────────────────────────
         // ALWAYS run regardless of mode — the full size run + tiered
         // pricing are the value the integration brings.
-        $draft['variations'] = $this->mergeVariations( $draft, $payload );
-        $draft['type']       = 'variable';
+        $mergedVariations = $this->mergeVariations( $draft, $payload );
 
-        // Declare pa_taglia as the variation attribute with the union
-        // of all sizes so the materialize bridge wires variations to
-        // the parent correctly. AttributeMerger handles the other pa_*
-        // promotions further down the pipeline.
+        // Collect size union before touching type, so we can refuse
+        // to "promote" the draft to variable when neither KicksDB nor
+        // GS supplied any sizes. Without this guard, a payload missing
+        // variants[] / sizes[] would produce $draft['type']='variable'
+        // with empty variations and no pa_taglia options — a malformed
+        // product that Woo renders as out-of-stock and worse, flips an
+        // existing simple product to variable mid-sync the moment a
+        // payload temporarily regresses to empty.
         $sizes = [];
-        foreach ( $draft['variations'] as $v ) {
+        foreach ( $mergedVariations as $v ) {
             $taglia = (string) ( $v['attributes']['pa_taglia'] ?? '' );
             if ( $taglia !== '' && ! in_array( $taglia, $sizes, true ) ) $sizes[] = $taglia;
         }
+
         if ( $sizes ) {
+            $draft['variations']              = $mergedVariations;
+            $draft['type']                    = 'variable';
             $draft['attributes']              = (array) ( $draft['attributes'] ?? [] );
             $draft['attributes']['pa_taglia'] = [
                 'options'   => $sizes,
@@ -189,6 +210,10 @@ final class Enricher
                 'variation' => true,
             ];
         }
+        // No sizes → leave $draft['variations'] and $draft['type']
+        // alone (caller may have started from a GS draft that had
+        // its own variations, OR from an empty draft → bridge falls
+        // back to simple-product create with no variations).
 
         // Trace markers — read by the Storico tab and the run shape
         // diagnostic. Never written to Woo product meta.

@@ -61,11 +61,24 @@ $wpdb->query( "DELETE FROM `{$wpdb->options}` WHERE option_name LIKE 'hsync_kick
 $transients = [
     'hsync_media_usage_index_v1',
     'hsync_jobs_tick_lock',
+    'hsync_runs_pruned_today',
 ];
 foreach ( $transients as $key ) {
     delete_transient( $key );
     delete_site_transient( $key );
 }
+
+// 3b. Wildcard-delete dynamically-keyed RunCache transients
+// (`hsync_run_cache_<runId>` + the matching `_timeout_*`). Without
+// this they survive uninstall and collide with run_id=1, 2, … minted
+// by a fresh re-install (wp_hsync_runs.AUTO_INCREMENT restarts at 1
+// when the table is dropped above) — producing a phantom Importa run
+// where ImportRunner reads a stale Diff from the previous install,
+// skips fetch+diff, and the item loop processes garbage data with
+// silent 0 counters. Same fix posture as the kicksdb-catalog-cursor
+// wildcard above.
+$wpdb->query( "DELETE FROM `{$wpdb->options}` WHERE option_name LIKE '\\_transient\\_hsync\\_run\\_cache\\_%' ESCAPE '\\\\'" );
+$wpdb->query( "DELETE FROM `{$wpdb->options}` WHERE option_name LIKE '\\_transient\\_timeout\\_hsync\\_run\\_cache\\_%' ESCAPE '\\\\'" );
 
 // 4. Clear the cron hook entirely (handles edge cases where
 //    deactivation didn't fire — e.g. WP-CLI uninstall on a

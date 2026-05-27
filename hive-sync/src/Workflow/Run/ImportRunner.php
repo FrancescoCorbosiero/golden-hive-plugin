@@ -59,8 +59,30 @@ final class ImportRunner
         ?array $cursor = null,
     ): array {
         $startIndex = isset( $cursor['index'] ) ? max( 0, (int) $cursor['index'] ) : 0;
-        $runId      = isset( $cursor['run_id'] ) && (int) $cursor['run_id'] > 0
-            ? (int) $cursor['run_id']
+
+        // Resolve runId. A cursor from the JS tick loop (or from a
+        // resumed cron tick) MAY carry a run_id that no longer
+        // corresponds to a live row in wp_hsync_runs — typically after
+        // an uninstall+reinstall (the table drops, AUTO_INCREMENT
+        // restarts at 1, leftover RunCache transients keyed on
+        // pre-reinstall runIds collide with the new sequence). Without
+        // validating, ImportRunner would read a STALE Diff from the
+        // previous install, skip fetch+diff, and the loop would process
+        // phantom items whose _existing_id no longer matches the
+        // current Woo state — producing the silent 0-counter "phantom
+        // run" symptom. Validate the cursor's run_id against the
+        // repository; on miss, discard both cursor.run_id AND
+        // cursor.index and start a fresh run.
+        $cursorRunId = isset( $cursor['run_id'] ) ? (int) $cursor['run_id'] : 0;
+        if ( $cursorRunId > 0 && $this->runs->find( $cursorRunId ) === null ) {
+            // Evict the orphan RunCache entry so no later codepath
+            // picks it up by accident, then forget the cursor entirely.
+            RunCache::clear( $cursorRunId );
+            $cursorRunId = 0;
+            $startIndex  = 0;
+        }
+        $runId = $cursorRunId > 0
+            ? $cursorRunId
             : $this->runs->start( 0, 'source.import', $source->id() );
 
         // Normalize the three-way run mode. UI exposes a segmented
@@ -176,6 +198,17 @@ final class ImportRunner
             'pre_blocked'   => 0,
             'post_blocked'  => 0,
         ];
+
+        // Surface why the classifier sent things to updateFull. Only
+        // attached when there's data (cache hits on resumed ticks have
+        // an empty snapshot because split() didn't run this tick) so
+        // the JS only sees the histogram on the tick that produced it
+        // (typically tick 1). Sources whose diff() doesn't go through
+        // StockOnlyClassifier simply emit an empty `reasons` map.
+        if ( ! empty( \HiveSync\Sources\StockOnlyClassifier::$lastDiagnostics['reasons'] ) ) {
+            arsort( \HiveSync\Sources\StockOnlyClassifier::$lastDiagnostics['reasons'] );
+            $summary['classifier_diagnostics'] = \HiveSync\Sources\StockOnlyClassifier::$lastDiagnostics;
+        }
 
         // `options.buckets` lets a job restrict processing to a subset
         // of diff buckets. Defaults to the full set so existing jobs

@@ -34,6 +34,26 @@ final class StockOnlyClassifier
     public const STOCK_KEYS = [ 'regular_price', 'sale_price', 'stock_quantity', 'stock_status' ];
 
     /**
+     * Per-split() diagnostic snapshot. Populated by split() so the
+     * runner can surface to Storico / the run report WHY the
+     * classifier sent items to updateFull instead of unchanged /
+     * updateStock — turns "always updateFull" black-box behaviour into
+     * "10666 items routed to updateFull because of: description
+     * (8000), name (2000), status (666)" with a handful of example
+     * SKUs + the actual feed vs Woo values that diverged.
+     *
+     * Shape: [
+     *   'reasons'  => string $field => int $count,
+     *   'examples' => array<int, array{sku:string,field:string,feed:string,woo:string,reason:string}>
+     * ]
+     *
+     * Reset at the start of each split() call.
+     */
+    public static array $lastDiagnostics = [ 'reasons' => [], 'examples' => [] ];
+
+    private const EXAMPLE_CAP = 10;
+
+    /**
      * Comparable scalar, non-stock feed fields. A mutation in any of
      * these routes the row to updateFull. Other feed keys are ignored
      * (treated as unknown — the classifier doesn't have an opinion).
@@ -58,6 +78,7 @@ final class StockOnlyClassifier
         array $variationLookup = [],
         array $parentTermSlugs = [],
         array $parentScalars   = [],
+        ?array &$reasonOut = null,
     ): string {
         // diff() stamps _existing_id on every item it routes here, so
         // trust that and skip the per-item wc_get_product_id_by_sku
@@ -66,9 +87,15 @@ final class StockOnlyClassifier
         // e.g. the isStockOnlyChange() shim).
         $pid = (int) ( $item->data['_existing_id'] ?? 0 );
         if ( $pid <= 0 ) {
-            if ( ! function_exists( 'wc_get_product_id_by_sku' ) ) return 'updateFull';
+            if ( ! function_exists( 'wc_get_product_id_by_sku' ) ) {
+                $reasonOut = [ 'field' => '_no_woo_runtime', 'feed' => '', 'woo' => '' ];
+                return 'updateFull';
+            }
             $pid = (int) \wc_get_product_id_by_sku( $item->sku );
-            if ( $pid <= 0 ) return 'updateFull';
+            if ( $pid <= 0 ) {
+                $reasonOut = [ 'field' => '_sku_lookup_miss', 'feed' => $item->sku, 'woo' => '' ];
+                return 'updateFull';
+            }
         }
 
         // Pre-loaded scalar snapshot keeps the per-item path to zero
@@ -79,9 +106,15 @@ final class StockOnlyClassifier
         // didn't pass the lookup at all).
         $scalar = $parentScalars[ $pid ] ?? null;
         if ( $scalar === null ) {
-            if ( ! function_exists( 'wc_get_product' ) ) return 'updateFull';
+            if ( ! function_exists( 'wc_get_product' ) ) {
+                $reasonOut = [ 'field' => '_no_woo_runtime', 'feed' => '', 'woo' => '' ];
+                return 'updateFull';
+            }
             $product = \wc_get_product( $pid );
-            if ( ! $product ) return 'updateFull';
+            if ( ! $product ) {
+                $reasonOut = [ 'field' => '_wc_get_product_null', 'feed' => '', 'woo' => '' ];
+                return 'updateFull';
+            }
             $scalar = self::scalarFromProduct( $product );
         }
 
@@ -100,7 +133,21 @@ final class StockOnlyClassifier
             if ( ! in_array( $k, self::COMPARABLE_FIELDS, true ) ) continue;
             $cur = $scalar[ $k ] ?? '';
             if ( ! is_scalar( $cur ) ) continue;
-            if ( self::normalizeFor( (string) $k, (string) $v ) !== self::normalizeFor( (string) $k, (string) $cur ) ) {
+            $feedNorm = self::normalizeFor( (string) $k, (string) $v );
+            $wooNorm  = self::normalizeFor( (string) $k, (string) $cur );
+            if ( $feedNorm !== $wooNorm ) {
+                // Surface the actual divergence: which field, what the
+                // feed had, what Woo has. split() aggregates these into
+                // a histogram + a few examples so the operator can see
+                // exactly why "every item is updateFull" instead of
+                // guessing — the original SF bug was a single
+                // normalization mismatch on `description` that masked
+                // itself as a generic "diff says full update".
+                $reasonOut = [
+                    'field' => (string) $k,
+                    'feed'  => self::truncate( $feedNorm ),
+                    'woo'   => self::truncate( $wooNorm ),
+                ];
                 return 'updateFull';
             }
         }
@@ -134,6 +181,7 @@ final class StockOnlyClassifier
                     // New size in the feed that doesn't exist in Woo yet —
                     // fast-patch can't create variations, so this needs
                     // the full pipeline to spin up the new variation.
+                    $reasonOut = [ 'field' => '_new_variation_sku', 'feed' => $vsku, 'woo' => '' ];
                     return 'updateFull';
                 }
                 if ( ! self::variationMatches( $var_data, $existing ) ) {
@@ -146,6 +194,7 @@ final class StockOnlyClassifier
             // Route to updateFull so the zeroing fires.
             foreach ( $existingMap as $existingSku => $_ ) {
                 if ( ! isset( $incomingSkus[ $existingSku ] ) ) {
+                    $reasonOut = [ 'field' => '_orphan_variation_in_woo', 'feed' => '', 'woo' => $existingSku ];
                     return 'updateFull';
                 }
             }
@@ -178,6 +227,11 @@ final class StockOnlyClassifier
                             : strtolower( (string) $value );
                         if ( $expected === '' ) continue;
                         if ( ! isset( $parentSlugSet[ $expected ] ) ) {
+                            $reasonOut = [
+                                'field' => '_pa_taglia_missing_on_parent',
+                                'feed'  => $expected,
+                                'woo'   => implode( ',', array_slice( array_keys( $parentSlugSet ), 0, 5 ) ),
+                            ];
                             return 'updateFull';
                         }
                     }
@@ -234,25 +288,69 @@ final class StockOnlyClassifier
         $variationLookup  = VariationLookup::mapParentsToVariations( $parentIds );
         $parentTermSlugs  = VariationLookup::loadParentTaxonomyTermSlugs( $parentIds, 'pa_taglia' );
 
+        // Reset diagnostics for this split() call so the runner reads
+        // a fresh histogram per diff invocation.
+        self::$lastDiagnostics = [ 'reasons' => [], 'examples' => [] ];
+
         $full = $stock = $unchanged = [];
         $deadlineHit = false;
         foreach ( $update as $item ) {
             if ( ! $item instanceof FeedItem ) continue;
             if ( $deadlineHit ) {
                 $full[] = $item;
+                self::recordReason( '_classifier_deadline_hit', '', '', $item );
                 continue;
             }
             if ( $ctx !== null && $ctx->isOverDeadline() ) {
                 $deadlineHit = true;
                 $full[] = $item;
+                self::recordReason( '_classifier_deadline_hit', '', '', $item );
                 continue;
             }
-            $verdict = self::classify( $item, $variationLookup, $parentTermSlugs, $parentScalars );
+            $reason  = null;
+            $verdict = self::classify( $item, $variationLookup, $parentTermSlugs, $parentScalars, $reason );
             if ( $verdict === 'unchanged' )       $unchanged[] = $item;
             elseif ( $verdict === 'updateStock' ) $stock[]     = $item;
-            else                                  $full[]      = $item;
+            else {
+                $full[] = $item;
+                if ( is_array( $reason ) ) {
+                    self::recordReason(
+                        (string) ( $reason['field'] ?? '_unknown' ),
+                        (string) ( $reason['feed']  ?? '' ),
+                        (string) ( $reason['woo']   ?? '' ),
+                        $item,
+                    );
+                }
+            }
         }
         return [ $full, $stock, $unchanged ];
+    }
+
+    /**
+     * Aggregate one updateFull reason into the diagnostic snapshot.
+     * Counts every occurrence by field name; captures the first
+     * EXAMPLE_CAP examples with the actual (truncated) feed vs Woo
+     * values so the operator can see the divergence without enabling
+     * per-item logging.
+     */
+    private static function recordReason( string $field, string $feed, string $woo, FeedItem $item ): void
+    {
+        $field = $field === '' ? '_unknown' : $field;
+        self::$lastDiagnostics['reasons'][ $field ] = ( self::$lastDiagnostics['reasons'][ $field ] ?? 0 ) + 1;
+        if ( count( self::$lastDiagnostics['examples'] ) < self::EXAMPLE_CAP ) {
+            self::$lastDiagnostics['examples'][] = [
+                'sku'   => $item->sku,
+                'field' => $field,
+                'feed'  => self::truncate( $feed ),
+                'woo'   => self::truncate( $woo ),
+            ];
+        }
+    }
+
+    private static function truncate( string $value, int $max = 120 ): string
+    {
+        if ( strlen( $value ) <= $max ) return $value;
+        return substr( $value, 0, $max - 1 ) . '…';
     }
 
     /**

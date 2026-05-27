@@ -105,9 +105,10 @@ final class JobRunner
         $config = (array) ( $job['config'] ?? [] );
 
         $envelope = match ( true ) {
-            $type === 'source.import' => $this->dispatchSourceImport( $ref, $config ),
-            $type === 'rule'          => $this->dispatchRule( $ref ),
-            default                   => [ 'status' => 'skipped', 'reason' => 'unknown_kind:' . $type ],
+            $type === 'source.import'          => $this->dispatchSourceImport( $ref, $config ),
+            $type === 'rule'                   => $this->dispatchRule( $ref ),
+            $type === 'kicksdb.refresh_prices' => $this->dispatchKicksDbRefreshPrices( $ref, $config, $jobId ),
+            default                            => [ 'status' => 'skipped', 'reason' => 'unknown_kind:' . $type ],
         };
 
         $status = (string) ( $envelope['status'] ?? 'failed' );
@@ -123,6 +124,21 @@ final class JobRunner
         if ( $type === 'source.import' && $status === 'continue' && ! empty( $envelope['cursor'] ) ) {
             $config['_resume_cursor'] = (array) $envelope['cursor'];
             $this->jobs->updateConfig( $jobId, $config );
+            $this->jobs->recordRun( $jobId, $status, gmdate( 'Y-m-d H:i:s', time() ) );
+            return $envelope;
+        }
+
+        // Same cooperative-resume posture for kicksdb.refresh_prices.
+        // The refresher returns status=continue when its 25s deadline
+        // hits mid-batch (e.g. max_per_tick=2000 + slow API). Without
+        // this branch, recordRun() would push next_run_at to the cron's
+        // next firing (+6h on the default schedule) — the unfinished
+        // batch would stall for 6 hours instead of resuming on the
+        // very next 5-min tick. No cursor to persist: rotation order
+        // (oldest _hsync_kicksdb_last_price_sync first) means the
+        // un-refreshed SKUs naturally come back to the head of the
+        // queue on the next tick.
+        if ( $type === 'kicksdb.refresh_prices' && $status === 'continue' ) {
             $this->jobs->recordRun( $jobId, $status, gmdate( 'Y-m-d H:i:s', time() ) );
             return $envelope;
         }
@@ -287,6 +303,96 @@ final class JobRunner
                 // failed without having to dig into per-product traces.
                 'error_samples' => $result->errorSamples,
             ],
+        ];
+    }
+
+    /**
+     * runnable_ref = saved kicksdb source-config slug (e.g. 'kicksdb-prod').
+     * config can carry { max_per_tick: int }. Defaults to 500.
+     *
+     * No fetch/diff/materialize — the refresher is a focused batch
+     * patcher that bypasses the import pipeline entirely. It reads
+     * the kicksdb_cache for tracked SKUs, batches /stockx/prices, and
+     * patches per-variant regular_price via the WC API.
+     *
+     * Cooperative resume: returns status=continue when the 25s deadline
+     * hits, and rotation order (post meta _hsync_kicksdb_last_price_sync)
+     * ensures the next tick picks up the un-refreshed SKUs naturally.
+     * No explicit cursor needed.
+     */
+    private function dispatchKicksDbRefreshPrices( string $configSlug, array $jobConfig, int $jobId = 0 ): array
+    {
+        // Resolve the kicksdb config row. Try the explicit
+        // runnable_ref first; if missing (e.g. the seeded job ships
+        // with runnable_ref='kicksdb-prod' but the operator saved
+        // their config under a different slug), fall back to the
+        // FIRST saved kicksdb config — matches what the
+        // EnrichWithKicksDb ImportRule does so the two surfaces are
+        // forgiving in the same way.
+        $row = $configSlug !== '' ? $this->sourceConfigs->find( $configSlug ) : null;
+        if ( ! $row ) {
+            $all = $this->sourceConfigs->all( 'kicksdb' );
+            $row = $all[0] ?? null;
+        }
+        if ( ! $row ) {
+            return [ 'status' => 'skipped', 'reason' => 'no_kicksdb_config_saved' ];
+        }
+        $config = (array) $row['config'];
+
+        // Honor the global enabled toggle on the source-config. Same
+        // switch that gates the enricher + the discovery source — one
+        // place to disable everything KicksDB.
+        if ( ( $config['enabled'] ?? 'yes' ) === 'no' ) {
+            return [ 'status' => 'skipped', 'reason' => 'kicksdb_disabled' ];
+        }
+        $apiKey = (string) ( $config['api_key'] ?? '' );
+        if ( $apiKey === '' ) {
+            return [ 'status' => 'skipped', 'reason' => 'no_api_key' ];
+        }
+
+        $client = new \HiveSync\KicksDb\Client(
+            apiKey:  $apiKey,
+            baseUrl: (string) ( $config['base_url'] ?? 'https://api.kicks.dev/v3' ),
+            timeout: 30,
+        );
+        $markupCfg = (array) ( $config['markup'] ?? [] );
+        $markupCfg['vat_percent'] = (float) ( $config['vat_percent']
+            ?? $markupCfg['vat_percent']
+            ?? 22.0 );
+        $calc      = \HiveSync\KicksDb\MarkupCalculator::fromConfig( $markupCfg );
+        $cache     = new \HiveSync\Core\Repo\KicksDbCacheRepository();
+        $market    = (string) ( $config['market'] ?? 'IT' );
+        $refresher = new \HiveSync\KicksDb\PriceRefresher(
+            client: $client,
+            cache:  $cache,
+            calc:   $calc,
+            market: $market,
+        );
+
+        // Read max_per_tick from BOTH the root config and config.options
+        // — the seeded job nests it under config.options now (so the
+        // project.json exporter roundtrips correctly), but legacy or
+        // hand-built jobs may place it at the root.
+        $maxPerTick = max( 50, (int) (
+            $jobConfig['max_per_tick']
+            ?? ( $jobConfig['options']['max_per_tick'] ?? 500 )
+        ) );
+        $deadline   = time() + 25;
+
+        // Pass the real $jobId so the wp_hsync_runs row is linked
+        // back to its originating job — Storico tab + cockpit
+        // "last run" badge use this association.
+        $resolvedSlug = (string) ( $row['slug'] ?? $configSlug );
+        $runId = $this->runs->start( $jobId, 'kicksdb.refresh_prices', $resolvedSlug );
+        $result = $refresher->run( $maxPerTick, $deadline );
+
+        $status = (string) ( $result['status'] ?? 'done' );
+        $this->runs->finish( $runId, $status, $result );
+
+        return [
+            'status' => $status,
+            'run_id' => $runId,
+            'report' => $result,
         ];
     }
 

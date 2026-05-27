@@ -16,6 +16,7 @@ add_action( 'hive_sync/core_booted', function () {
     // Sources
     \HiveSync\Core\Bootstrap::$sources->register( new \HiveSync\Sources\JsonSource() );
     \HiveSync\Core\Bootstrap::$sources->register( new \HiveSync\Sources\CsvSource() );
+    \HiveSync\Core\Bootstrap::$sources->register( new \HiveSync\Sources\KicksDbSource() );
 
     // Operations (post-import)
     \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Status\SetStatus() );
@@ -28,6 +29,7 @@ add_action( 'hive_sync/core_booted', function () {
     \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Taxonomy\AutoCategorize() );
     \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Taxonomy\ResolveTaxonomy() );
     \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Pricing\MarkupPercent() );
+    \HiveSync\Core\Bootstrap::$operations->register( new \HiveSync\Operations\Enrichment\EnrichWithKicksDb() );
 
     // Checks (post-import — productId-scoped)
     \HiveSync\Core\Bootstrap::$checks->register( new \HiveSync\Checks\Media\HasImages() );

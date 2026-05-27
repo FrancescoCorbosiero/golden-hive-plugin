@@ -131,6 +131,22 @@ function hsync_migrate_schema(): void {
         KEY source_kind (source_kind)
     ) $charset;";
 
+    // Per-SKU cache for KicksDB API responses. (sku, market) is unique
+    // so different IT/US markets coexist; expires_at indexed for the
+    // periodic purge sweeper. Negative-cached misses live here too
+    // (payload = {"_miss": true}) with a shorter TTL.
+    $statements[] = "CREATE TABLE " . hsync_table( 'kicksdb_cache' ) . " (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        sku VARCHAR(190) NOT NULL,
+        market VARCHAR(8) NOT NULL DEFAULT 'IT',
+        payload LONGTEXT NOT NULL,
+        fetched_at DATETIME NOT NULL,
+        expires_at DATETIME NOT NULL,
+        PRIMARY KEY  (id),
+        UNIQUE KEY sku_market (sku, market),
+        KEY expires_at (expires_at)
+    ) $charset;";
+
     foreach ( $statements as $sql ) {
         dbDelta( $sql );
     }

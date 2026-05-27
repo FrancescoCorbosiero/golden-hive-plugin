@@ -3,7 +3,7 @@
  * Plugin Name:  Hive Sync
  * Plugin URI:   https://github.com/FrancescoCorbosiero/golden-hive-plugin
  * Description:  Stock sync — Woo product import/export with reusable mappings, rules, and scheduled jobs. Standalone; integrates with Golden Hive when present.
- * Version:      1.0.0
+ * Version:      1.1.0
  * Author:       Golden Hive
  * License:      Private
  * Requires PHP: 8.1
@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'HSYNC_VERSION', '1.0.0' );
+define( 'HSYNC_VERSION', '1.1.0' );
 define( 'HSYNC_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'HSYNC_URL',     plugin_dir_url( __FILE__ ) );
 define( 'HSYNC_FILE',    __FILE__ );

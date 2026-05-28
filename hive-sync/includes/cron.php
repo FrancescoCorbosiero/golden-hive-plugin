@@ -34,6 +34,22 @@ add_filter( 'cron_schedules', function ( $schedules ) {
 add_action( HSYNC_CRON_HOOK, 'hsync_run_tick' );
 
 function hsync_run_tick(): array {
+    // Cron tick gets the same headroom the AJAX path has. Without
+    // this, a scheduled import paying tick 1's one-shot fetch+
+    // transform+diff cost against a multi-thousand-row feed hits
+    // the default PHP max_execution_time (30s) or memory_limit
+    // (~256MB on most hosts) and dies with an uncatchable fatal —
+    // the cron's wp_hsync_runs row stays at status='running' and
+    // the cursor is never persisted, so the next 5-min tick starts
+    // from index 0 and dies the same way. Symptom: cron stuck on
+    // CONTINUE forever (no progress) or no usable run rows at all
+    // (fatal lands before finish() can record it). The AJAX path
+    // wires this via hsync_ajax_run_now; mirror it here so the
+    // scheduled path matches.
+    if ( function_exists( 'hsync_raise_limits' ) ) {
+        hsync_raise_limits();
+    }
+
     $runs = new \HiveSync\Core\Repo\RunRepository();
     $runner = new \HiveSync\Workflow\Schedule\JobRunner(
         new \HiveSync\Core\Repo\JobRepository(),

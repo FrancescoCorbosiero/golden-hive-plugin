@@ -262,14 +262,37 @@ final class StockOnlyClassifier
      */
     public static function split( array $update, ?Context $ctx = null ): array
     {
-        // Circuit breaker. The threshold is now high (50k) because
-        // classify() runs against pre-loaded scalar + variation
-        // snapshots — no per-item wc_get_product() hydration. The
-        // old default (500) was the practical ceiling of the
-        // hydration-based classifier; with batched lookups, tens of
-        // thousands of items classify in well under a second of CPU.
-        // Override via the filter for catalogs beyond that scale.
-        $threshold = (int) apply_filters( 'hive_sync/diff/stock_classifier_threshold', 50000 );
+        // Circuit breaker. Default 500 because in production this
+        // classifier blows the 25s tick budget for large catalogs:
+        // ParentScalarLookup pulls every parent's post_content
+        // (descriptions can be multi-KB on SF — Italian copy with
+        // HTML) and classify() runs wp_kses_post on BOTH sides per
+        // item to normalize the wp_filter_post_kses round-trip. That
+        // wp_kses_post pass is the per-item bottleneck — 10k items ×
+        // ~1ms each ≈ 10s+ just for normalization, before
+        // ParentScalarLookup's LEFT-JOIN-heavy SQL even runs. Cron
+        // (default PHP 30s timeout, ~256MB memory) dies during diff
+        // for catalogs that big; the import never advances past
+        // tick 1 (the symptom: cron stays in CONTINUE forever,
+        // sometimes leaves no usable run row at all because the
+        // fatal happens before finish() can record it).
+        //
+        // At the 500-item threshold the classifier short-circuits to
+        // all-full — large catalogs go straight through the full
+        // pipeline like they did before the 3-way diff fix. Slower
+        // (every existing SKU re-routes through the bridge), but
+        // KNOWN-GOOD: the bridge's gh_sf_update_product /
+        // rp_rc_gs_update_product paths are idempotent, so the
+        // re-syncs do no net harm. Smaller catalogs (≤500) still
+        // benefit from the 3-way classifier (unchanged / stock /
+        // full), which is the optimization's sweet spot anyway —
+        // that's where the wc_get_product hydration overhead used
+        // to bite.
+        //
+        // Operators with measurably fast normalization (object
+        // cache, smaller descriptions) can raise the threshold via
+        // the filter.
+        $threshold = (int) apply_filters( 'hive_sync/diff/stock_classifier_threshold', 500 );
         if ( $threshold > 0 && count( $update ) > $threshold ) {
             return [ array_values( array_filter( $update, fn( $i ) => $i instanceof FeedItem ) ), [], [] ];
         }

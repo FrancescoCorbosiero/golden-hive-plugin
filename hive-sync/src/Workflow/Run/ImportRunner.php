@@ -142,6 +142,19 @@ final class ImportRunner
         $fetchWarnings = [];
         $fetchedCount  = 0;
 
+        // Per-tick diagnostic. Surfaced in summary.tick_diagnostics so
+        // the operator can see WHY a tick stalled — cache hit vs miss,
+        // how long fetch+diff took, what start_index was honored, how
+        // many items the loop actually advanced. Without this the
+        // "ticks fire but 0%" symptom is opaque.
+        $tickDiag = [
+            'start_index'    => $startIndex,
+            'cursor_run_id'  => $cursorRunId,
+            'cache_status'   => $cached !== null ? 'hit' : 'miss',
+            'fetch_diff_ms'  => 0,
+        ];
+        $tickStartedAt = microtime( true );
+
         if ( $cached !== null ) {
             $fetchWarnings = $cached['warnings'];
             $fetchedCount  = $cached['fetched_count'];
@@ -173,8 +186,29 @@ final class ImportRunner
             $diff          = $source->diff( $items, $ctx );
             $fetchWarnings = $fetch->warnings;
             $fetchedCount  = count( $items );
-            RunCache::set( $runId, $fetchWarnings, $fetchedCount, $diff );
+            // Capture cache write outcome. A silent set_transient()
+            // failure is the prime suspect for "0% across N ticks":
+            // every tick re-runs fetch+diff (~20-25s on a 10k feed),
+            // burns the deadline before the loop body executes, yields
+            // at cursor.index=0, repeat forever. Surface the failure
+            // immediately so the next tick can mitigate (and so the
+            // operator can see what's happening).
+            $cacheOk = RunCache::set( $runId, $fetchWarnings, $fetchedCount, $diff );
+            $tickDiag['cache_write']  = RunCache::$lastSetResult;
+            $tickDiag['cache_status'] = $cacheOk ? 'miss-then-set' : 'miss-then-set-failed';
+            if ( ! $cacheOk ) {
+                // Surface as a fetchWarning so it bubbles into the run
+                // report and the JS warning strip — not silent.
+                $fetchWarnings[] = sprintf(
+                    'RunCache::set FAILED — payload %dKB compressed (%dKB serialized). '
+                    . 'Fetch+diff will repeat every tick and percentage stays at 0. '
+                    . 'Likely cause: wp_options max_allowed_packet or object-cache rejection.',
+                    (int) ( RunCache::$lastSetResult['compressed_kb'] ?? 0 ),
+                    (int) ( RunCache::$lastSetResult['serialized_kb'] ?? 0 ),
+                );
+            }
         }
+        $tickDiag['fetch_diff_ms'] = (int) round( ( microtime( true ) - $tickStartedAt ) * 1000 );
 
         // `unchanged` is reported as a top-level metric — items the diff
         // declared identical to the existing product, so they were never
@@ -383,6 +417,10 @@ final class ImportRunner
 
         for ( $i = $startIndex; $i < $total; $i++ ) {
             if ( $ctx->isOverDeadline() ) {
+                $tickDiag['loop_advanced'] = $i - $startIndex;
+                $tickDiag['end_index']     = $i;
+                $tickDiag['total']         = $total;
+                $summary['tick_diagnostics'] = $tickDiag;
                 $this->runs->progress( $runId, $total, $summary['created'] + $summary['updated'] + $summary['recreated'], $summary['failed'] );
                 $this->runs->finish( $runId, 'continue', [ 'summary' => $summary, 'cursor' => [ 'index' => $i ] ] );
                 return [
@@ -600,6 +638,10 @@ final class ImportRunner
             $rows[] = $rowTrace;
         }
 
+        $tickDiag['loop_advanced'] = $total - $startIndex;
+        $tickDiag['end_index']     = $total;
+        $tickDiag['total']         = $total;
+        $summary['tick_diagnostics'] = $tickDiag;
         $this->runs->progress( $runId, $total, $summary['created'] + $summary['updated'] + $summary['recreated'] + $summary['stock_patched'], $summary['failed'] );
         RunCache::clear( $runId );
         $this->runs->finish( $runId, 'done', [

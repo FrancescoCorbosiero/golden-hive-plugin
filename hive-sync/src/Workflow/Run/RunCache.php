@@ -61,9 +61,30 @@ final class RunCache
     /**
      * @param array<int, string> $warnings
      */
-    public static function set( int $runId, array $warnings, int $fetchedCount, Diff $diff ): void
+    /**
+     * Last set() outcome — surfaced by the runner so a silent
+     * set_transient() failure (transient too big for max_allowed_packet,
+     * autoload-quota DB hiccup, object-cache backend rejecting the
+     * write) doesn't masquerade as a clean re-fetch on the next tick.
+     *
+     * Without this the runner re-does fetch+diff every tick, trips the
+     * 25s deadline before the loop body executes, yields cursor.index=0
+     * forever — the "ticks fire, % stuck at 0" symptom.
+     *
+     * Shape: [
+     *   'ok'             => bool,       set_transient() return value
+     *   'compressed_kb'  => int,        compressed payload size
+     *   'serialized_kb'  => int,        pre-gzip size (debug)
+     * ]
+     */
+    public static array $lastSetResult = [ 'ok' => true, 'compressed_kb' => 0, 'serialized_kb' => 0 ];
+
+    /**
+     * @param array<int, string> $warnings
+     */
+    public static function set( int $runId, array $warnings, int $fetchedCount, Diff $diff ): bool
     {
-        if ( $runId <= 0 ) return;
+        if ( $runId <= 0 ) return false;
         $payload = [
             'warnings'      => $warnings,
             'fetched_count' => $fetchedCount,
@@ -71,8 +92,21 @@ final class RunCache
         ];
         $serialized = serialize( $payload );
         $compressed = @gzcompress( $serialized, 6 );
-        if ( $compressed === false ) return; // defensive: fall back to no-cache mode
-        \set_transient( self::KEY_PREFIX . $runId, $compressed, self::TTL_SECONDS );
+        if ( $compressed === false ) {
+            self::$lastSetResult = [
+                'ok'            => false,
+                'compressed_kb' => 0,
+                'serialized_kb' => (int) ( strlen( $serialized ) / 1024 ),
+            ];
+            return false;
+        }
+        $ok = (bool) \set_transient( self::KEY_PREFIX . $runId, $compressed, self::TTL_SECONDS );
+        self::$lastSetResult = [
+            'ok'            => $ok,
+            'compressed_kb' => (int) ( strlen( $compressed ) / 1024 ),
+            'serialized_kb' => (int) ( strlen( $serialized ) / 1024 ),
+        ];
+        return $ok;
     }
 
     public static function clear( int $runId ): void

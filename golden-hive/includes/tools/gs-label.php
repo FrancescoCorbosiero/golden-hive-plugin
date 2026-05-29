@@ -90,14 +90,73 @@ function gh_gs_label_preview( array $skus ): array {
 }
 
 /**
+ * Stamps 'goldensneakers' provenance on a product AND neutralizes the
+ * conflict-migration's default 'manual' source.
+ *
+ * Why neutralize 'manual': the backfill migration tags any product with no
+ * legacy _gh_import_source as 'manual'. If that 'manual' entry survives,
+ * the "Manual is sacred" rule (priority 10) blocks EVERY future write —
+ * so hive-sync would silently refuse to touch the product. For a SKU the
+ * operator asserts is GS, that 'manual' is a wrong default, so we drop it.
+ *
+ * Slices already owned by another real source (e.g. 'kicksdb' on
+ * catalog/media) are left untouched — only empty/'manual' slices flip to
+ * 'goldensneakers'. Idempotent.
+ */
+function gh_gs_label_stamp_provenance( int $pid ): void {
+    if ( ! function_exists( 'gh_conflict_get_sources' ) ) {
+        return; // conflict engine absent — legacy _gh_import_source is enough for filtering
+    }
+
+    $now = current_time( 'mysql' );
+
+    // 1) _gh_sources: drop 'manual', ensure 'goldensneakers' present.
+    $rows   = gh_conflict_get_sources( $pid );
+    $kept   = [];
+    $has_gs = false;
+    foreach ( $rows as $r ) {
+        $src = (string) ( $r['source'] ?? '' );
+        if ( $src === '' || $src === 'manual' ) continue; // drop migration default
+        if ( $src === GH_GS_LABEL_SOURCE ) {
+            $has_gs        = true;
+            $r['last_seen'] = $now;
+        }
+        $kept[] = $r;
+    }
+    if ( ! $has_gs ) {
+        $kept[] = [ 'source' => GH_GS_LABEL_SOURCE, 'first_seen' => $now, 'last_seen' => $now ];
+    }
+    update_post_meta( $pid, GH_CONFLICT_SOURCES_META, array_values( $kept ) );
+
+    // 2) _gh_primary_source: if empty or 'manual', make it goldensneakers.
+    $primary = (string) get_post_meta( $pid, GH_CONFLICT_PRIMARY_META, true );
+    if ( $primary === '' || $primary === 'manual' ) {
+        update_post_meta( $pid, GH_CONFLICT_PRIMARY_META, GH_GS_LABEL_SOURCE );
+    }
+
+    // 3) _gh_field_sources: flip empty/'manual' slices to goldensneakers,
+    //    leave slices owned by another real source alone.
+    $fields = function_exists( 'gh_conflict_get_field_sources' )
+        ? gh_conflict_get_field_sources( $pid )
+        : [];
+    foreach ( GH_CONFLICT_SLICES as $slice ) {
+        $owner = (string) ( $fields[ $slice ] ?? '' );
+        if ( $owner === '' || $owner === 'manual' ) {
+            $fields[ $slice ] = GH_GS_LABEL_SOURCE;
+        }
+    }
+    update_post_meta( $pid, GH_CONFLICT_FIELD_SOURCES_META, $fields );
+}
+
+/**
  * Apply labels: stamp provenance ('goldensneakers') + the super-sale tag
  * onto every existing product matched by the SKU list. Idempotent.
  *
  * - `_gh_import_source` set to 'goldensneakers' (legacy provenance meta;
  *   read by the `import_source` filter condition + the conflict migration).
- * - `gh_conflict_record_source()` records the source in `_gh_sources`,
- *   sets `_gh_primary_source` if empty, and fills slice ownership with
- *   merge_only=true so any existing (e.g. KicksDB-owned) slice is preserved.
+ * - `gh_gs_label_stamp_provenance()` records GS in `_gh_sources`, sets
+ *   `_gh_primary_source`, fills empty/'manual' slices, and drops the
+ *   migration's 'manual' default (which would otherwise block hive-sync).
  * - super-sale product tag appended (does not replace existing tags).
  *
  * No product field (name/price/stock/variations/media) is touched.
@@ -120,17 +179,7 @@ function gh_gs_label_apply( array $skus ): array {
 
         update_post_meta( $pid, '_gh_import_source', GH_GS_LABEL_SOURCE );
 
-        if ( function_exists( 'gh_conflict_record_source' ) ) {
-            // merge_only=true: record GS as a source and fill only the
-            // slices that have no owner yet — never yank a slice another
-            // source (KicksDB) already owns.
-            gh_conflict_record_source( $pid, GH_GS_LABEL_SOURCE, [
-                'catalog' => GH_GS_LABEL_SOURCE,
-                'pricing' => GH_GS_LABEL_SOURCE,
-                'stock'   => GH_GS_LABEL_SOURCE,
-                'media'   => GH_GS_LABEL_SOURCE,
-            ], true );
-        }
+        gh_gs_label_stamp_provenance( $pid );
 
         $res = wp_set_object_terms( $pid, [ GH_GS_LABEL_TAG_SLUG ], 'product_tag', true );
         if ( ! is_wp_error( $res ) ) $tagged++;

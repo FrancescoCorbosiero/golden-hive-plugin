@@ -177,6 +177,7 @@
         <div class="filter-sep"></div>
         <label style="font-family:var(--mono);font-size:10px;color:var(--dim);display:flex;align-items:center;gap:4px"><input type="checkbox" id="gs-opt-images" checked /> Sideload img</label>
         <label style="font-family:var(--mono);font-size:10px;color:var(--dim);display:flex;align-items:center;gap:4px"><input type="checkbox" id="gs-opt-draft" /> Bozza</label>
+        <label style="font-family:var(--mono);font-size:10px;color:var(--red);display:flex;align-items:center;gap:4px" title="Riscrive da zero ogni SKU del feed gia presente in Woo (anche gli invariati): azzera varianti, termini pa_*, _product_attributes e prezzo/stock aggregati, poi riapplica dal feed. Mantiene ID prodotto, permalink, recensioni e ordini. Seleziona automaticamente tutti i prodotti."><input type="checkbox" id="gs-opt-force" onchange="if(this.checked)GH.gsSelectAll()" /> &#9762; Forza ricreazione</label>
         <button class="btn btn-ghost" onclick="GH.gsCancel()">Annulla</button>
         <button class="btn btn-warn" id="btn-gs-apply" onclick="GH.gsApply()"><span class="spin" id="gs-apply-spin" style="display:none"></span> Importa</button>
         <button class="btn btn-ghost" id="btn-gs-quickpatch" onclick="GH.gsQuickPatch()" title="Aggiorna solo prezzi e stock"><span class="spin" id="gs-quickpatch-spin" style="display:none"></span> Quick Update</button>

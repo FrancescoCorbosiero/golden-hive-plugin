@@ -180,6 +180,7 @@ require_once GH_DIR . 'includes/email-lite/campaign-tool.php';
 
 // Tools
 require_once GH_DIR . 'includes/tools/nuclear-cleanup.php';
+require_once GH_DIR . 'includes/tools/gs-label.php';
 require_once GH_DIR . 'includes/tools/ajax.php';
 
 // Hive Sync host bridge — binds the Hive Sync host adapter contract to

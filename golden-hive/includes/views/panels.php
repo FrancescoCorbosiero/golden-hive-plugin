@@ -163,6 +163,22 @@
             <div class="gh-reimport-status" id="gs-reimport-status"></div>
         </div>
     </details>
+    <!-- Label existing GS products (provenance backfill — NOT an import) -->
+    <details class="gh-reimport-box">
+        <summary class="gh-reimport-head">
+            <span class="gh-reimport-caret">&#9656;</span>
+            <span class="gh-reimport-title">Etichetta prodotti GS esistenti</span>
+            <span class="gh-reimport-hint">incolla gli SKU GS &rarr; marca provenienza + tag &laquo;super-sale&raquo;. NON importa: non tocca nome/prezzo/stock/media.</span>
+        </summary>
+        <div class="gh-reimport-body">
+            <textarea class="cfg-input gh-reimport-skus" id="gs-label-skus" rows="4" placeholder="SKU GS separati da virgola o a capo&#10;es. 1178192-MDSD, DD1873-102"></textarea>
+            <div class="gh-reimport-opts">
+                <button class="btn btn-ghost" id="btn-gs-label-preview" onclick="GH.gsLabelPreview()"><span class="spin" id="gs-label-preview-spin" style="display:none"></span> Anteprima match</button>
+                <button class="btn btn-primary" id="btn-gs-label-apply" onclick="GH.gsLabelApply()"><span class="spin" id="gs-label-apply-spin" style="display:none"></span> &#9873; Etichetta</button>
+            </div>
+            <div class="gh-reimport-status" id="gs-label-status"></div>
+        </div>
+    </details>
     <div class="preview-wrap" id="gs-preview"><div class="empty-state"><div class="empty-icon">&#9733;</div><div class="empty-text">Configura l'endpoint Golden Sneakers</div></div></div>
     <div class="confirm-bar" id="gs-confirm" style="display:none">
         <div class="summary-text" id="gs-confirm-text"></div>

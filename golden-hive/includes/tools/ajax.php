@@ -143,3 +143,33 @@ add_action( 'wp_ajax_gh_ajax_nuclear_media_chunk', function () {
         'done'      => $remaining === 0,
     ] );
 } );
+
+// ── GS LABELING: preview (read-only SKU → product match) ──
+add_action( 'wp_ajax_gh_ajax_gs_label_preview', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $skus = gh_gs_label_parse_skus( stripslashes( $_POST['skus'] ?? '' ) );
+    if ( ! $skus ) { wp_send_json_error( 'Nessuno SKU fornito.' ); }
+
+    wp_send_json_success( gh_gs_label_preview( $skus ) );
+} );
+
+// ── GS LABELING: apply (stamp provenance + super-sale tag) ─
+// Pure labeling — never creates/updates/overwrites product data.
+add_action( 'wp_ajax_gh_ajax_gs_label_apply', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    @set_time_limit( 300 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'admin' );
+
+    $skus = gh_gs_label_parse_skus( stripslashes( $_POST['skus'] ?? '' ) );
+    if ( ! $skus ) { wp_send_json_error( 'Nessuno SKU fornito.' ); }
+
+    try {
+        wp_send_json_success( gh_gs_label_apply( $skus ) );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Labeling fallito: ' . $e->getMessage() );
+    }
+} );

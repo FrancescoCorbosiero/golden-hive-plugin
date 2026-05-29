@@ -165,6 +165,7 @@ function gh_jobs_handler_gs_feed( array $job, array $context ): array {
         'create_new'      => (bool) ( $p['create_new']      ?? true ),
         'update_existing' => (bool) ( $p['update_existing'] ?? true ),
         'sideload_images' => (bool) ( $p['sideload_images'] ?? false ),
+        'force_recreate'  => (bool) ( $p['force_recreate']  ?? false ),
     ];
 
     $result = rp_rc_gs_apply( $diff, $options );

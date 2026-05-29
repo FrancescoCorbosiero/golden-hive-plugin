@@ -387,6 +387,11 @@ function rp_rc_gs_detect_changes( WC_Product $existing, array $new_data ): array
  *   'create_new'      => bool (default: true),
  *   'update_existing'  => bool (default: true),
  *   'sideload_images' => bool (default: true),
+ *   'force_recreate'  => bool (default: false) — wipe-and-rewrite every
+ *                        existing feed SKU in place (keeps product ID,
+ *                        permalink, reviews, orders; resets variations,
+ *                        pa_* terms, _product_attributes and aggregated
+ *                        price/stock so feed drift can't survive),
  * ]
  * @return array Risultato con details per ogni prodotto.
  */
@@ -395,6 +400,7 @@ function rp_rc_gs_apply( array $diff, array $options = [] ): array {
     $create_new      = $options['create_new'] ?? true;
     $update_existing = $options['update_existing'] ?? true;
     $sideload        = $options['sideload_images'] ?? true;
+    $force_recreate  = ! empty( $options['force_recreate'] );
 
     $results = [];
 
@@ -405,22 +411,40 @@ function rp_rc_gs_apply( array $diff, array $options = [] ): array {
         ) );
     }
 
-    if ( $update_existing && ! empty( $diff['update'] ) ) {
-        $results = array_merge( $results, gh_fc_batch_with_retry(
-            $diff['update'],
-            fn( $p ) => rp_rc_gs_update_product( $p )
-        ) );
+    if ( $update_existing ) {
+        if ( $force_recreate ) {
+            // Force-recreate targets EVERY existing feed SKU — including
+            // ones the diff classified as "unchanged" — because its job
+            // is to wipe drift that detect_changes() can't see: orphaned
+            // variations, the "Qualsiasi Taglia" attribute desync, stale
+            // aggregated price/stock meta. A plain update only touches
+            // detected changes, so it would leave that drift in place.
+            $targets = array_merge( $diff['update'] ?? [], $diff['unchanged'] ?? [] );
+            if ( $targets ) {
+                $results = array_merge( $results, gh_fc_batch_with_retry(
+                    $targets,
+                    fn( $p ) => rp_rc_gs_force_recreate_product( $p, $sideload )
+                ) );
+            }
+        } elseif ( ! empty( $diff['update'] ) ) {
+            $results = array_merge( $results, gh_fc_batch_with_retry(
+                $diff['update'],
+                fn( $p ) => rp_rc_gs_update_product( $p )
+            ) );
+        }
     }
 
-    $created = count( array_filter( $results, fn( $r ) => $r['action'] === 'created' ) );
-    $updated = count( array_filter( $results, fn( $r ) => $r['action'] === 'updated' ) );
-    $errors  = count( array_filter( $results, fn( $r ) => $r['action'] === 'error' ) );
+    $created   = count( array_filter( $results, fn( $r ) => $r['action'] === 'created' ) );
+    $updated   = count( array_filter( $results, fn( $r ) => $r['action'] === 'updated' ) );
+    $recreated = count( array_filter( $results, fn( $r ) => $r['action'] === 'recreated' ) );
+    $errors    = count( array_filter( $results, fn( $r ) => $r['action'] === 'error' ) );
 
     return [
         'summary' => [
-            'created' => $created,
-            'updated' => $updated,
-            'errors'  => $errors,
+            'created'   => $created,
+            'updated'   => $updated,
+            'recreated' => $recreated,
+            'errors'    => $errors,
         ],
         'details' => $results,
     ];

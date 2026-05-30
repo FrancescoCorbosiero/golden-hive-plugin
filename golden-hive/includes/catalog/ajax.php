@@ -33,6 +33,12 @@ add_action( 'wp_ajax_rp_cm_ajax_import_preview', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
+    // L'import viene inviato a chunk dal client (vedi rtRunChunked in js2.php),
+    // ma ogni batch tocca comunque decine di prodotti+varianti: alza i limiti
+    // cosi un batch non muore a meta lasciando il client senza JSON.
+    @set_time_limit( 300 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'admin' );
+
     $raw  = stripslashes( $_POST['json_payload'] ?? '{}' );
     $data = json_decode( $raw, true );
 
@@ -45,8 +51,14 @@ add_action( 'wp_ajax_rp_cm_ajax_import_preview', function () {
         wp_send_json_error( $valid->get_error_message() );
     }
 
-    $mode   = sanitize_text_field( $_POST['mode'] ?? 'update_only' );
-    $result = rp_cm_import_preview( $data, $mode );
+    $mode = sanitize_text_field( $_POST['mode'] ?? 'update_only' );
+
+    try {
+        $result = rp_cm_import_preview( $data, $mode );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Anteprima fallita: ' . $e->getMessage() );
+    }
+
     wp_send_json_success( $result );
 } );
 
@@ -55,6 +67,9 @@ add_action( 'wp_ajax_rp_cm_ajax_import_apply', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
+    @set_time_limit( 300 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'admin' );
+
     $raw  = stripslashes( $_POST['json_payload'] ?? '{}' );
     $data = json_decode( $raw, true );
 
@@ -67,8 +82,14 @@ add_action( 'wp_ajax_rp_cm_ajax_import_apply', function () {
         wp_send_json_error( $valid->get_error_message() );
     }
 
-    $mode   = sanitize_text_field( $_POST['mode'] ?? 'update_only' );
-    $result = rp_cm_import_apply( $data, $mode );
+    $mode = sanitize_text_field( $_POST['mode'] ?? 'update_only' );
+
+    try {
+        $result = rp_cm_import_apply( $data, $mode );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Import fallito: ' . $e->getMessage() );
+    }
+
     wp_send_json_success( $result );
 } );
 
@@ -85,6 +106,9 @@ add_action( 'wp_ajax_rp_cm_ajax_bulk_preview', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
+    @set_time_limit( 300 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'admin' );
+
     $raw  = stripslashes( $_POST['json_payload'] ?? '{}' );
     $data = json_decode( $raw, true );
 
@@ -97,8 +121,14 @@ add_action( 'wp_ajax_rp_cm_ajax_bulk_preview', function () {
         wp_send_json_error( $data->get_error_message() );
     }
 
-    $mode   = sanitize_text_field( $_POST['mode'] ?? 'create' );
-    $result = rp_cm_bulk_preview( $data, $mode );
+    $mode = sanitize_text_field( $_POST['mode'] ?? 'create' );
+
+    try {
+        $result = rp_cm_bulk_preview( $data, $mode );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Anteprima fallita: ' . $e->getMessage() );
+    }
+
     wp_send_json_success( $result );
 } );
 
@@ -107,6 +137,9 @@ add_action( 'wp_ajax_rp_cm_ajax_bulk_apply', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );
     if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
 
+    @set_time_limit( 300 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'admin' );
+
     $raw  = stripslashes( $_POST['json_payload'] ?? '{}' );
     $data = json_decode( $raw, true );
 
@@ -119,8 +152,14 @@ add_action( 'wp_ajax_rp_cm_ajax_bulk_apply', function () {
         wp_send_json_error( $data->get_error_message() );
     }
 
-    $mode   = sanitize_text_field( $_POST['mode'] ?? 'create' );
-    $result = rp_cm_bulk_apply( $data, $mode );
+    $mode = sanitize_text_field( $_POST['mode'] ?? 'create' );
+
+    try {
+        $result = rp_cm_bulk_apply( $data, $mode );
+    } catch ( \Throwable $e ) {
+        wp_send_json_error( 'Import fallito: ' . $e->getMessage() );
+    }
+
     wp_send_json_success( $result );
 } );
 

@@ -46,14 +46,25 @@ add_filter( 'hive_sync/host/taxonomy/resolve', function ( $term_id, string $taxo
     $by_name = get_term_by( 'name', $name, $taxonomy );
     if ( $by_name instanceof WP_Term ) return (int) $by_name->term_id;
 
-    if ( function_exists( 'rp_cm_create_category' ) ) {
+    // Create the missing term. IMPORTANT: only delegate to
+    // rp_cm_create_category() for the hierarchical catalog taxonomies it
+    // actually supports. That helper runs its $taxonomy argument through
+    // rp_cm_normalize_taxonomy(), which silently coerces ANYTHING that
+    // isn't product_cat/product_brand down to product_cat. Routing an
+    // attribute taxonomy (e.g. pa_model, whose value here is the full
+    // product name) through it would therefore mint a bogus product_cat
+    // term per product — 1:1 empty "model" categories that pollute the
+    // category widgets. Attribute (pa_*) and tag terms must be inserted
+    // into their real taxonomy instead.
+    $is_catalog_tax = in_array( $taxonomy, [ 'product_cat', 'product_brand' ], true );
+    if ( $is_catalog_tax && function_exists( 'rp_cm_create_category' ) ) {
         $created = rp_cm_create_category( $name, 0, $slug, $taxonomy );
-        if ( is_int( $created ) && $created > 0 ) return $created;
-    } else {
-        $inserted = wp_insert_term( $name, $taxonomy, [ 'slug' => $slug ] );
-        if ( is_array( $inserted ) && ! empty( $inserted['term_id'] ) ) {
-            return (int) $inserted['term_id'];
-        }
+        return ( is_int( $created ) && $created > 0 ) ? $created : null;
+    }
+
+    $inserted = wp_insert_term( $name, $taxonomy, $slug !== '' ? [ 'slug' => $slug ] : [] );
+    if ( is_array( $inserted ) && ! empty( $inserted['term_id'] ) ) {
+        return (int) $inserted['term_id'];
     }
 
     return null;

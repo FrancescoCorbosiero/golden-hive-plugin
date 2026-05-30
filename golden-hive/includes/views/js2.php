@@ -126,8 +126,64 @@
     // ── ROUNDTRIP IMPORT
     function initRtImport(){const drop=document.getElementById('rt-drop'),inp=document.getElementById('rt-file-input');inp.addEventListener('change',()=>{if(inp.files.length)handleRtFile(inp.files[0])});drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('dragover')});drop.addEventListener('dragleave',()=>drop.classList.remove('dragover'));drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('dragover');if(e.dataTransfer.files.length)handleRtFile(e.dataTransfer.files[0])})}
     function handleRtFile(f){if(!f.name.endsWith('.json')){toast('Solo .json','err');return}const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(d.format!=='rp_cm_roundtrip'){toast('Formato non valido','err');return}state.importJSON=d;document.getElementById('rt-file-name').textContent=f.name+' \u00b7 '+(d.product_count||d.products?.length||0)+' prodotti';document.getElementById('rt-mode-row').style.display='flex';document.getElementById('rt-preview-area').innerHTML='';document.getElementById('rt-confirm-bar').style.display='none';toast('File caricato','inf')}catch(e){toast('JSON non valido','err')}};r.readAsText(f)}
-    async function importPreview(){if(!state.importJSON)return;const btn=document.getElementById('btn-rt-preview'),sp=document.getElementById('preview-spin');btn.disabled=true;sp.style.display='';try{const m=document.querySelector('input[name="import-mode"]:checked').value;const r=await ajax('rp_cm_ajax_import_preview',{json_payload:JSON.stringify(state.importJSON),mode:m});if(!r.success){toast('Errore: '+r.data,'err');return}const s=r.data.summary,a=document.getElementById('rt-preview-area');let h='<table class="ptable"><thead><tr><th>Stato</th><th>ID</th><th>SKU</th><th>Nome</th><th>Modifiche</th></tr></thead><tbody>';for(const d of r.data.details){const c=d.status==='matched'?'st-matched':d.status==='would_create'?'st-create':'st-skipped';const l=d.status==='matched'?(d.changes.length?'\u2713 mod':'\u2713 ok'):d.status==='would_create'?'+ nuovo':'\u2013 skip';const ch=d.changes?.map(c=>c.field).join(', ')||(d.reason||'');h+='<tr><td class="'+c+'">'+l+'</td><td>'+(d.id||'\u2013')+'</td><td>'+esc(d.sku||'')+'</td><td>'+esc(d.name||'')+'</td><td><span class="changes-list">'+esc(ch)+'</span></td></tr>'}h+='</tbody></table>';a.innerHTML=h;if(s.with_changes>0||s.would_create>0){let msg='<span>'+s.with_changes+'</span> da aggiornare';if(s.would_create)msg+=', <span>'+s.would_create+'</span> nuovi';document.getElementById('rt-confirm-text').innerHTML=msg;document.getElementById('rt-confirm-bar').style.display='flex'}else{toast('Nessuna modifica','inf')}}catch(e){toast('Errore','err')}finally{btn.disabled=false;sp.style.display='none'}}
-    async function importApply(){if(!state.importJSON)return;const ov=document.getElementById('rt-overlay'),ot=document.getElementById('rt-overlay-text'),btn=document.getElementById('btn-rt-apply'),sp=document.getElementById('apply-spin');ot.textContent='Applicazione...';ov.classList.add('visible');btn.disabled=true;sp.style.display='';try{const m=document.querySelector('input[name="import-mode"]:checked').value;const r=await ajax('rp_cm_ajax_import_apply',{json_payload:JSON.stringify(state.importJSON),mode:m});if(!r.success){toast('Errore','err');return}const s=r.data.summary,a=document.getElementById('rt-preview-area');let h='<table class="ptable"><thead><tr><th>Risultato</th><th>ID</th><th>SKU</th><th>Nome</th></tr></thead><tbody>';for(const d of r.data.details){const c=d.status==='updated'?'st-updated':d.status==='created'?'st-created':d.status==='error'?'st-error':'st-skipped';h+='<tr><td class="'+c+'">'+esc(d.status)+'</td><td>'+(d.id||'\u2013')+'</td><td>'+esc(d.sku||'')+'</td><td>'+esc(d.name||'')+'</td></tr>'}h+='</tbody></table>';a.innerHTML=h;document.getElementById('rt-confirm-bar').style.display='none';toast(s.updated+' aggiornati','ok',5000)}catch(e){toast('Errore','err')}finally{ov.classList.remove('visible');btn.disabled=false;sp.style.display='none'}}
+    // Invia i prodotti del roundtrip a chunk (50/batch) invece di un unico
+    // payload da 15MB. Un singolo request che processa 1600+ prodotti +
+    // migliaia di varianti supera il timeout PHP/FastCGI e moriva con un 500
+    // non-JSON dopo ~1h (sintomo: "Error" senza spiegazioni). Ogni batch e
+    // una richiesta breve; uniamo summary (somma dei contatori) e details.
+    const RT_BATCH = 50;
+    async function rtRunChunked(action, mode, onProgress){
+        const all = state.importJSON.products || [];
+        const total = all.length;
+        const merged = { summary:{}, details:[] };
+        for (let i = 0; i < total; i += RT_BATCH) {
+            const slice = all.slice(i, i + RT_BATCH);
+            const payload = { format:'rp_cm_roundtrip', version:1, products:slice };
+            const r = await ajax(action, { json_payload: JSON.stringify(payload), mode });
+            if (!r.success) {
+                const detail = (typeof r.data === 'string' && r.data) ? r.data : 'errore sconosciuto';
+                throw new Error('batch ' + (Math.floor(i / RT_BATCH) + 1) + ' (prodotti ' + (i + 1) + '\u2013' + Math.min(i + RT_BATCH, total) + '): ' + detail);
+            }
+            const s = r.data.summary || {};
+            for (const k in s) { if (typeof s[k] === 'number') merged.summary[k] = (merged.summary[k] || 0) + s[k]; }
+            if (Array.isArray(r.data.details)) merged.details.push(...r.data.details);
+            if (onProgress) onProgress(Math.min(i + RT_BATCH, total), total);
+        }
+        return merged;
+    }
+    async function importPreview(){
+        if(!state.importJSON)return;
+        const btn=document.getElementById('btn-rt-preview'),sp=document.getElementById('preview-spin');
+        const ov=document.getElementById('rt-overlay'),ot=document.getElementById('rt-overlay-text');
+        btn.disabled=true;sp.style.display='';ot.textContent='Anteprima...';ov.classList.add('visible');
+        try{
+            const m=document.querySelector('input[name="import-mode"]:checked').value;
+            const data=await rtRunChunked('rp_cm_ajax_import_preview',m,(done,total)=>{ot.textContent='Anteprima '+done+' / '+total+'...';});
+            const s=data.summary,a=document.getElementById('rt-preview-area');
+            let h='<table class="ptable"><thead><tr><th>Stato</th><th>ID</th><th>SKU</th><th>Nome</th><th>Modifiche</th></tr></thead><tbody>';
+            for(const d of data.details){const c=d.status==='matched'?'st-matched':d.status==='would_create'?'st-create':'st-skipped';const l=d.status==='matched'?(d.changes.length?'\u2713 mod':'\u2713 ok'):d.status==='would_create'?'+ nuovo':'\u2013 skip';const ch=d.changes?.map(c=>c.field).join(', ')||(d.reason||'');h+='<tr><td class="'+c+'">'+l+'</td><td>'+(d.id||'\u2013')+'</td><td>'+esc(d.sku||'')+'</td><td>'+esc(d.name||'')+'</td><td><span class="changes-list">'+esc(ch)+'</span></td></tr>'}
+            h+='</tbody></table>';a.innerHTML=h;
+            if((s.with_changes||0)>0||(s.would_create||0)>0){let msg='<span>'+(s.with_changes||0)+'</span> da aggiornare';if(s.would_create)msg+=', <span>'+s.would_create+'</span> nuovi';document.getElementById('rt-confirm-text').innerHTML=msg;document.getElementById('rt-confirm-bar').style.display='flex'}else{toast('Nessuna modifica','inf')}
+        }catch(e){toast('Errore anteprima: '+(e.message||e),'err',0)}
+        finally{ov.classList.remove('visible');btn.disabled=false;sp.style.display='none'}
+    }
+    async function importApply(){
+        if(!state.importJSON)return;
+        const ov=document.getElementById('rt-overlay'),ot=document.getElementById('rt-overlay-text'),btn=document.getElementById('btn-rt-apply'),sp=document.getElementById('apply-spin');
+        ot.textContent='Applicazione...';ov.classList.add('visible');btn.disabled=true;sp.style.display='';
+        await acquireWakeLock();
+        try{
+            const m=document.querySelector('input[name="import-mode"]:checked').value;
+            const data=await rtRunChunked('rp_cm_ajax_import_apply',m,(done,total)=>{ot.textContent='Applicazione '+done+' / '+total+'...';});
+            const s=data.summary,a=document.getElementById('rt-preview-area');
+            let h='<table class="ptable"><thead><tr><th>Risultato</th><th>ID</th><th>SKU</th><th>Nome</th></tr></thead><tbody>';
+            for(const d of data.details){const c=d.status==='updated'?'st-updated':d.status==='created'?'st-created':d.status==='error'?'st-error':'st-skipped';h+='<tr><td class="'+c+'">'+esc(d.status)+'</td><td>'+(d.id||'\u2013')+'</td><td>'+esc(d.sku||'')+'</td><td>'+esc(d.name||'')+'</td></tr>'}
+            h+='</tbody></table>';a.innerHTML=h;document.getElementById('rt-confirm-bar').style.display='none';
+            const parts=[];if(s.updated)parts.push(s.updated+' aggiornati');if(s.created)parts.push(s.created+' creati');if(s.skipped)parts.push(s.skipped+' saltati');if(s.errors)parts.push(s.errors+' errori');
+            toast(parts.length?parts.join(', '):'Nessuna modifica',s.errors?'err':'ok',5000)
+        }catch(e){toast('Errore import: '+(e.message||e),'err',0)}
+        finally{releaseWakeLock();ov.classList.remove('visible');btn.disabled=false;sp.style.display='none'}
+    }
     function importCancel(){document.getElementById('rt-confirm-bar').style.display='none';document.getElementById('rt-preview-area').innerHTML=''}
 
     // ── COPY / DOWNLOAD JSON (solo roundtrip — il catalog export e stato rimosso)

@@ -16,6 +16,28 @@ const RP_RC_GS_FAKE_PRICE_MULTIPLIER = 1.3;
 const RP_RC_GS_TAG_SLUG              = 'super-sale';
 const RP_RC_GS_TAG_NAME              = 'Super Sale';
 
+/**
+ * Canonical size key for matching a GS feed size against an existing
+ * variation's pa_taglia, regardless of separator convention.
+ *
+ * The catalog carries the same physical EU size written several ways:
+ * KicksDB/manual/roundtrip store the term slug "44-5", GS ships "44.5",
+ * fraction sizes appear as "40-2-3" / "40 2/3". Collapsing every
+ * separator maps them all to one key ("445", "4023") so GS UPDATES the
+ * existing variation for a size instead of creating a duplicate with a
+ * conflicting price (the `-EU{size}` SKU never matches the canonical SKU).
+ *
+ * Safe for EU sneaker sizes: decimals are always X.5 → "XX5" (3 digits),
+ * which never collides with an integer "XX" (2 digits). Apparel letters
+ * (S/M/L) pass through lowercased.
+ */
+function gh_gs_size_key( string $size ): string {
+    $s = strtolower( trim( $size ) );
+    if ( $s === '' ) return '';
+    return (string) preg_replace( '/[\s._\-\/]+/', '', $s );
+}
+
+
 // ── Fetch ───────────────────────────────────────────────────
 
 /**
@@ -598,16 +620,43 @@ function rp_rc_gs_update_product( array $data ): array {
 
         // Aggiorna varianti
         if ( $product->is_type( 'variable' ) && ! empty( $data['variations'] ) ) {
-            $seen_skus = [];
-            foreach ( $data['variations'] as $var_data ) {
-                $var_sku = $var_data['sku'] ?? '';
-                if ( ! $var_sku ) continue;
-                $seen_skus[ $var_sku ] = true;
+            // Index existing children by SKU AND by normalized size. GS
+            // ships its own SKU scheme (`{sku}-EU{size}`) which never
+            // matches a canonical/KicksDB variation SKU (`{sku}-{size}`),
+            // so the old SKU-only lookup created a DUPLICATE variation for
+            // a size that already existed — two variations, two prices,
+            // which is what Google Merchant flags as a price mismatch.
+            // Matching by normalized size lets GS update the existing
+            // variation instead. Variations GS writes are tagged
+            // `_gh_gs_owned` so the retire-missing pass below only ever
+            // touches GS's own sizes, never KicksDB-owned ones.
+            $gs_by_sku   = [];
+            $gs_by_size  = [];
+            $gs_owned_ct = 0;
+            foreach ( $product->get_children() as $gs_cid ) {
+                $gs_cv = wc_get_product( (int) $gs_cid );
+                if ( ! $gs_cv || ! $gs_cv->is_type( 'variation' ) ) continue;
+                $gs_csku = (string) $gs_cv->get_sku();
+                if ( $gs_csku !== '' ) $gs_by_sku[ $gs_csku ] = (int) $gs_cid;
+                $gs_ck = gh_gs_size_key( (string) ( $gs_cv->get_attributes()['pa_taglia'] ?? '' ) );
+                if ( $gs_ck !== '' && ! isset( $gs_by_size[ $gs_ck ] ) ) $gs_by_size[ $gs_ck ] = (int) $gs_cid;
+                if ( get_post_meta( (int) $gs_cid, '_gh_gs_owned', true ) === '1' ) $gs_owned_ct++;
+            }
 
-                $var_id = wc_get_product_id_by_sku( $var_sku );
+            $seen_ids = [];
+            foreach ( $data['variations'] as $var_data ) {
+                $var_sku  = (string) ( $var_data['sku'] ?? '' );
+                $var_size = gh_gs_size_key( (string) ( $var_data['attributes']['pa_taglia'] ?? '' ) );
+
+                $var_id = 0;
+                if ( $var_sku !== '' && isset( $gs_by_sku[ $var_sku ] ) )        $var_id = $gs_by_sku[ $var_sku ];
+                elseif ( $var_size !== '' && isset( $gs_by_size[ $var_size ] ) )  $var_id = $gs_by_size[ $var_size ];
+
                 if ( $var_id ) {
                     $v = wc_get_product( $var_id );
                     if ( $v && $v->is_type( 'variation' ) ) {
+                        // GS owns price + stock only. NEVER touch the
+                        // variation's attributes/term (KicksDB owns catalog).
                         if ( isset( $var_data['regular_price'] ) ) $v->set_regular_price( $var_data['regular_price'] );
                         if ( isset( $var_data['sale_price'] ) )    $v->set_sale_price( $var_data['sale_price'] );
                         if ( isset( $var_data['stock_quantity'] ) ) {
@@ -616,6 +665,8 @@ function rp_rc_gs_update_product( array $data ): array {
                             $v->set_stock_status( (int) $var_data['stock_quantity'] > 0 ? 'instock' : 'outofstock' );
                         }
                         $v->save();
+                        update_post_meta( $var_id, '_gh_gs_owned', '1' );
+                        $seen_ids[ $var_id ] = true;
                     }
                 } else {
                     // Nuova taglia nel feed → crea la variante.
@@ -635,7 +686,11 @@ function rp_rc_gs_update_product( array $data ): array {
                     // identico a quanto succede al primo import.
                     // Mirrors SF's bridge (feed-stockfirmati:459).
                     if ( function_exists( 'gh_create_variation' ) ) {
-                        gh_create_variation( $product_id, $var_data );
+                        $gs_new_id = (int) gh_create_variation( $product_id, $var_data );
+                        if ( $gs_new_id ) {
+                            update_post_meta( $gs_new_id, '_gh_gs_owned', '1' );
+                            $seen_ids[ $gs_new_id ] = true;
+                        }
                     }
                 }
             }
@@ -657,11 +712,20 @@ function rp_rc_gs_update_product( array $data ): array {
             // Idempotente: una variante già a qty=0+OOS viene
             // shortcircuited senza save() inutile (evita le ~5 query
             // per variante che il WC data-store fa anche per no-op).
+            // Retire ONLY GS-owned sizes that vanished from the GS feed —
+            // never KicksDB-owned sizes (GS has no say over those). A
+            // legacy GS-only product whose variations predate the
+            // `_gh_gs_owned` marker has $gs_owned_ct === 0; if it isn't a
+            // KicksDB product we fall back to the historical "zero any
+            // unseen size" so dropped sizes still retire.
+            $gs_only_legacy = ( $gs_owned_ct === 0 && get_post_meta( $product_id, '_gh_kicksdb_id', true ) === '' );
             foreach ( $product->get_children() as $existing_var_id ) {
-                $existing_var = wc_get_product( (int) $existing_var_id );
+                $existing_var_id = (int) $existing_var_id;
+                if ( isset( $seen_ids[ $existing_var_id ] ) ) continue;
+                $existing_var = wc_get_product( $existing_var_id );
                 if ( ! $existing_var || ! $existing_var->is_type( 'variation' ) ) continue;
-                $existing_sku = (string) $existing_var->get_sku();
-                if ( $existing_sku === '' || isset( $seen_skus[ $existing_sku ] ) ) continue;
+                $gs_is_owned = get_post_meta( $existing_var_id, '_gh_gs_owned', true ) === '1';
+                if ( ! $gs_is_owned && ! $gs_only_legacy ) continue;
                 // Already zeroed? No write needed.
                 $cur_qty    = $existing_var->get_stock_quantity();
                 $cur_status = (string) $existing_var->get_stock_status();
@@ -678,6 +742,24 @@ function rp_rc_gs_update_product( array $data ): array {
             if ( function_exists( 'gh_fix_variable_stock_status' ) ) {
                 gh_fix_variable_stock_status( $product_id );
             }
+        }
+
+        // Record GS provenance for the PRICING + STOCK slices on update too
+        // (the create path already does this). This adds 'goldensneakers'
+        // to the product's sources so the conflict engine's default rule
+        // ("GS owns pricing+stock, KicksDB owns catalog+media") fires on
+        // the next KicksDB sync — otherwise KicksDB could re-overwrite the
+        // GS prices we just set on a KicksDB-originated product, re-creating
+        // the misalignment. Deliberately does NOT claim catalog/media:
+        // KicksDB stays the owner of name/description/attributes/images.
+        // Uses gh_conflict_record_source (which ACCUMULATES into _gh_sources)
+        // rather than touching the legacy single-value _gh_import_source,
+        // so a KicksDB product keeps its original source label.
+        if ( function_exists( 'gh_conflict_record_source' ) ) {
+            gh_conflict_record_source( $product_id, 'goldensneakers', [
+                'pricing' => 'goldensneakers',
+                'stock'   => 'goldensneakers',
+            ] );
         }
 
         return [

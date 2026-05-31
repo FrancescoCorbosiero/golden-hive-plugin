@@ -110,6 +110,12 @@ final class JsonSource extends AbstractSource
                 'default' => [],
                 'description' => 'Sovrascrivi il markup di fallback per sottoinsiemi del catalogo. Esempio: brand "Nike" → 40%, categoria "abbigliamento" → 20%. Le regole sono valutate dall\'alto verso il basso, prima match vince. Campi tipici: per GS `_gs_brand` / `_gs_category`, per SF `_sf_brand` / `_sf_category` / `_sf_subcategory`. Idempotente come il fallback.',
             ],
+            'vat_percent' => [
+                'type'    => 'int',
+                'label'   => 'IVA % (solo feed Golden Sneakers)',
+                'default' => 22,
+                'description' => 'IVA aggiunta al prezzo GS DOPO il markup, per allineare i prezzi a quelli IVA-inclusi del resto del catalogo (es. KicksDB applica già la stessa IVA, per questo i suoi prodotti sono corretti su Google Merchant). Il feed GS fornisce prezzi al NETTO dell\'IVA: con 22 il prezzo Woo finale = presented_price × markup × 1,22. Imposta 0 SOLO se il tuo endpoint GS restituisce già prezzi IVA-inclusi. Vuoto = 22 (default sicuro). Si applica solo al flavor "Golden Sneakers".',
+            ],
         ];
     }
 
@@ -189,8 +195,21 @@ final class JsonSource extends AbstractSource
         $markupFallbackPct = (float) ($cfg['markup_percent'] ?? 0);
         $markupRules       = MarkupResolver::normalize($cfg['markup_rules'] ?? []);
 
+        // VAT: the GS feed ships prices NET of VAT, while the rest of the
+        // catalog (KicksDB / manual) stores VAT-inclusive prices — so GS
+        // products were landing ~22% low on Google Merchant. Apply the
+        // configured VAT AFTER markup to align them. Empty/missing config
+        // defaults to 22% (validateConfig coerces an unset int field to ''
+        // → (float)'' would be 0, which would silently disable VAT for
+        // pre-existing configs, so we treat ''/null as the 22 default and
+        // only honor an EXPLICIT 0). Only the GS flavor gets this — the
+        // generic flavor's price is operator-mapped and may already be gross.
+        $vatRaw     = $cfg['vat_percent'] ?? '';
+        $vatPercent = ( $vatRaw === '' || $vatRaw === null ) ? 22.0 : (float) $vatRaw;
+        $vatFactor  = $vatPercent > 0 ? ( 1 + $vatPercent / 100 ) : 1.0;
+
         $items = $flavor === self::FLAVOR_GS
-            ? self::aggregateFlatRows($rawRows, $importStatus, $markupRules, $markupFallbackPct)
+            ? self::aggregateFlatRows($rawRows, $importStatus, $markupRules, $markupFallbackPct, $vatFactor)
             : self::wrapRows($rawRows, $importStatus, $markupRules, $markupFallbackPct);
 
         // Apply the user's mapping (if any) AFTER fetch. OVERLAY
@@ -285,7 +304,7 @@ final class JsonSource extends AbstractSource
      * @param array<int, array<string, mixed>> $rows
      * @return FeedItem[]
      */
-    private static function aggregateFlatRows(array $rows, string $importStatus = 'publish', array $markupRules = [], float $markupFallbackPct = 0.0): array
+    private static function aggregateFlatRows(array $rows, string $importStatus = 'publish', array $markupRules = [], float $markupFallbackPct = 0.0, float $vatFactor = 1.0): array
     {
         $bySku = [];
         foreach ($rows as $r) {
@@ -336,7 +355,10 @@ final class JsonSource extends AbstractSource
             // Resolve markup against the bridgeProduct (carries
             // _gs_brand, _gs_category, ...) so rules can target GS
             // taxonomy without tunneling. Per-product, evaluated once.
-            $multiplier = MarkupResolver::multiplierFor($bridgeProduct, $markupRules, $markupFallbackPct);
+            // VAT is folded into the same multiplier so every downstream
+            // path (new / update / fast-stock-patch) emits the identical
+            // VAT-inclusive price: presented_price × markup × (1+vat).
+            $multiplier = MarkupResolver::multiplierFor($bridgeProduct, $markupRules, $markupFallbackPct) * $vatFactor;
             $woo = self::transformToWoo($bridgeProduct, $importStatus, $multiplier);
 
             // Surface the API-native field names back on top so the

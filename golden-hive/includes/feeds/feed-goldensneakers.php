@@ -16,21 +16,6 @@ const RP_RC_GS_FAKE_PRICE_MULTIPLIER = 1.3;
 const RP_RC_GS_TAG_SLUG              = 'super-sale';
 const RP_RC_GS_TAG_NAME              = 'Super Sale';
 
-/**
- * IVA % applicata ai prezzi GS. Il feed GS fornisce prezzi al NETTO IVA;
- * il resto del catalogo (KicksDB / manuali) memorizza prezzi IVA-inclusi,
- * quindi senza questo step i prodotti GS finivano ~22% sotto su Google
- * Merchant. Override via filtro `rp_rc_gs_vat_percent` (es. 0 se il tuo
- * endpoint GS restituisce già prezzi IVA-inclusi).
- */
-const RP_RC_GS_VAT_PERCENT = 22.0;
-
-/** Fattore moltiplicativo IVA (1.22 di default). 1.0 quando l'IVA è 0. */
-function rp_rc_gs_vat_factor(): float {
-    $pct = (float) apply_filters( 'rp_rc_gs_vat_percent', RP_RC_GS_VAT_PERCENT );
-    return $pct > 0 ? ( 1 + $pct / 100 ) : 1.0;
-}
-
 // ── Fetch ───────────────────────────────────────────────────
 
 /**
@@ -224,10 +209,8 @@ function rp_rc_gs_transform_to_woo( array $product, string $price_mode = 'direct
         'pa_brand' => [ 'options' => [ $product['brand'] ], 'visible' => true, 'variation' => false ],
     ] : [];
 
-    $vat = rp_rc_gs_vat_factor();
-
     if ( $type === 'simple' ) {
-        $base = ( $sizes[0]['presented_price'] ?? 0 ) * $vat;
+        $base = $sizes[0]['presented_price'] ?? 0;
         if ( $price_mode === 'sale' ) {
             $woo['sale_price']    = (string) round( $base );
             $woo['regular_price'] = (string) round( $base * $sale_mult );
@@ -249,7 +232,7 @@ function rp_rc_gs_transform_to_woo( array $product, string $price_mode = 'direct
 
         $variations = [];
         foreach ( $sizes as $size ) {
-            $pp  = $size['presented_price'] * $vat;
+            $pp  = $size['presented_price'];
             $qty = $size['available_quantity'];
 
             $var = [

@@ -121,6 +121,27 @@ final class Defaults
                     // them.
                     'pa_brand'       => 'brand_name',
                     'pa_model'       => 'product_name',
+
+                    // ── SEO meta templates ──────────────────────
+                    // GS upstream ships NO SEO content, so products
+                    // landed with blank Rank Math meta_title/description.
+                    // These templates give new GS products a baseline
+                    // built from name + brand. Written ONLY on CREATE
+                    // (gh_apply_product_meta runs on the factory create
+                    // path; rp_rc_gs_update_product never touches SEO) so
+                    // existing products are never clobbered.
+                    //
+                    // NOTE: description / short_description are
+                    // deliberately NOT templated here. They are part of
+                    // StockOnlyClassifier::COMPARABLE_FIELDS, so a GS
+                    // template that mismatches an existing KicksDB-rich
+                    // description would route that product into the slow
+                    // full-update bucket on every sync. Rich descriptions
+                    // are KicksDB's job (it owns the `catalog` slice);
+                    // meta_title/description are not compared, so they're
+                    // free to template.
+                    'meta_title'        => '{name} | {brand_name}',
+                    'meta_description'  => 'Acquista {name} di {brand_name}. Sneakers originali al 100%, spedizione rapida in tutta Italia e reso facile entro 14 giorni.',
                 ],
             ],
             [

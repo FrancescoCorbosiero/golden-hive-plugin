@@ -731,6 +731,34 @@ Run su 15k+ prodotti soffrono di errori transienti (PHP fatal mid-tick,
 Errori sono classificati come `transient` (5xx / 0 / parse-failure /
 `recoverable: true` dal server) vs definitivi.
 
+### StockFirmati ha un diff dedicato — NON passarlo dal classifier
+
+**Sintomo storico:** ad ogni sync l'INTERO catalogo SF finiva in
+`update` (mai `unchanged`), riscrivendo tutto ogni ciclo.
+
+**Causa:** SF veniva forzato dentro `StockOnlyClassifier::split()`,
+costruito per feed generici 1-riga-1-prodotto. Due meccanismi
+all-or-nothing lo rompevano: (1) il **circuit breaker a 500 item**
+(`split()`) che sopra soglia bucket-izza tutto come `updateFull`; (2)
+la **normalizzazione `wp_kses_post` della description** su feed con
+copy HTML multi-KB, che produceva phantom-diff su ogni item. GS non
+soffriva perché ha sempre avuto il suo diff bespoke
+(`rp_rc_gs_detect_changes`).
+
+**Soluzione:** `CsvSource::diff()` instrada il flavor `stockfirmati`
+verso `sfDiff()` / `sfProductNeedsUpdate()` — un diff dedicato,
+variation-aware, che confronta SOLO prezzo+stock (per-variante per i
+variable, parent per i simple) + taglie aggiunte/rimosse. Niente
+soglia, niente kses, niente bucket `updateStock`: ogni cambiamento va
+in `update` e passa dal bridge idempotente `gh_sf_update_product`.
+Mirror esatto dello scope di GS. Coperto da `tests/Unit/Sources/SfDiffTest.php`
+(il test canonico `testUnchangedVariableProductIsNotFlagged` fallirebbe
+col vecchio comportamento).
+
+> **Non** ri-collegare SF al classifier generico per "uniformità". SF
+> è fuori dallo scope generico by design — è una categoria a parte,
+> come lo è GS.
+
 ---
 
 ## What NOT to add

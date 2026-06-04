@@ -425,6 +425,23 @@ final class CsvSource extends AbstractSource
 
     public function diff(array $items, Context $ctx): Diff
     {
+        // StockFirmati gets its own bespoke, variation-aware diff —
+        // deliberately INDEPENDENT of StockOnlyClassifier. SF is not a
+        // 1-row-per-product feed: its stock and price live on per-size
+        // variations, the descriptions are multi-KB HTML, and the
+        // catalog is large. Forcing it through the generic classifier
+        // tripped the 500-item circuit breaker (→ entire catalog
+        // labelled "update" on every run) and the kses description
+        // normalization (→ phantom diffs). The SF path below mirrors
+        // GS's own rp_rc_gs_diff: compare only what an SF sync actually
+        // maintains (per-variation price/stock + added/removed sizes),
+        // bucket new/update/unchanged, and let the idempotent
+        // gh_sf_update_product bridge handle every change. No ceiling,
+        // no fast-patch, no description comparison.
+        if (self::itemsAreSfFlavor($items)) {
+            return self::sfDiff($items);
+        }
+
         $new = $update = [];
 
         // Batch SKU → pid lookup; see JsonSource::diff for rationale.
@@ -467,6 +484,209 @@ final class CsvSource extends AbstractSource
             unchanged: $unchanged,
             updateStock: $updateStock,
         );
+    }
+
+    /**
+     * True when this batch is StockFirmati-flavored. The SF fetch path
+     * stamps every produced FeedItem with `_hsync_flavor = stockfirmati`
+     * (see sfNormalizeAndTransform). Checking the first FeedItem is
+     * enough — a single fetch never mixes flavors.
+     *
+     * @param array<int, mixed> $items
+     */
+    private static function itemsAreSfFlavor(array $items): bool
+    {
+        foreach ($items as $item) {
+            if ($item instanceof FeedItem) {
+                return ($item->data['_hsync_flavor'] ?? '') === self::FLAVOR_SF;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Bespoke StockFirmati diff. Variation-aware, price+stock only, no
+     * 500-item ceiling, no kses normalization, no updateStock bucket.
+     * Every changed SKU goes to `update` and is materialized through the
+     * idempotent, variation-aware gh_sf_update_product bridge path.
+     *
+     * Idempotency: a re-run against an unmodified feed buckets every
+     * existing SKU into `unchanged` (zero writes). That is the property
+     * the generic classifier could never deliver for SF.
+     *
+     * @param array<int, mixed> $items
+     */
+    private static function sfDiff(array $items): Diff
+    {
+        // This path never populates the classifier histogram; clear it
+        // so ImportRunner doesn't attach a stale snapshot from a prior
+        // run in the same request to the SF run summary.
+        StockOnlyClassifier::$lastDiagnostics = ['reasons' => [], 'examples' => []];
+
+        $skus = [];
+        foreach ($items as $item) {
+            if ($item instanceof FeedItem && $item->sku !== '') {
+                $skus[] = $item->sku;
+            }
+        }
+        $existingMap = SkuLookup::mapSkusToIds($skus);
+
+        // Two batched lookups feed the comparison — same approach the
+        // classifier uses, minus the per-item kses pass that was the
+        // real cost. parentScalars covers SF simple products (bags,
+        // accessories); variationLookup covers the variable majority.
+        $existingIds     = array_values(array_unique(array_map('intval', $existingMap)));
+        $variationLookup = $existingIds ? VariationLookup::mapParentsToVariations($existingIds) : [];
+        $parentScalars   = $existingIds ? ParentScalarLookup::load($existingIds) : [];
+
+        $new = $update = $unchanged = [];
+        foreach ($items as $item) {
+            if (! $item instanceof FeedItem) continue;
+            if ($item->sku === '') {
+                $new[] = $item;
+                continue;
+            }
+            $pid = (int) ($existingMap[$item->sku] ?? 0);
+            if ($pid <= 0) {
+                $new[] = $item;
+                continue;
+            }
+
+            $needsUpdate = self::sfProductNeedsUpdate(
+                $item->data,
+                $parentScalars[$pid] ?? null,
+                $variationLookup[$pid] ?? [],
+            );
+
+            // Stamp _existing_id so the bridge materialize skips its own
+            // SKU re-lookup (matches the generic path's contract).
+            $stamped = new FeedItem(
+                sku: $item->sku,
+                data: $item->data + ['_existing_id' => $pid],
+                raw: $item->raw,
+            );
+
+            if ($needsUpdate) {
+                $update[] = $stamped;
+            } else {
+                $unchanged[] = $stamped;
+            }
+        }
+
+        return new Diff(new: $new, update: $update, unchanged: $unchanged);
+    }
+
+    /**
+     * Pure price+stock comparison for one SF product against pre-loaded
+     * Woo snapshots. No WP calls — unit-testable in isolation.
+     *
+     * Returns true when ANYTHING an SF sync owns differs from Woo:
+     *   - variable: any per-variation regular/sale price or stock delta,
+     *     a size present in the feed but not in Woo (new size), or a
+     *     size present in Woo but not the feed (discontinued — the
+     *     bridge zeroes its stock, so it must route to update).
+     *   - simple: parent regular/sale price or stock delta.
+     *
+     * Deliberately ignores name / description / attributes: those are
+     * not what an SF re-sync maintains, and comparing them is exactly
+     * what made the generic classifier flag the whole catalog as
+     * changed every run. Scope mirrors GS's rp_rc_gs_detect_changes.
+     *
+     * @param array<string, mixed> $data       transformed SF item (sfTransformToWoo output)
+     * @param array{regular_price?:string,sale_price?:string,stock?:?int,stock_status?:string}|null $scalar parent snapshot (used for simple products)
+     * @param array<string, array{regular_price:string,sale_price:string,stock:?int,stock_status:string}> $variationMap  sku → variation snapshot
+     */
+    public static function sfProductNeedsUpdate(array $data, ?array $scalar, array $variationMap): bool
+    {
+        $variations = $data['variations'] ?? null;
+        $isVariable = ($data['type'] ?? '') === 'variable'
+            || (is_array($variations) && $variations !== []);
+
+        if ($isVariable) {
+            if (! is_array($variations) || $variations === []) {
+                // Incoming claims variable but carries no sizes — can't
+                // prove equality. Conservative: route to full update.
+                return true;
+            }
+            $incomingSkus = [];
+            foreach ($variations as $var) {
+                if (! is_array($var)) continue;
+                $vsku = (string) ($var['sku'] ?? '');
+                if ($vsku === '') continue;
+                $incomingSkus[$vsku] = true;
+                $existing = $variationMap[$vsku] ?? null;
+                if ($existing === null) {
+                    return true; // new size upstream
+                }
+                if (self::sfStockPriceDiffers($var, $existing)) {
+                    return true;
+                }
+            }
+            // Size discontinued upstream but still present in Woo.
+            foreach ($variationMap as $existingSku => $_) {
+                if (! isset($incomingSkus[$existingSku])) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Simple product: compare parent price + stock. A missing
+        // snapshot means the parent couldn't be read — route to update
+        // rather than silently skip.
+        if ($scalar === null) {
+            return true;
+        }
+        return self::sfStockPriceDiffers($data, $scalar);
+    }
+
+    /**
+     * Shared per-record price+stock comparison. `$incoming` is a feed
+     * record (variation or simple parent); `$existing` is the Woo
+     * snapshot. Only keys present in `$incoming` are compared, so the
+     * feed never has to carry fields it doesn't own.
+     *
+     * @param array<string, mixed> $incoming
+     * @param array{regular_price?:string,sale_price?:string,stock?:?int,stock_status?:string} $existing
+     */
+    private static function sfStockPriceDiffers(array $incoming, array $existing): bool
+    {
+        if (array_key_exists('regular_price', $incoming)
+            && ! self::sfPriceEquals((string) $incoming['regular_price'], (string) ($existing['regular_price'] ?? ''))) {
+            return true;
+        }
+        if (array_key_exists('sale_price', $incoming)
+            && ! self::sfPriceEquals((string) $incoming['sale_price'], (string) ($existing['sale_price'] ?? ''))) {
+            return true;
+        }
+        if (array_key_exists('stock_quantity', $incoming)) {
+            $a = (int) $incoming['stock_quantity'];
+            $b = ($existing['stock'] ?? null) === null ? -1 : (int) $existing['stock'];
+            if ($a !== $b) {
+                return true;
+            }
+        }
+        if (array_key_exists('stock_status', $incoming)
+            && (string) $incoming['stock_status'] !== (string) ($existing['stock_status'] ?? '')) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Tolerant Woo price-string comparison. "" === "" is the no-sale
+     * case; one-side-empty is a real change; otherwise compare as floats
+     * with sub-cent tolerance (Woo stores at 2dp). Same semantics as
+     * StockOnlyClassifier::priceEquals — kept local so the SF path has
+     * zero dependency on the generic classifier.
+     */
+    private static function sfPriceEquals(string $a, string $b): bool
+    {
+        $aEmpty = $a === '';
+        $bEmpty = $b === '';
+        if ($aEmpty && $bEmpty) return true;
+        if ($aEmpty !== $bEmpty) return false;
+        return abs((float) $a - (float) $b) < 0.005;
     }
 
     /**

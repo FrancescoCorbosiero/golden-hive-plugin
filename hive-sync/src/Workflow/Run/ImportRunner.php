@@ -85,6 +85,11 @@ final class ImportRunner
             ? $cursorRunId
             : $this->runs->start( 0, 'source.import', $source->id() );
 
+        // Was this run resumed from a validated cursor, or freshly
+        // minted on this tick? Drives whether we may trust a
+        // pre-existing RunCache entry (see the cache lookup below).
+        $isResume = $cursorRunId > 0;
+
         // Normalize the three-way run mode. UI exposes a segmented
         // control "Completa | Solo dati | Solo media"; legacy
         // skip_media=1 maps to data_only for back-compat.
@@ -130,15 +135,31 @@ final class ImportRunner
         // eliminated). On miss (tick 1, or cache evicted), fall
         // through to the normal fetch+diff path and re-populate.
         //
-        // Consult the cache whenever it exists — NOT only when
-        // startIndex>0. When fetch+diff alone consumes the whole 25s
-        // budget (a large SF/GS feed: multi-MB download + parse), the
-        // item loop trips the deadline at index 0 and yields
+        // Consult the cache whenever a RESUMED run has one — NOT only
+        // when startIndex>0. When fetch+diff alone consumes the whole
+        // 25s budget (a large SF/GS feed: multi-MB download + parse),
+        // the item loop trips the deadline at index 0 and yields
         // cursor.index=0. Gating the cache on startIndex>0 would then
         // re-fetch on every resumed tick and never advance past the
-        // first item — a permanent stall. A fresh tick-1 run has just
-        // minted its run_id so the lookup misses and we fetch normally.
-        $cached       = RunCache::get( $runId );
+        // first item — a permanent stall.
+        //
+        // But a FRESHLY MINTED run (no validated cursor) must NEVER read
+        // a pre-existing RunCache entry. After an uninstall/reinstall (or
+        // any wipe of wp_hsync_runs) the AUTO_INCREMENT restarts at 1, so
+        // a brand-new run_id=1 collides with the stale `hsync_run_cache_1`
+        // transient left by the previous install. Reading it feeds tick 1
+        // a stale (often empty) Diff → the loop imports nothing → the
+        // silent 0-counter "phantom run". A run we just started cannot
+        // legitimately have a cache yet (it's written below, on this very
+        // tick), so evict any colliding leftover and force a fresh
+        // fetch+diff. Only the resume path — whose run_id was validated
+        // against wp_hsync_runs above — may hydrate from cache.
+        if ( $isResume ) {
+            $cached = RunCache::get( $runId );
+        } else {
+            RunCache::clear( $runId );
+            $cached = null;
+        }
         $fetchWarnings = [];
         $fetchedCount  = 0;
 

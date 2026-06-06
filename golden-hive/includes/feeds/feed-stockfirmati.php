@@ -504,6 +504,24 @@ function gh_sf_update_product( array $data ): array {
 
         gh_apply_product_meta( $product_id, $data );
 
+        // Categoria + brand: il bridge è l'OWNER della tassonomia SF su
+        // OGNI sync (create E update), esattamente come per il brand —
+        // si matcha/risolve il valore del feed contro product_cat /
+        // product_brand e lo si assegna. Senza questo l'update non
+        // ri-applicava mai la categoria, e — peggio — il `category_ids`
+        // "flat" prodotto da taxonomy.resolve dentro gh_apply_product_meta
+        // (sopra) sovrascriveva la gerarchia cat > subcat impostata alla
+        // creazione, lasciando i prodotti con la sola categoria di primo
+        // livello (o senza, sui path adottati via update-only). Chiamato
+        // DOPO gh_apply_product_meta così la gerarchia vince sempre.
+        // Idempotente: wp_set_object_terms con lo stesso set è un no-op.
+        if ( ! empty( $data['_sf_category'] ) ) {
+            gh_sf_assign_category( $product_id, $data['_sf_category'], $data['_sf_subcategory'] ?? '' );
+        }
+        if ( ! empty( $data['_sf_brand'] ) ) {
+            gh_sf_assign_brand( $product_id, $data['_sf_brand'] );
+        }
+
         return [
             'action'  => 'updated',
             'id'      => $product_id,
@@ -582,32 +600,66 @@ function gh_sf_assign_brand( int $product_id, string $brand ): void {
 }
 
 /**
- * Assegna categoria e sottocategoria come product_cat.
+ * Assegna categoria e (opzionale) sottocategoria come product_cat
+ * gerarchico (cat > subcat). Match per nome SOTTO il parent corretto,
+ * crea il termine se manca. Stesso schema del brand, diversa tassonomia.
  */
 function gh_sf_assign_category( int $product_id, string $category, string $subcategory = '' ): void {
     $taxonomy = 'product_cat';
 
-    $cat_term = term_exists( $category, $taxonomy );
-    if ( ! $cat_term ) {
-        $cat_term = wp_insert_term( $category, $taxonomy );
-    }
-    if ( is_wp_error( $cat_term ) ) return;
-    $cat_id = is_array( $cat_term ) ? $cat_term['term_id'] : $cat_term;
+    $cat_id = gh_sf_resolve_term( $category, $taxonomy, 0 );
+    if ( ! $cat_id ) return;
 
-    $term_ids = [ (int) $cat_id ];
+    $term_ids = [ $cat_id ];
 
-    if ( $subcategory ) {
-        $sub_term = term_exists( $subcategory, $taxonomy, $cat_id );
-        if ( ! $sub_term ) {
-            $sub_term = wp_insert_term( $subcategory, $taxonomy, [ 'parent' => (int) $cat_id ] );
-        }
-        if ( ! is_wp_error( $sub_term ) ) {
-            $sub_id = is_array( $sub_term ) ? $sub_term['term_id'] : $sub_term;
-            $term_ids[] = (int) $sub_id;
-        }
+    if ( trim( $subcategory ) !== '' ) {
+        $sub_id = gh_sf_resolve_term( $subcategory, $taxonomy, $cat_id );
+        if ( $sub_id ) $term_ids[] = $sub_id;
     }
 
     wp_set_object_terms( $product_id, $term_ids, $taxonomy );
+}
+
+/**
+ * Risolve un termine di una tassonomia gerarchica per NOME sotto un
+ * parent specifico, creandolo se manca. Ritorna il term_id o 0.
+ *
+ * Robusto contro due gotcha che lasciavano i prodotti senza categoria:
+ *  - match per parent: due categorie con lo stesso nome sotto parent
+ *    diversi (es. "Accessori") non collidono più — si riusa quella
+ *    giusta invece di creare duplicati o sbagliare ramo.
+ *  - recovery su WP_Error 'term_exists': se wp_insert_term fallisce per
+ *    collisione di slug, si recupera il term_id esistente dai dati
+ *    dell'errore invece di abortire silenziosamente (il vecchio
+ *    comportamento che lasciava il prodotto senza categoria).
+ */
+function gh_sf_resolve_term( string $name, string $taxonomy, int $parent = 0 ): int {
+    $name = trim( $name );
+    if ( $name === '' || ! taxonomy_exists( $taxonomy ) ) return 0;
+
+    // Prefer an existing term with this exact name under this exact parent.
+    $existing = get_terms( [
+        'taxonomy'   => $taxonomy,
+        'name'       => $name,
+        'parent'     => $parent,
+        'hide_empty' => false,
+        'number'     => 1,
+        'fields'     => 'ids',
+    ] );
+    if ( is_array( $existing ) && ! empty( $existing ) ) {
+        return (int) $existing[0];
+    }
+
+    $inserted = wp_insert_term( $name, $taxonomy, [ 'parent' => $parent ] );
+    if ( is_wp_error( $inserted ) ) {
+        // Slug/name collision → recover the pre-existing term id WP
+        // attached to the error rather than dropping the assignment.
+        $err = $inserted->get_error_data();
+        if ( is_array( $err ) && ! empty( $err['term_id'] ) ) return (int) $err['term_id'];
+        if ( is_numeric( $err ) ) return (int) $err;
+        return 0;
+    }
+    return (int) ( $inserted['term_id'] ?? 0 );
 }
 
 /**

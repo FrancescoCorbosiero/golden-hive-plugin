@@ -12,6 +12,7 @@ use HiveSync\Core\Pipeline\PipelineRepository;
 use HiveSync\Core\Pipeline\PipelineStepKind;
 use HiveSync\Core\Repo\RunRepository;
 use HiveSync\Core\Source\Context;
+use HiveSync\Core\Source\Diff;
 use HiveSync\Core\Source\FeedItem;
 use HiveSync\Core\Source\FetchRequest;
 use HiveSync\Core\Source\Source;
@@ -194,7 +195,14 @@ final class ImportRunner
             $diff          = $source->diff( $items, $ctx );
             $fetchWarnings = $fetch->warnings;
             $fetchedCount  = count( $items );
-            RunCache::set( $runId, $fetchWarnings, $fetchedCount, $diff );
+            // Cache a raw-stripped copy. FeedItem.raw is audit-only and
+            // never reaches materialize (it reads ->data), but on a 10k
+            // SF feed it roughly doubles the serialized blob — and the
+            // smaller the cached value, the more reliably it fits a WP
+            // transient (max_allowed_packet on the DB path, item-size
+            // caps on object caches). This tick keeps the live $diff
+            // (with raw) for its summary + processing.
+            RunCache::set( $runId, $fetchWarnings, $fetchedCount, self::cacheableDiff( $diff ) );
         }
 
         // `unchanged` is reported as a top-level metric — items the diff
@@ -636,6 +644,34 @@ final class ImportRunner
             'rows'     => array_slice( $rows, 0, 100 ),
             'progress' => [ 'done' => $total, 'total' => $total ],
         ];
+    }
+
+    /**
+     * Build a cache-friendly copy of a Diff with FeedItem.raw stripped.
+     * raw is audit/debug only — materialize reads ->data exclusively —
+     * so dropping it changes nothing downstream while roughly halving
+     * the serialized size of a large SF/GS diff. FeedItem is readonly,
+     * so each item carrying a non-empty raw is rebuilt; empty-raw items
+     * pass through untouched.
+     */
+    private static function cacheableDiff( Diff $diff ): Diff
+    {
+        $strip = static function ( array $items ): array {
+            $out = [];
+            foreach ( $items as $it ) {
+                $out[] = ( $it instanceof FeedItem && $it->raw !== [] )
+                    ? new FeedItem( sku: $it->sku, data: $it->data, raw: [] )
+                    : $it;
+            }
+            return $out;
+        };
+
+        return new Diff(
+            new:         $strip( $diff->new ),
+            update:      $strip( $diff->update ),
+            unchanged:   $strip( $diff->unchanged ),
+            updateStock: $strip( $diff->updateStock ),
+        );
     }
 
     private static function loadPipeline( string $slug ): ?Pipeline

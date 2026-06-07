@@ -9,3 +9,8 @@ declare(strict_types=1);
  */
 
 require_once __DIR__ . '/../vendor/autoload.php';
+
+// Minimal WP transient shims (a utf8mb4-truncation model) so cache code
+// can be exercised in isolation. Guarded by function_exists, so a real
+// WordPress load would always take precedence.
+require_once __DIR__ . '/wp-stubs.php';

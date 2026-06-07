@@ -15,9 +15,26 @@ use HiveSync\Core\Source\FetchResult;
  * × ~200 ticks for the first import = ~30 minutes of pure repetition
  * that adds nothing to the result.
  *
- * Storage: gzcompressed WP transient (~5-10x compression on serialized
- * FeedItem arrays). 10MB raw → ~1-2MB compressed → fits comfortably in
- * the options table even without an object cache.
+ * Storage: base64(gzcompress(serialize)) WP transient (~5-10x
+ * compression on serialized FeedItem arrays). 10MB raw → ~1-2MB
+ * compressed → ~1.4-2.7MB base64 → fits in the options table even
+ * without an object cache.
+ *
+ * Why base64 and not raw gzcompress output: without a persistent object
+ * cache, transients live in `wp_options.option_value`, which on a modern
+ * install is a utf8mb4 column. `$wpdb` runs every text value through
+ * `strip_invalid_text`, which truncates at the first byte that isn't a
+ * valid UTF-8 sequence. gzcompress output is binary and invalid UTF-8
+ * from its SECOND byte (zlib header `0x78 0x9c…`), so the blob was
+ * truncated to ~1 byte on write and `gzuncompress` failed on read —
+ * `get()` returned null on EVERY resume tick. The cache silently never
+ * persisted. That was harmless while the diff was cheap (each tick just
+ * recomputed it within budget), but once a source grew an expensive
+ * fetch+diff that can't fit one 25s tick (the bespoke SF diff loads the
+ * whole catalog's variation+scalar snapshots), the runner could never
+ * advance past item 0: every tick re-ran fetch+diff, tripped the
+ * deadline, and processed nothing — the silent "0/N, 0%" run. Base64
+ * keeps the stored value 7-bit ASCII so it survives intact.
  *
  * Invalidation: terminal `done` / `failed` returns from ImportRunner
  * call clear(). Defensive 2-hour TTL covers the case where a run is
@@ -48,7 +65,16 @@ final class RunCache
         $raw = \get_transient( self::KEY_PREFIX . $runId );
         if ( ! is_string( $raw ) || $raw === '' ) return null;
 
-        $decoded = @gzuncompress( $raw );
+        // Stored as base64(gzcompress(serialize)) so binary survives a
+        // utf8mb4 transient (see class docblock). base64_decode(strict)
+        // then gzuncompress. Tolerate the pre-fix raw-binary form too —
+        // it only ever round-tripped on installs with a binary-safe
+        // object cache — by falling back to a direct gzuncompress.
+        $compressed = base64_decode( $raw, true );
+        $decoded    = $compressed !== false ? @gzuncompress( $compressed ) : false;
+        if ( $decoded === false ) {
+            $decoded = @gzuncompress( $raw );
+        }
         if ( $decoded === false ) return null;
 
         $payload = @unserialize( $decoded, [ 'allowed_classes' => true ] );
@@ -72,7 +98,9 @@ final class RunCache
         $serialized = serialize( $payload );
         $compressed = @gzcompress( $serialized, 6 );
         if ( $compressed === false ) return; // defensive: fall back to no-cache mode
-        \set_transient( self::KEY_PREFIX . $runId, $compressed, self::TTL_SECONDS );
+        // base64 so the binary survives a utf8mb4 transient column (see
+        // class docblock — raw gzcompress output is truncated on write).
+        \set_transient( self::KEY_PREFIX . $runId, base64_encode( $compressed ), self::TTL_SECONDS );
     }
 
     public static function clear( int $runId ): void

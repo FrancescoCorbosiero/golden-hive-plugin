@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-# Golden Hive WordPress image.
+# Hive Commerce WordPress image.
 #
 # Two build targets:
 #   * `dev`  — extends wordpress:php8.2-apache with debug-friendly PHP config,

@@ -1,4 +1,4 @@
-# CLAUDE.md — Golden Hive
+# CLAUDE.md — Hive Commerce
 
 > Stai lavorando su **golden-hive**. La root del tuo lavoro è `/golden-hive/`.
 >
@@ -10,7 +10,12 @@
 
 ## Contesto del Plugin
 
-**Golden Hive** è una suite WooCommerce unificata che mergia le funzionalità di tutti i plugin standalone (`rp-product-manager`, `rp-media-cleaner`, `rp-rest-caller`, `rp-catalog-manager`, `rp-email-marketing`) in un'unica interfaccia admin con sidebar a tab.
+**Hive Commerce** (ex "Golden Hive") è una suite WooCommerce unificata in un'unica interfaccia admin con sidebar a tab. Ha assorbito le funzionalità degli ex plugin standalone `rp-*` (product-manager, media-cleaner, rest-caller, catalog-manager, email-marketing), ormai rimossi dal monorepo.
+
+> **Naming legacy:** la directory `golden-hive/`, l'entry point `golden-hive.php`,
+> i prefix (`gh_`/`rp_*`), le option keys, i cron hook e il namespace `GH\`
+> mantengono il vecchio nome per compatibilità con i dati persistiti delle
+> installazioni live. Vedi la nota "Rebrand" in `../CONVENTIONS.md`.
 
 ---
 

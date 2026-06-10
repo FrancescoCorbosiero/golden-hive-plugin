@@ -12,7 +12,7 @@ use HiveSync\Core\Source\FeedItem;
  * Resolve external taxonomy NAMES into Woo term IDs before materialize.
  * Looks at standard fields in the draft and routes them through the
  * host adapter's hive_sync/host/taxonomy/resolve filter (which the
- * Golden Hive bridge wires to get_term_by + rp_cm_create_category, so
+ * Hive Commerce bridge wires to get_term_by + rp_cm_create_category, so
  * missing terms get created instead of dropped).
  *
  * Fields scanned (each can be a string or string[]):

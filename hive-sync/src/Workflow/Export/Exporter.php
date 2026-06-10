@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace HiveSync\Workflow\Export;
 
 /**
- * Catalog exports — pure WC public API, no Golden Hive dependency.
+ * Catalog exports — pure WC public API, no Hive Commerce dependency.
  *
  * Two payload shapes:
  *

@@ -1,6 +1,6 @@
 {
     "name": "golden-hive/plugin",
-    "description": "Golden Hive — WooCommerce suite (catalogo, tassonomia, media, import/export, feed esterni).",
+    "description": "Hive Commerce — WooCommerce suite (catalogo, tassonomia, media, import/export, feed esterni).",
     "type": "wordpress-plugin",
     "license": "proprietary",
     "require": {

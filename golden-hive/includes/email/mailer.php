@@ -31,7 +31,7 @@ function rp_em_send_test_email( string $to, string $subject = '', string $body =
     }
 
     if ( $subject === '' ) {
-        $subject = 'Test Email — Golden Hive (' . gmdate( 'H:i:s' ) . ')';
+        $subject = 'Test Email — Hive Commerce (' . gmdate( 'H:i:s' ) . ')';
     }
     if ( $body === '' ) {
         $body = rp_em_build_test_template( $to );

@@ -9,7 +9,7 @@ namespace HiveSync\Core\Repo;
  * plus another named "GS staging" so the user doesn't retype URLs and
  * tokens on every run.
  *
- * Secrets are stored cleartext (same posture as Golden Hive's
+ * Secrets are stored cleartext (same posture as Hive Commerce's
  * feed-credentials.php — see CONVENTIONS.md). Redaction happens at
  * the AJAX/UI layer so plaintext never reaches the browser unless
  * the user explicitly requests it.

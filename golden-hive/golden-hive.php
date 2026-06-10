@@ -1,10 +1,10 @@
 <?php
 /**
- * Plugin Name:  Golden Hive
+ * Plugin Name:  Hive Commerce
  * Plugin URI:   https://github.com/FrancescoCorbosiero/golden-hive-plugin
  * Description:  WooCommerce suite: catalogo, tassonomia, media, import/export, feed esterni.
  * Version:      1.0.0
- * Author:       Golden Hive
+ * Author:       Hive Commerce
  * License:      Private
  * Requires PHP: 8.1
  * Requires at least: 6.0
@@ -24,7 +24,7 @@ if ( file_exists( $gh_autoload ) ) {
     require_once $gh_autoload;
 } elseif ( is_admin() ) {
     add_action( 'admin_notices', function () {
-        echo '<div class="notice notice-warning"><p><strong>Golden Hive:</strong> '
+        echo '<div class="notice notice-warning"><p><strong>Hive Commerce:</strong> '
             . '<code>vendor/autoload.php</code> mancante. Esegui <code>composer install</code> '
             . 'nella directory del plugin per abilitare i moduli namespaced. Le funzionalita legacy continuano a funzionare.'
             . '</p></div>';
@@ -184,7 +184,7 @@ require_once GH_DIR . 'includes/tools/gs-label.php';
 require_once GH_DIR . 'includes/tools/ajax.php';
 
 // Hive Sync host bridge — binds the Hive Sync host adapter contract to
-// existing Golden Hive functions. Inert when Hive Sync is not installed.
+// existing Hive Commerce functions. Inert when Hive Sync is not installed.
 require_once GH_DIR . 'includes/integrations/hive-sync-bridge.php';
 
 // Admin UI

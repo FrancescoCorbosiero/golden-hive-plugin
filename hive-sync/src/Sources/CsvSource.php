@@ -13,7 +13,7 @@ use HiveSync\Core\Source\MaterializeResult;
 use HiveSync\Core\Source\SourceCapabilities;
 
 /**
- * Generic CSV source — native PHP parser, no Golden Hive dependency.
+ * Generic CSV source — native PHP parser, no Hive Commerce dependency.
  *
  * Accepts a CSV either by URL or local file path. Column→Woo-field
  * mapping is provided via FetchRequest::options['mapping'] (a Mapping
@@ -22,7 +22,7 @@ use HiveSync\Core\Source\SourceCapabilities;
  * required columns are dropped with a per-row warning.
  *
  * Materialize delegates to the host adapter (`hsync_upsert_product`)
- * which Golden Hive's bridge wires to gh_create_simple_product.
+ * which Hive Commerce's bridge wires to gh_create_simple_product.
  */
 final class CsvSource extends AbstractSource
 {

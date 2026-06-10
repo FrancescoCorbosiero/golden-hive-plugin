@@ -1,4 +1,4 @@
-# CONVENTIONS.md — Golden Hive Plugins
+# CONVENTIONS.md — Hive Commerce Plugins
 
 > Questo file è la source of truth per tutto ciò che è condiviso tra i plugin.
 > Ogni `CLAUDE.md` di plugin lo referenzia. In caso di conflitto, vince questo file.
@@ -26,8 +26,27 @@ golden-hive-plugin/
 └── hive-sync/                   ← Sync orchestrator (non-WP)
 ```
 
-**Golden Hive** è il plugin principale e unico. Contiene tutti i moduli in un'unica UI unificata.
+**Hive Commerce** è il plugin principale e unico. Contiene tutti i moduli in un'unica UI unificata.
 I vecchi plugin standalone `rp-*` (product-manager, media-cleaner, rest-caller, catalog-manager, email-marketing, media-manager) sono stati **rimossi dal monorepo**: tutte le loro funzionalità sono mergiate in golden-hive. I moduli mergiati mantengono i prefix funzione originali (`rp_*`) per compatibilità con i dati esistenti.
+
+### Rebrand "Golden Hive" → "Hive Commerce" — cosa NON è stato rinominato
+
+Il rebrand copre il nome visibile (plugin header, menu admin, UI, email,
+docs, commenti). Restano deliberatamente col nome legacy perché sono
+**identificatori persistiti o contratti runtime** — rinominarli romperebbe
+un'installazione live senza una migration:
+
+- la directory del plugin `golden-hive/` e l'entry point `golden-hive.php`
+  (identità del plugin per WordPress: rinominarli lo disattiva all'update)
+- i prefix funzione/option/AJAX/nonce (`gh_*`, `rp_*`, `rp_cm_*`, `rp_em_*`, ...)
+- le option keys, i transient, i cron hook e i post meta (`_gh_*`)
+- il namespace PHP `GH\` (coerente con il prefix `gh_` mantenuto)
+- il path uploads `wp-content/uploads/golden-hive/csv/` (referenziato dai
+  feed config salvati in wp_options)
+- il package composer `golden-hive/plugin` (legato alla directory)
+
+Lo slug del menu admin invece è stato rinominato (`admin.php?page=hive-commerce`):
+non è persistito, cambia solo l'URL.
 
 ---
 
@@ -48,7 +67,7 @@ Ogni plugin/modulo ha un prefix univoco per evitare collisioni nel namespace glo
 
 ---
 
-## Struttura Interna — Golden Hive
+## Struttura Interna — Hive Commerce
 
 ```
 golden-hive/
@@ -256,7 +275,7 @@ function hl(json) {
 CSS classi: `.jk` → `#a78bfa` (chiavi), `.js` → `--grn` (stringhe), `.jn` → `--amb` (numeri), `.jb` → `--acc` (boolean), `.jx` → `--red` (null)
 
 ### Layout Standard
-Golden Hive usa un layout sidebar + content:
+Hive Commerce usa un layout sidebar + content:
 ```
 ┌─────────────────────────────────────────┐
 │  Header bar (logo + titolo)             │
@@ -281,7 +300,7 @@ Il root div occupa `100vh` con `margin: -10px -20px -20px -20px` per annullare i
 
 | Plugin | Label menu | Dashicon | Posizione |
 |---|---|---|---|
-| `golden-hive` | Golden Hive | `dashicons-screenoptions` | 57 |
+| `golden-hive` | Hive Commerce | `dashicons-screenoptions` | 57 |
 
 ---
 

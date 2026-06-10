@@ -7,7 +7,7 @@ Two stacks share a single `docker/Dockerfile` (multi-stage build):
 | Dev   | `docker/docker-compose.dev.yml`  | Docker Desktop on your laptop. Plugin source bind-mounted live. |
 | Prod  | `docker/docker-compose.prod.yml` | Single-host VPS (Contabo). Caddy + auto-HTTPS, daily DB backups. |
 
-Both publish a working WordPress + WooCommerce site with Golden Hive activated, so you can exercise the plugin end-to-end.
+Both publish a working WordPress + WooCommerce site with Hive Commerce activated, so you can exercise the plugin end-to-end.
 
 ---
 
@@ -21,7 +21,7 @@ cp docker/.env.dev.example docker/.env.dev
 docker compose -f docker/docker-compose.dev.yml --env-file docker/.env.dev up -d --build
 #   …or with the Makefile:  make dev-up
 
-# 3. Install WP core, WooCommerce, activate Golden Hive
+# 3. Install WP core, WooCommerce, activate Hive Commerce
 make dev-init
 #   equivalent: docker compose -f docker/docker-compose.dev.yml exec wordpress bash docker/scripts/wp-init.sh
 ```
@@ -86,7 +86,7 @@ docker compose -f docker/docker-compose.prod.yml --env-file docker/.env.prod up 
 docker compose -f docker/docker-compose.prod.yml exec wordpress \
     wp --allow-root core install \
         --url="https://$SITE_DOMAIN" \
-        --title="Golden Hive" \
+        --title="Hive Commerce" \
         --admin_user=<your-user> --admin_password=<strong-pw> --admin_email=<you@example.com>
 
 docker compose -f docker/docker-compose.prod.yml exec wordpress \
@@ -108,7 +108,7 @@ make prod-deploy          # git pull + rebuild + rolling restart
 The plugin source is **baked into the production image** (`COPY golden-hive/ /usr/src/golden-hive/`) and synced into `wp-content/plugins/golden-hive` on every container start by `docker/scripts/prod-entrypoint.sh`. This means:
 
 * Persistent volume holds uploads, themes, third-party plugins, `.htaccess`, etc.
-* Each new image revision deterministically replaces the Golden Hive plugin directory — no drift, no manual `wp plugin update`.
+* Each new image revision deterministically replaces the Hive Commerce plugin directory — no drift, no manual `wp plugin update`.
 
 ### Backups
 

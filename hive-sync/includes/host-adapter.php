@@ -1,7 +1,7 @@
 <?php
 /**
  * Host adapter — versioned extension contract between Hive Sync and the
- * Golden Hive host plugin. The host (or any third party) binds the filters
+ * Hive Commerce host plugin. The host (or any third party) binds the filters
  * below to provide richer behavior; Hive Sync falls back to internal stubs
  * when nothing is bound.
  *
@@ -59,7 +59,7 @@ function hsync_preimport_media( string $url, array $context = [] ): ?int {
  * absent from the result.
  *
  * Falls back to sequential single-URL calls when the host filter is
- * unbound, so the plugin keeps working (slowly) without Golden Hive.
+ * unbound, so the plugin keeps working (slowly) without Hive Commerce.
  *
  * @param string[] $urls
  * @return array<string, int>

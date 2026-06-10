@@ -11,7 +11,7 @@ use HiveSync\Core\Pipeline\PipelineStep;
 use HiveSync\Core\Pipeline\PipelineStepKind;
 
 /**
- * One-shot migration from Golden Hive's wp_options stores into the
+ * One-shot migration from Hive Commerce's wp_options stores into the
  * Hive Sync tables.
  *
  * Three legacy keys:

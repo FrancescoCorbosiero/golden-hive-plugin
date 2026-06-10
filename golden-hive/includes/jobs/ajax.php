@@ -2,7 +2,7 @@
 /**
  * Jobs AJAX bridge — thin glue between the UI and the jobs core.
  *
- * All handlers follow the Golden Hive convention:
+ * All handlers follow the Hive Commerce convention:
  *   check_ajax_referer( 'gh_nonce', 'nonce' );
  *   current_user_can( 'manage_woocommerce' );
  *   wp_send_json_{success,error}(...);

@@ -1,16 +1,16 @@
 <?php
 /**
- * Admin page — one unified UI for all Golden Hive modules.
+ * Admin page — one unified UI for all Hive Commerce modules.
  */
 
 defined( 'ABSPATH' ) || exit;
 
 add_action( 'admin_menu', function () {
     add_menu_page(
-        'Golden Hive',
-        'Golden Hive',
+        'Hive Commerce',
+        'Hive Commerce',
         'manage_woocommerce',
-        'golden-hive',
+        'hive-commerce',
         'gh_render_page',
         'dashicons-screenoptions',
         57
@@ -27,13 +27,13 @@ function gh_render_page(): void {
 <style>
 #wpfooter{display:none !important}
 #wpbody-content{padding-bottom:0 !important}
-html.wp-toolbar,body.wp-admin.toplevel_page_golden-hive{background:#0c0d10}
+html.wp-toolbar,body.wp-admin.toplevel_page_hive-commerce{background:#0c0d10}
 </style>
 <?php include GH_DIR . 'includes/views/css.php'; ?>
 
 <div id="gh">
     <div class="header">
-        <div class="header-logo">Golden Hive</div>
+        <div class="header-logo">Hive Commerce</div>
         <div class="header-desc">WooCommerce Management Suite</div>
         <?php
         $gh_build = function_exists( 'gh_get_build_tag' ) ? gh_get_build_tag() : null;

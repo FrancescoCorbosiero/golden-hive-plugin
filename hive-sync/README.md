@@ -1,8 +1,8 @@
 # Hive Sync
 
 WooCommerce import + sync engine. Standalone WordPress plugin —
-installable independently of the rest of the Golden Hive suite. When
-Golden Hive is active, Hive Sync delegates `materialize` to the legacy
+installable independently of the rest of the Hive Commerce suite. When
+Hive Commerce is active, Hive Sync delegates `materialize` to the legacy
 bridge (`hive_sync/host/*` filters) for variant + media sideload
 logic; without it falls back to a generic Woo upsert.
 
@@ -144,7 +144,7 @@ wp_hsync_source_configs  per-source credential bundles, autoload=false
 
 ## Host adapter contract
 
-Filter contract that the host (Golden Hive bridge) can bind. Standalone
+Filter contract that the host (Hive Commerce bridge) can bind. Standalone
 fallbacks exist for every filter so the plugin works without GH.
 
 | Filter | Caller | Purpose |
@@ -156,9 +156,9 @@ fallbacks exist for every filter so the plugin works without GH.
 
 `HSYNC_HOST_CONTRACT_VERSION = 1`.
 
-## Standalone vs with Golden Hive
+## Standalone vs with Hive Commerce
 
-| Capability | Standalone | + Golden Hive |
+| Capability | Standalone | + Hive Commerce |
 |---|---|---|
 | Import JSON / CSV | ✓ | ✓ |
 | Variant explosion (GS flavor) | ✓ (built-in transformToWoo) | ✓ (bridge) |
@@ -178,7 +178,7 @@ fallbacks exist for every filter so the plugin works without GH.
 5. Storico → run row should show `created: N / stock_patched: M`
 6. Automatizza → toggle on i 3 jobs default
 
-## Coexistence with Golden Hive
+## Coexistence with Hive Commerce
 
 Hive Sync is **not** a partial-coexistence module. It's the production
 replacement for `golden-hive/includes/feeds/`. The Migrazione tab was

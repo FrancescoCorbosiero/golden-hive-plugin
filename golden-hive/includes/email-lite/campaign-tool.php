@@ -219,7 +219,7 @@ class RP_Campaign_Tool {
                                         <p class="description" style="margin-top:6px;">
                                             HTML completo accettato (DOCTYPE, &lt;style&gt;, table-based layouts, tutto).
                                             Usa <code>{{first_name}}</code> per personalizzare il nome del destinatario.
-                                            Puoi incollare l'HTML scaricato da Golden Hive → Templates → "Scarica demo".
+                                            Puoi incollare l'HTML scaricato da Hive Commerce → Templates → "Scarica demo".
                                         </p>
                                     </td>
                                 </tr>
@@ -481,7 +481,7 @@ class RP_Campaign_Tool {
      * Accetta entrambe le convenzioni in uso nel plugin:
      *  - {{first_name}} / {{email}}  (sintassi Lite, Handlebars-like)
      *  - {RECIPIENT_FIRST_NAME} / {RECIPIENT_EMAIL} / ...  (sintassi multi-layer,
-     *    quella che esce da Golden Hive → Templates → "Scarica demo")
+     *    quella che esce da Hive Commerce → Templates → "Scarica demo")
      *
      * Cosi l'utente puo incollare l'HTML demo senza find/replace manuale.
      */

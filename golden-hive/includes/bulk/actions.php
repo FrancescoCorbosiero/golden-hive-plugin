@@ -115,6 +115,21 @@ function gh_get_bulk_action_definitions(): array {
                 'rounding' => 'select:none,2dec,99,00,nearest_1,nearest_5,nearest_10',
             ],
         ],
+        'artificial_sale' => [
+            'label'       => 'Crea saldo fittizio',
+            'group'       => 'price',
+            'description' => 'Trasforma il prezzo corrente in prezzo scontato: il prezzo che il cliente paga oggi diventa il sale_price e il regular_price viene ricalcolato al rialzo per mostrare lo sconto % indicato. Il prezzo pagato NON cambia, cambia solo come viene presentato.',
+            'params'      => [
+                'percent'  => 'number',
+                'rounding' => 'select:none,2dec,99,00,nearest_1,nearest_5,nearest_10',
+            ],
+        ],
+        'collapse_sale' => [
+            'label'       => 'Consolida saldo nel prezzo',
+            'group'       => 'price',
+            'description' => 'Il sale_price corrente diventa il nuovo regular_price e lo sconto viene rimosso. Inverso di "Crea saldo fittizio": il prezzo pagato non cambia, sparisce solo il badge sconto. Salta i prodotti senza saldo attivo.',
+            'params'      => [],
+        ],
 
         // ── STOCK ───────────────────────────────────────
         'set_stock_status' => [
@@ -223,7 +238,8 @@ function gh_execute_bulk_action( string $action, array $product_ids, array $para
     // Suspend WC transient rebuilds during bulk — rebuild once at the end
     $suspend_transients = in_array( $action, [
         'set_sale_percent', 'remove_sale', 'adjust_price', 'markup_percent',
-        'discount_percent', 'set_stock_status', 'set_stock_quantity', 'set_status',
+        'discount_percent', 'artificial_sale', 'collapse_sale',
+        'set_stock_status', 'set_stock_quantity', 'set_status',
     ], true );
 
     if ( $suspend_transients ) {
@@ -334,6 +350,12 @@ function gh_apply_bulk_action( WC_Product $product, string $action, array $param
             $params['target']   ?? 'regular_price',
             $params['rounding'] ?? '2dec'
         ),
+        'artificial_sale' => gh_create_artificial_sale(
+            $product,
+            floatval( $params['percent'] ?? 0 ),
+            $params['rounding'] ?? '99'
+        ),
+        'collapse_sale' => gh_collapse_sale( $product ),
 
         // ── STOCK ───────────────────────────────────────
         'set_stock_status'   => gh_set_stock_status( $product, $params['stock_status'] ?? 'instock' ),
@@ -447,6 +469,103 @@ function gh_remove_sale( WC_Product $product ): true {
     } else {
         $product->set_sale_price( '' );
         $product->save();
+    }
+
+    return true;
+}
+
+/**
+ * Crea un saldo "fittizio": il prezzo effettivo corrente (sale se presente,
+ * altrimenti regular) diventa il sale_price, e il regular_price viene
+ * ricalcolato al rialzo in modo che lo sconto mostrato sia $percent.
+ *
+ *   regular_nuovo = prezzo_corrente / (1 - percent/100)
+ *
+ * Il cliente continua a pagare lo stesso prezzo di prima: cambia solo la
+ * presentazione (badge sconto + prezzo barrato). Idempotente: ri-applicarla
+ * ricalcola il regular partendo sempre dal sale corrente, senza comporre
+ * gli aumenti.
+ *
+ * L'arrotondamento si applica SOLO al regular fittizio (un prezzo barrato
+ * che termina in .99 o e un multiplo di 5 sembra piu naturale). Se il
+ * rounding farebbe scendere il regular sotto al prezzo corrente, fallback
+ * a 2 decimali per garantire regular > sale.
+ *
+ * @param WC_Product $product
+ * @param float      $percent  Sconto apparente da mostrare (1-99).
+ * @param string     $rounding Preset di gh_round_price() per il regular fittizio.
+ * @return true|string
+ */
+function gh_create_artificial_sale( WC_Product $product, float $percent, string $rounding ): true|string {
+
+    if ( $percent < 1 || $percent > 99 ) {
+        return 'Percentuale sconto non valida (1-99).';
+    }
+
+    $divisor = 1 - ( $percent / 100 );
+
+    $compute_regular = static function ( float $price ) use ( $divisor, $rounding ): float {
+        $regular = gh_round_price( $price / $divisor, $rounding );
+        // Il rounding (es. nearest_10) puo riportare il regular sotto/uguale
+        // al prezzo corrente: in quel caso niente preset, solo 2 decimali.
+        if ( $regular <= $price ) {
+            $regular = round( $price / $divisor, 2 );
+        }
+        return $regular;
+    };
+
+    if ( $product->is_type( 'variable' ) ) {
+        foreach ( $product->get_children() as $var_id ) {
+            $sale    = (float) get_post_meta( $var_id, '_sale_price', true );
+            $regular = (float) get_post_meta( $var_id, '_regular_price', true );
+            $price   = $sale > 0 ? $sale : $regular;
+            if ( $price <= 0 ) continue;
+
+            update_post_meta( $var_id, '_regular_price', $compute_regular( $price ) );
+            update_post_meta( $var_id, '_sale_price', $price );
+            update_post_meta( $var_id, '_price', $price );
+        }
+    } else {
+        $sale    = (float) $product->get_sale_price();
+        $regular = (float) $product->get_regular_price();
+        $price   = $sale > 0 ? $sale : $regular;
+        if ( $price <= 0 ) return true;
+
+        $product->set_regular_price( $compute_regular( $price ) );
+        $product->set_sale_price( $price );
+        $product->save();
+    }
+
+    return true;
+}
+
+/**
+ * Consolida il saldo nel prezzo: il sale_price corrente diventa il nuovo
+ * regular_price e lo sconto viene rimosso. Inverso di
+ * gh_create_artificial_sale() — il prezzo pagato non cambia, sparisce il
+ * badge sconto. No-op sui prodotti/varianti senza saldo attivo.
+ *
+ * NB: diverso da remove_sale, che cancella il sale_price e fa RISALIRE il
+ * prezzo pagato al regular.
+ */
+function gh_collapse_sale( WC_Product $product ): true {
+
+    if ( $product->is_type( 'variable' ) ) {
+        foreach ( $product->get_children() as $var_id ) {
+            $sale = (float) get_post_meta( $var_id, '_sale_price', true );
+            if ( $sale <= 0 ) continue;
+
+            update_post_meta( $var_id, '_regular_price', $sale );
+            delete_post_meta( $var_id, '_sale_price' );
+            update_post_meta( $var_id, '_price', $sale );
+        }
+    } else {
+        $sale = (float) $product->get_sale_price();
+        if ( $sale > 0 ) {
+            $product->set_regular_price( $sale );
+            $product->set_sale_price( '' );
+            $product->save();
+        }
     }
 
     return true;

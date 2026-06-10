@@ -506,6 +506,16 @@
             'adjust_price':      '<input type="number" class="filter-select" id="bulk-amount" placeholder="+/-" step="0.01" style="width:80px;"><select class="filter-select" id="bulk-target"><option value="regular_price">Regular</option><option value="sale_price">Sale</option></select>',
             'markup_percent':    percentChangeUI('+%'),
             'discount_percent':  percentChangeUI('-%'),
+            'artificial_sale':   '<input type="number" class="filter-select" id="bulk-percent" placeholder="Sconto mostrato" min="1" max="99" style="width:110px;"><span style="color:var(--dim);font-size:11px;">%</span>'
+                               + '<select class="filter-select" id="bulk-rounding" title="Arrotondamento del regular fittizio">'
+                               +   '<option value="99">Termina .99</option>'
+                               +   '<option value="00">Termina .00</option>'
+                               +   '<option value="nearest_5">Multiplo 5</option>'
+                               +   '<option value="nearest_10">Multiplo 10</option>'
+                               +   '<option value="2dec">2 decimali</option>'
+                               + '</select>'
+                               + '<span style="color:var(--dim);font-size:11px;">Il prezzo pagato resta invariato</span>',
+            'collapse_sale':     '<span style="color:var(--dim);font-size:11px;">Il sale_price diventa il nuovo regular_price (rimuove il badge sconto, prezzo pagato invariato)</span>',
             'set_stock_status':  '<select class="filter-select" id="bulk-stock-status"><option value="instock">In stock</option><option value="outofstock">Out of stock</option></select>',
             'set_stock_quantity':'<input type="number" class="filter-select" id="bulk-qty" placeholder="Qty" min="0" style="width:80px;">',
             'set_seo_template':  '<input type="text" class="filter-select" id="bulk-seo-title" placeholder="Meta title: {name} | {brand}" style="min-width:200px;"><input type="text" class="filter-select" id="bulk-seo-desc" placeholder="Meta desc" style="min-width:200px;">',
@@ -599,6 +609,8 @@
             'adjust_price':{amount:parseFloat(g('bulk-amount')||0),target:g('bulk-target')},
             'markup_percent':{percent:parseFloat(g('bulk-percent')||0),target:g('bulk-target'),rounding:g('bulk-rounding')},
             'discount_percent':{percent:parseFloat(g('bulk-percent')||0),target:g('bulk-target'),rounding:g('bulk-rounding')},
+            'artificial_sale':{percent:parseFloat(g('bulk-percent')||0),rounding:g('bulk-rounding')},
+            'collapse_sale':{},
             'set_stock_status':{stock_status:g('bulk-stock-status')}, 'set_stock_quantity':{quantity:parseInt(g('bulk-qty')||0)},
             'set_seo_template':{meta_title_template:g('bulk-seo-title'),meta_description_template:g('bulk-seo-desc')},
             'remove_first_gallery_image':{}, 'clear_gallery':{},

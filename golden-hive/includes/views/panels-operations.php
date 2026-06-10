@@ -44,6 +44,8 @@
                         <option value="adjust_price">Modifica prezzo</option>
                         <option value="markup_percent">Aumento prezzo %</option>
                         <option value="discount_percent">Sconto prezzo %</option>
+                        <option value="artificial_sale">Crea saldo fittizio</option>
+                        <option value="collapse_sale">Consolida saldo nel prezzo</option>
                     </optgroup>
                     <optgroup label="Stock">
                         <option value="set_stock_status">Imposta stato stock</option>

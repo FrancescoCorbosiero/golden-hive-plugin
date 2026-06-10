@@ -277,7 +277,7 @@ prima di procedere.
 |---|---|
 | Taxonomy | assign_categories, remove_categories, set_categories, assign_brands, remove_brands, set_brands, assign_tags, remove_tags |
 | Status | set_status |
-| Price | set_sale_percent, remove_sale, adjust_price, markup_percent, discount_percent |
+| Price | set_sale_percent, remove_sale, adjust_price, markup_percent, discount_percent, artificial_sale (prezzo corrente → sale_price + regular gonfiato per mostrare lo sconto %), collapse_sale (sale_price → nuovo regular, inverso di artificial_sale) |
 | Stock | set_stock_status, set_stock_quantity |
 | SEO | set_seo_template (con placeholder {name}, {sku}, {price}, {brand}, {type}) |
 | Media | remove_first_gallery_image, clear_gallery |

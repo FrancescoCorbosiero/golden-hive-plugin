@@ -67,25 +67,43 @@ function rp_em_send_test_email( string $to, string $subject = '', string $body =
  * instrada come SMTP raw, non via SES Template API: i merge tag non
  * vengono toccati e finirebbero letterali nell'inbox del cliente.
  *
- * @param array  $contacts   Lista di contatti (oggetti con ->email).
+ * Supporta esecuzione CHUNKED (per il job runner): $opts permette di partire
+ * da un offset, riprendere i contatori di una run precedente, e cedere il
+ * controllo quando una callback should_yield() ritorna true. In quel caso il
+ * risultato ha done=false + next_offset, e il chiamante rischedula la
+ * continuazione. Senza $opts il comportamento e quello storico: una passata
+ * completa, done=true.
+ *
+ * @param array  $contacts   Lista di contatti (oggetti o array con email/display_name).
  * @param string $subject    Oggetto email (puo contenere {RECIPIENT_*}).
  * @param string $html       Corpo HTML gia renderizzato.
  * @param int    $rate_limit Microsecondi di pausa tra invii.
  * @param array  $meta       { campaign_id, campaign_name } per il logging.
- * @return array { sent: int, failed: int, errors: string[] }
+ * @param array  $opts       {
+ *     offset:       int      Indice di partenza nella lista contatti (default 0),
+ *     sent:         int      Contatore sent gia accumulato da tick precedenti,
+ *     failed:       int      Contatore failed gia accumulato,
+ *     errors:       string[] Errori gia accumulati,
+ *     should_yield: callable () => bool — se true, interrompe e ritorna done=false,
+ * }
+ * @return array { sent: int, failed: int, errors: string[], progress: int, total: int, done: bool, next_offset: int }
  */
 function rp_em_send_campaign_rendered(
     array $contacts,
     string $subject,
     string $html,
     int $rate_limit = 200000,
-    array $meta = []
+    array $meta = [],
+    array $opts = []
 ): array {
 
-    $sent    = 0;
-    $failed  = 0;
-    $errors  = [];
-    $headers = [ 'Content-Type: text/html; charset=UTF-8' ];
+    $contacts = array_values( $contacts );
+    $offset   = max( 0, (int) ( $opts['offset'] ?? 0 ) );
+    $sent     = max( 0, (int) ( $opts['sent']   ?? 0 ) );
+    $failed   = max( 0, (int) ( $opts['failed'] ?? 0 ) );
+    $errors   = is_array( $opts['errors'] ?? null ) ? $opts['errors'] : [];
+    $yield_cb = is_callable( $opts['should_yield'] ?? null ) ? $opts['should_yield'] : null;
+    $headers  = [ 'Content-Type: text/html; charset=UTF-8' ];
 
     $campaign_id   = (string) ( $meta['campaign_id']   ?? '' );
     $campaign_name = (string) ( $meta['campaign_name'] ?? '' );
@@ -106,7 +124,23 @@ function rp_em_send_campaign_rendered(
     $checkpoint_seconds = 30;
     $last_checkpoint    = microtime( true );
 
-    foreach ( $contacts as $i => $contact ) {
+    for ( $i = $offset; $i < $total; $i++ ) {
+        // Yield cooperativo (job runner): interrompi PRIMA del prossimo invio.
+        // Garantito progresso: almeno un invio per tick perche il check sta
+        // in testa al loop e il deadline parte sempre nel futuro.
+        if ( $yield_cb && $i > $offset && $yield_cb() ) {
+            return [
+                'sent'        => $sent,
+                'failed'      => $failed,
+                'errors'      => $errors,
+                'progress'    => $i,
+                'total'       => $total,
+                'done'        => false,
+                'next_offset' => $i,
+            ];
+        }
+
+        $contact = $contacts[ $i ];
         $email = is_object( $contact ) ? (string) ( $contact->email ?? '' ) : (string) ( $contact['email'] ?? '' );
         if ( $email === '' || ! is_email( $email ) ) {
             $failed++;
@@ -185,11 +219,13 @@ function rp_em_send_campaign_rendered(
     }
 
     return [
-        'sent'     => $sent,
-        'failed'   => $failed,
-        'errors'   => $errors,
-        'progress' => $total,
-        'total'    => $total,
+        'sent'        => $sent,
+        'failed'      => $failed,
+        'errors'      => $errors,
+        'progress'    => $total,
+        'total'       => $total,
+        'done'        => true,
+        'next_offset' => $total,
     ];
 }
 

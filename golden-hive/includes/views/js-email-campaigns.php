@@ -350,10 +350,58 @@
         toast('Schedulata', 'ok');
     };
 
+    // ── BACKGROUND SEND POLLING ─────────────────────────────────
+    // "Invia ora" ora dispatcha un job in background e la response AJAX
+    // torna subito (niente piu connessione aperta per minuti che Cloudflare
+    // tronca). Il progresso si legge pollando rp_em_ajax_campaign_status.
+    let sendPollTimer = null;
+
+    function stopSendPoll() {
+        if (sendPollTimer) { clearInterval(sendPollTimer); sendPollTimer = null; }
+        const sp = $('em-camp-send-spin');     if (sp) sp.style.display = 'none';
+        const pg = $('em-camp-send-progress'); if (pg) pg.textContent = '';
+    }
+
+    function startSendPoll(id) {
+        stopSendPoll();
+        const sp = $('em-camp-send-spin');     if (sp) sp.style.display = '';
+        const pg = $('em-camp-send-progress');
+        const startedAt = Date.now();
+        sendPollTimer = setInterval(async () => {
+            // Hard cap di sicurezza: 2h (il lock campagna scade comunque a 1h).
+            if (Date.now() - startedAt > 2 * 3600 * 1000) {
+                stopSendPoll();
+                toast('Polling interrotto dopo 2h — controlla lo stato nella lista campagne o nella tab Jobs.', 'err', 0);
+                return;
+            }
+            const r = await ajax('rp_em_ajax_campaign_status', { id });
+            if (!r.success) return; // errore transitorio: riprova al giro dopo
+            const d = r.data || {}, s = d.stats || {};
+            if (d.status === 'sending') {
+                if (pg) pg.textContent = (s.total|0) > 0
+                    ? 'Invio in corso... ' + (s.progress|0) + ' / ' + (s.total|0)
+                    : 'Invio in preparazione...';
+                return;
+            }
+            stopSendPoll();
+            if (editing && editing.id === id) { editing.status = d.status; editing.stats = s; }
+            if (d.status === 'sent') {
+                const failed = s.failed|0;
+                toast('Campagna inviata — ' + (s.sent|0) + ' ok' + (failed ? ' · ' + failed + ' fallite' : ''), failed ? 'err' : 'ok', failed ? 0 : 5000);
+            } else if (d.status === 'failed') {
+                const errs = Array.isArray(s.errors) ? s.errors : [];
+                toast('Campagna fallita: ' + (errs.slice(0, 3).join(' | ') || 'vedi tab Jobs'), 'err', 0);
+            } else {
+                toast('Invio terminato con stato: ' + d.status, 'inf');
+            }
+        }, 2500);
+    }
+
     GH.emCampaignSend = async function() {
         if (!editing?.id) { toast('Salva prima la campagna', 'err'); return; }
         if (!await GH.confirm('Invio IMMEDIATO a tutti i contatti della sorgente.\nNon si puo annullare una volta partiti gli invii. Procedere?', { title:'Invia campagna', danger:true, okLabel:'Invia ora' })) return;
         const sp = $('em-camp-send-spin'); sp.style.display = '';
+        let polling = false;
         try {
             const r = await ajax('rp_em_ajax_campaign_send', { id: editing.id });
             if (!r.success) {
@@ -361,7 +409,16 @@
                 toast('Errore invio: ' + msg, 'err', 0);
                 return;
             }
-            const d      = r.data || {};
+            const d = r.data || {};
+            // Path normale: il server ha dispatchato il job in background.
+            // Lo spinner resta attivo finche il polling non vede sent/failed.
+            if (d.dispatched) {
+                polling = true;
+                toast('Invio avviato in background — puoi continuare a lavorare.', 'ok', 4000);
+                startSendPoll(editing.id);
+                return;
+            }
+            // Fallback sincrono (job runner non disponibile): result completo.
             const sent   = d.sent|0;
             const failed = d.failed|0;
             const errs   = Array.isArray(d.errors) ? d.errors : [];
@@ -376,7 +433,7 @@
             } else {
                 toast('Inviate: ' + sent + ' · Fallite: ' + failed, failed ? 'err' : 'ok', failed ? 0 : 3000);
             }
-        } finally { sp.style.display = 'none'; }
+        } finally { if (!polling) sp.style.display = 'none'; }
     };
 
     GH.emCampaignSendTest = async function() {

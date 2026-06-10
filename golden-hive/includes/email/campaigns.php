@@ -225,7 +225,7 @@ function rp_em_execute_campaign( string $campaign_id ): array {
     }
 
     // ── Concurrency lock — acquisizione atomica via transient.
-    $lock_key = 'rp_em_camp_lock_' . md5( $campaign_id );
+    $lock_key = rp_em_campaign_lock_key( $campaign_id );
     $lock_ttl = (int) apply_filters( 'rp_em_campaign_lock_ttl', RP_EM_CAMPAIGN_LOCK_TTL );
     if ( get_transient( $lock_key ) ) {
         return [
@@ -276,9 +276,68 @@ function rp_em_execute_campaign( string $campaign_id ): array {
  * @return array
  */
 function rp_em_execute_campaign_internal( string $campaign_id, array $campaign ): array {
+    $prep = rp_em_prepare_campaign_send( $campaign_id );
+    if ( empty( $prep['ok'] ) ) {
+        return [ 'sent' => 0, 'failed' => 0, 'errors' => (array) ( $prep['errors'] ?? [ 'Preparazione fallita.' ] ) ];
+    }
+
+    $result = rp_em_send_campaign_rendered(
+        $prep['contacts'],
+        $prep['subject'],
+        $prep['html'],
+        $prep['rate_limit'],
+        [
+            'campaign_id'   => $campaign_id,
+            'campaign_name' => (string) ( $campaign['name'] ?? '' ),
+        ]
+    );
+
+    rp_em_finalize_campaign_send( $campaign_id, $result );
+
+    return $result;
+}
+
+/**
+ * Fase di PREPARAZIONE di un invio campagna: valida (solo errori fatali),
+ * renderizza l'HTML, risolve i contatti e mette la campagna in stato
+ * 'sending' con stats azzerate. Nessuna email viene inviata qui.
+ *
+ * E la parte veloce dell'invio, separata dal loop di spedizione cosi il
+ * job handler chunked puo eseguirla nel primo tick e poi spedire a chunk.
+ * L'HTML renderizzato viene salvato subito in last_render: i tick
+ * successivi lo rileggono dal record campagna invece di ri-renderizzare.
+ *
+ * In caso di errore la campagna viene marcata 'failed' con gli errori
+ * nelle stats (stesso comportamento storico di execute_campaign).
+ *
+ * @param string $campaign_id
+ * @return array {
+ *     ok: bool,
+ *     errors?: string[],          (solo su ok=false)
+ *     html?: string, subject?: string, rate_limit?: int,
+ *     contacts?: array[]          Lista normalizzata [{email, display_name}]
+ * }
+ */
+function rp_em_prepare_campaign_send( string $campaign_id ): array {
+    $campaign = rp_em_get_campaign( $campaign_id );
+    if ( ! $campaign ) {
+        return [ 'ok' => false, 'errors' => [ 'Campagna non trovata.' ] ];
+    }
+
+    $fail = function ( array $errors, ?array $last_validation = null ) use ( $campaign_id ): array {
+        $data = [
+            'id'     => $campaign_id,
+            'status' => RP_EM_STATUS_FAILED,
+            'stats'  => [ 'sent' => 0, 'failed' => 0, 'errors' => $errors ],
+        ];
+        if ( $last_validation !== null ) $data['last_validation'] = $last_validation;
+        rp_em_save_campaign( $data );
+        return [ 'ok' => false, 'errors' => $errors ];
+    };
+
     // Validator BLOCCANTE: solo fatali (template mancante, HTML rotto,
     // subject vuoto). Placeholder mancanti / brand incompleto NON bloccano
-    // piu il send — il renderer li sostituisce con stringa vuota.
+    // il send — il renderer li sostituisce con stringa vuota.
     $blocking = rp_em_validate_campaign_blocking( $campaign_id );
     // Compute anche la validazione strict in modo da salvarla come
     // last_validation (cosi l'UI continua a mostrare warning/quality issues)
@@ -286,21 +345,8 @@ function rp_em_execute_campaign_internal( string $campaign_id, array $campaign )
     $full = rp_em_validate_campaign( $campaign_id );
 
     if ( ! $blocking['ok'] ) {
-        rp_em_save_campaign( [
-            'id'              => $campaign_id,
-            'status'          => RP_EM_STATUS_FAILED,
-            'last_validation' => $full,
-            'stats'           => [ 'sent' => 0, 'failed' => 0, 'errors' => array_map( fn( $e ) => $e['message'], $blocking['errors'] ) ],
-        ] );
-        return [ 'sent' => 0, 'failed' => 0, 'errors' => array_map( fn( $e ) => $e['message'], $blocking['errors'] ) ];
+        return $fail( array_map( fn( $e ) => $e['message'], $blocking['errors'] ), $full );
     }
-
-    rp_em_save_campaign( [
-        'id'              => $campaign_id,
-        'status'          => RP_EM_STATUS_SENDING,
-        'started_at'      => current_time( 'mysql' ),
-        'last_validation' => $full,
-    ] );
 
     // Render: isolato in try/catch cosi qualunque eccezione del layer
     // placeholder/template/WC resolver viene catturata e segnalata senza
@@ -309,48 +355,62 @@ function rp_em_execute_campaign_internal( string $campaign_id, array $campaign )
         $html = rp_em_render_campaign( $campaign_id );
     } catch ( \Throwable $e ) {
         error_log( 'rp_em_render_campaign threw for ' . $campaign_id . ' — ' . $e->getMessage() );
-        rp_em_save_campaign( [
-            'id'     => $campaign_id,
-            'status' => RP_EM_STATUS_FAILED,
-            'stats'  => [ 'sent' => 0, 'failed' => 0, 'errors' => [ 'Render exception: ' . $e->getMessage() ] ],
-        ] );
-        return [ 'sent' => 0, 'failed' => 0, 'errors' => [ 'Render exception: ' . $e->getMessage() ] ];
+        return $fail( [ 'Render exception: ' . $e->getMessage() ] );
     }
 
     if ( $html === '' ) {
-        rp_em_save_campaign( [
-            'id'     => $campaign_id,
-            'status' => RP_EM_STATUS_FAILED,
-            'stats'  => [ 'sent' => 0, 'failed' => 0, 'errors' => [ 'Render vuoto.' ] ],
-        ] );
-        return [ 'sent' => 0, 'failed' => 0, 'errors' => [ 'Render vuoto.' ] ];
+        return $fail( [ 'Render vuoto.' ] );
     }
 
     $contacts = rp_em_resolve_campaign_contacts( $campaign );
     if ( empty( $contacts ) ) {
-        rp_em_save_campaign( [
-            'id'     => $campaign_id,
-            'status' => RP_EM_STATUS_FAILED,
-            'stats'  => [ 'sent' => 0, 'failed' => 0, 'errors' => [ 'Nessun contatto trovato.' ] ],
-        ] );
-        return [ 'sent' => 0, 'failed' => 0, 'errors' => [ 'Nessun contatto trovato.' ] ];
+        return $fail( [ 'Nessun contatto trovato.' ] );
     }
 
-    $rate_limit = intval( $campaign['rate_limit'] ?? 200000 );
-    $subject    = (string) ( $campaign['subject'] ?? '' );
+    // Normalizza i contatti in array semplici: serializzabili nel cursor del
+    // job runner (gli oggetti Hustle non sopravvivono al round-trip transient).
+    $normalized = [];
+    foreach ( $contacts as $contact ) {
+        $normalized[] = [
+            'email'        => is_object( $contact ) ? (string) ( $contact->email ?? '' ) : (string) ( $contact['email'] ?? '' ),
+            'display_name' => is_object( $contact ) ? (string) ( $contact->display_name ?? '' ) : (string) ( $contact['display_name'] ?? '' ),
+        ];
+    }
 
-    $result = rp_em_send_campaign_rendered(
-        $contacts,
-        $subject,
-        $html,
-        $rate_limit,
-        [
-            'campaign_id'   => $campaign['id']   ?? '',
-            'campaign_name' => $campaign['name'] ?? '',
-        ]
-    );
+    rp_em_save_campaign( [
+        'id'              => $campaign_id,
+        'status'          => RP_EM_STATUS_SENDING,
+        'started_at'      => current_time( 'mysql' ),
+        'last_validation' => $full,
+        'last_render'     => $html,
+        'stats'           => [
+            'sent'     => 0,
+            'failed'   => 0,
+            'errors'   => [],
+            'progress' => 0,
+            'total'    => count( $normalized ),
+        ],
+    ] );
 
-    $status = ( $result['failed'] > 0 && $result['sent'] === 0 )
+    return [
+        'ok'         => true,
+        'html'       => $html,
+        'subject'    => (string) ( $campaign['subject'] ?? '' ),
+        'rate_limit' => intval( $campaign['rate_limit'] ?? 200000 ),
+        'contacts'   => $normalized,
+    ];
+}
+
+/**
+ * Fase di FINALIZZAZIONE di un invio campagna: calcola lo status finale
+ * dai contatori, persiste stats + completed_at e rilascia il lock campagna.
+ *
+ * @param string $campaign_id
+ * @param array  $result Shape di rp_em_send_campaign_rendered.
+ * @return string Status finale ('sent' | 'failed').
+ */
+function rp_em_finalize_campaign_send( string $campaign_id, array $result ): string {
+    $status = ( ( $result['failed'] ?? 0 ) > 0 && ( $result['sent'] ?? 0 ) === 0 )
         ? RP_EM_STATUS_FAILED
         : RP_EM_STATUS_SENT;
 
@@ -358,11 +418,100 @@ function rp_em_execute_campaign_internal( string $campaign_id, array $campaign )
         'id'           => $campaign_id,
         'status'       => $status,
         'stats'        => $result,
-        'last_render'  => $html,
         'completed_at' => current_time( 'mysql' ),
     ] );
 
-    return $result;
+    rp_em_release_campaign_lock( $campaign_id );
+
+    return $status;
+}
+
+/**
+ * Chiave del transient di lock anti doppio-invio per una campagna.
+ * Condivisa tra il path sincrono (execute) e quello background (dispatch+job).
+ */
+function rp_em_campaign_lock_key( string $campaign_id ): string {
+    return 'rp_em_camp_lock_' . md5( $campaign_id );
+}
+
+/**
+ * Rilascia il lock anti doppio-invio di una campagna.
+ */
+function rp_em_release_campaign_lock( string $campaign_id ): void {
+    delete_transient( rp_em_campaign_lock_key( $campaign_id ) );
+}
+
+/**
+ * Avvia l'invio di una campagna in BACKGROUND tramite il job runner (gh_jobs).
+ *
+ * Crea un job one-shot di kind 'email_campaign' (enabled:false → mai
+ * rischedulato dal cron) e fa partire subito il primo tick via wp-cron
+ * loopback. Il handler chunked spedisce a blocchi rispettando il
+ * tick_budget, quindi la richiesta AJAX di "Invia ora" ritorna in
+ * millisecondi invece di restare aperta per l'intero invio (che Cloudflare
+ * troncava dopo ~100s).
+ *
+ * Anti doppio-invio: acquisisce lo stesso transient lock del path sincrono,
+ * rilasciato da rp_em_finalize_campaign_send() (o dal TTL se il job muore).
+ *
+ * @param string $campaign_id
+ * @param string $trigger 'manual' | 'cron' (solo per il label del job).
+ * @return array {
+ *     ok: bool,
+ *     job_id?: string,
+ *     reason?: 'not_found'|'already_sending'|'jobs_unavailable'|'job_save_failed',
+ *     error?: string,
+ * }
+ */
+function rp_em_dispatch_campaign_send( string $campaign_id, string $trigger = 'manual' ): array {
+    $campaign = rp_em_get_campaign( $campaign_id );
+    if ( ! $campaign ) {
+        return [ 'ok' => false, 'reason' => 'not_found', 'error' => 'Campagna non trovata.' ];
+    }
+
+    if ( ! function_exists( 'gh_jobs_save' ) || ! function_exists( 'gh_jobs_get_kind' ) || ! gh_jobs_get_kind( 'email_campaign' ) ) {
+        return [ 'ok' => false, 'reason' => 'jobs_unavailable', 'error' => 'Job runner non disponibile.' ];
+    }
+
+    $lock_key = rp_em_campaign_lock_key( $campaign_id );
+    $lock_ttl = (int) apply_filters( 'rp_em_campaign_lock_ttl', RP_EM_CAMPAIGN_LOCK_TTL );
+    if ( get_transient( $lock_key ) ) {
+        return [ 'ok' => false, 'reason' => 'already_sending', 'error' => 'Invio gia in corso per questa campagna.' ];
+    }
+    set_transient( $lock_key, (string) time(), $lock_ttl );
+
+    $saved = gh_jobs_save( [
+        'kind'        => 'email_campaign',
+        'label'       => sprintf( 'Campagna · %s', (string) ( $campaign['name'] ?? $campaign_id ) ),
+        // Expression valida richiesta dal validator; enabled:false significa
+        // che il cron non la schedulera mai — fire singolo qui sotto.
+        'cron'        => '0 0 1 1 *',
+        'enabled'     => false,
+        'max_runtime' => 3600,
+        'tick_budget' => 25,
+        'params'      => [ 'campaign_id' => $campaign_id ],
+    ] );
+
+    if ( is_wp_error( $saved ) ) {
+        delete_transient( $lock_key );
+        return [ 'ok' => false, 'reason' => 'job_save_failed', 'error' => $saved->get_error_message() ];
+    }
+
+    // Stato 'sending' SUBITO (sincrono): la UI che polla lo status vede la
+    // transizione anche prima che il primo tick (prepare) parta davvero.
+    rp_em_save_campaign( [
+        'id'         => $campaign_id,
+        'status'     => RP_EM_STATUS_SENDING,
+        'started_at' => current_time( 'mysql' ),
+        'stats'      => [ 'sent' => 0, 'failed' => 0, 'errors' => [], 'progress' => 0, 'total' => 0 ],
+    ] );
+
+    wp_schedule_single_event( time(), GH_JOBS_TICK_HOOK, [ $saved['id'] ] );
+    if ( function_exists( 'spawn_cron' ) ) {
+        spawn_cron( time() );
+    }
+
+    return [ 'ok' => true, 'job_id' => (string) $saved['id'], 'trigger' => $trigger ];
 }
 
 /**
@@ -395,6 +544,14 @@ add_action( RP_EM_CRON_HOOK, function ( string $campaign_id ) {
     // Il cron handler NON deve mai propagare exception: una risolleva qui
     // ucciderebbe il runner cron per tutte le altre campagne in coda.
     try {
+        // Path preferito: invio chunked via job runner (stesso del bottone
+        // "Invia ora"). Sopravvive ai timeout PHP perche ogni tick dura al
+        // massimo tick_budget secondi.
+        $dispatch = rp_em_dispatch_campaign_send( $campaign_id, 'cron' );
+        if ( ! empty( $dispatch['ok'] ) || ( $dispatch['reason'] ?? '' ) === 'already_sending' ) {
+            return;
+        }
+        // Fallback legacy (job runner non disponibile): invio sincrono.
         rp_em_execute_campaign( $campaign_id );
     } catch ( \Throwable $e ) {
         error_log( 'rp_em_cron: execute_campaign threw for ' . $campaign_id . ' — ' . $e->getMessage() );

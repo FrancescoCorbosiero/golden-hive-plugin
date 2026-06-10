@@ -42,7 +42,7 @@ add_action( 'gh_jobs_register', function () {
     // ── Email campaign ────────────────────────────────────
     gh_jobs_register_kind( 'email_campaign', [
         'label'       => 'Email Campaign',
-        'description' => 'Esegue una campagna (rp_em_execute_campaign).',
+        'description' => 'Invia una campagna a chunk (prepare → send batched → finalize).',
         'params'      => [
             'campaign_id' => [ 'type' => 'string', 'label' => 'Campaign ID', 'required' => true ],
         ],
@@ -177,7 +177,24 @@ function gh_jobs_handler_gs_feed( array $job, array $context ): array {
 }
 
 /**
- * Handler: email_campaign.
+ * Handler: email_campaign (chunked).
+ *
+ * Tick 1: prepare (valida + renderizza + risolve contatti, lato email module)
+ * e congela la lista contatti nel cursor — i tick successivi spediscono
+ * sulla lista frozen, quindi un subscriber aggiunto a invio in corso non
+ * distorce la run.
+ *
+ * Cursor shape: { offset, sent, failed, errors[], subject, rate_limit, contacts[] }
+ *
+ * Il loop di spedizione e rp_em_send_campaign_rendered() con
+ * should_yield=gh_jobs_should_yield: quando il tick_budget scade ritorna
+ * done=false + next_offset e il runner schedula la continuazione (+1s).
+ * L'HTML renderizzato NON sta nel cursor (puo pesare centinaia di KB):
+ * viene riletto da campaign.last_render, salvato dalla prepare.
+ *
+ * Il lock campagna (anti doppio-invio, condiviso col path sincrono) viene
+ * rilasciato da rp_em_finalize_campaign_send() a fine run, o qui sui path
+ * di errore.
  */
 function gh_jobs_handler_email_campaign( array $job, array $context ): array {
     $p  = $job['params'] ?? [];
@@ -185,18 +202,86 @@ function gh_jobs_handler_email_campaign( array $job, array $context ): array {
     if ( $id === '' ) {
         return [ 'status' => 'error', 'error' => 'campaign_id mancante.' ];
     }
-    if ( ! function_exists( 'rp_em_execute_campaign' ) ) {
-        return [ 'status' => 'error', 'error' => 'rp_em_execute_campaign non disponibile.' ];
+    if ( ! function_exists( 'rp_em_prepare_campaign_send' ) ) {
+        return [ 'status' => 'error', 'error' => 'Email module non disponibile.' ];
     }
 
-    $result = rp_em_execute_campaign( $id );
+    $fail = static function ( string $error ) use ( $id ): array {
+        if ( function_exists( 'rp_em_release_campaign_lock' ) ) {
+            rp_em_release_campaign_lock( $id );
+        }
+        return [ 'status' => 'error', 'error' => $error ];
+    };
 
-    // rp_em_execute_campaign returns { sent, failed, errors }; treat any
-    // unexpected shape as a success with a raw summary.
-    $failed = is_array( $result ) ? (int) ( $result['failed'] ?? 0 ) : 0;
+    $cursor = $context['cursor'];
+    if ( ! is_array( $cursor ) || ! isset( $cursor['contacts'] ) ) {
+        // First tick: prepare. In caso di errore la campagna e gia stata
+        // marcata 'failed' (con gli errori nelle stats) dalla prepare stessa.
+        $prep = rp_em_prepare_campaign_send( $id );
+        if ( empty( $prep['ok'] ) ) {
+            return $fail( implode( ' | ', (array) ( $prep['errors'] ?? [ 'Preparazione fallita.' ] ) ) );
+        }
+        $cursor = [
+            'offset'     => 0,
+            'sent'       => 0,
+            'failed'     => 0,
+            'errors'     => [],
+            'subject'    => (string) $prep['subject'],
+            'rate_limit' => (int) $prep['rate_limit'],
+            'contacts'   => $prep['contacts'],
+        ];
+    }
+
+    $campaign = rp_em_get_campaign( $id );
+    if ( ! $campaign ) {
+        return $fail( 'Campagna non trovata.' );
+    }
+    $html = (string) ( $campaign['last_render'] ?? '' );
+    if ( $html === '' ) {
+        return $fail( 'last_render mancante: prepare non completata?' );
+    }
+
+    $result = rp_em_send_campaign_rendered(
+        $cursor['contacts'],
+        $cursor['subject'],
+        $html,
+        $cursor['rate_limit'],
+        [
+            'campaign_id'   => $id,
+            'campaign_name' => (string) ( $campaign['name'] ?? '' ),
+        ],
+        [
+            'offset'       => (int) $cursor['offset'],
+            'sent'         => (int) $cursor['sent'],
+            'failed'       => (int) $cursor['failed'],
+            'errors'       => (array) $cursor['errors'],
+            'should_yield' => 'gh_jobs_should_yield',
+        ]
+    );
+
+    if ( empty( $result['done'] ) ) {
+        $cursor['offset'] = (int) $result['next_offset'];
+        $cursor['sent']   = (int) $result['sent'];
+        $cursor['failed'] = (int) $result['failed'];
+        // Solo la coda degli errori: il cursor vive in un transient e non
+        // deve gonfiarsi (le stats campagna tengono comunque le ultime 25).
+        $cursor['errors'] = array_slice( (array) $result['errors'], -25 );
+        return [
+            'status'   => 'continue',
+            'cursor'   => $cursor,
+            'progress' => [ 'processed' => $cursor['offset'], 'of' => count( $cursor['contacts'] ) ],
+        ];
+    }
+
+    rp_em_finalize_campaign_send( $id, $result );
+
     return [
         'status'  => 'done',
-        'summary' => is_array( $result ) ? $result : [ 'result' => $result ],
+        'summary' => [
+            'sent'   => (int) $result['sent'],
+            'failed' => (int) $result['failed'],
+            'total'  => (int) $result['total'],
+        ],
     ];
 }
 

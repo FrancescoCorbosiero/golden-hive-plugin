@@ -537,6 +537,14 @@
                                + '</select>'
                                + '<span style="color:var(--dim);font-size:11px;">Il prezzo pagato resta invariato</span>',
             'collapse_sale':     '<span style="color:var(--dim);font-size:11px;">Il sale_price diventa il nuovo regular_price (rimuove il badge sconto, prezzo pagato invariato)</span>',
+            'round_prices':      '<select class="filter-select" id="bulk-target"><option value="regular_price">Regular</option><option value="sale_price">Sale</option><option value="both">Entrambi</option></select>'
+                               + '<select class="filter-select" id="bulk-rounding" title="Arrotondamento">'
+                               +   '<option value="99">Termina .99</option>'
+                               +   '<option value="00">Termina .00</option>'
+                               +   '<option value="nearest_5">Multiplo 5</option>'
+                               +   '<option value="nearest_10">Multiplo 10</option>'
+                               +   '<option value="2dec">2 decimali</option>'
+                               + '</select>',
             'set_stock_status':  '<select class="filter-select" id="bulk-stock-status"><option value="instock">In stock</option><option value="outofstock">Out of stock</option></select>',
             'set_stock_quantity':'<input type="number" class="filter-select" id="bulk-qty" placeholder="Qty" min="0" style="width:80px;">',
             'set_seo_template':  '<input type="text" class="filter-select" id="bulk-seo-title" placeholder="Meta title: {name} | {brand}" style="min-width:200px;"><input type="text" class="filter-select" id="bulk-seo-desc" placeholder="Meta desc" style="min-width:200px;">',
@@ -627,6 +635,7 @@
             'discount_percent':{percent:parseFloat(g('bulk-percent')||0),target:g('bulk-target'),rounding:g('bulk-rounding')},
             'artificial_sale':{percent:parseFloat(g('bulk-percent')||0),rounding:g('bulk-rounding')},
             'collapse_sale':{},
+            'round_prices':{target:g('bulk-target'),rounding:g('bulk-rounding')},
             'set_stock_status':{stock_status:g('bulk-stock-status')}, 'set_stock_quantity':{quantity:parseInt(g('bulk-qty')||0)},
             'set_seo_template':{meta_title_template:g('bulk-seo-title'),meta_description_template:g('bulk-seo-desc')},
             'remove_first_gallery_image':{}, 'clear_gallery':{},

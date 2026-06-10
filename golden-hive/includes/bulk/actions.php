@@ -130,6 +130,15 @@ function gh_get_bulk_action_definitions(): array {
             'description' => 'Il sale_price corrente diventa il nuovo regular_price e lo sconto viene rimosso. Inverso di "Crea saldo fittizio": il prezzo pagato non cambia, sparisce solo il badge sconto. Salta i prodotti senza saldo attivo.',
             'params'      => [],
         ],
+        'round_prices' => [
+            'label'       => 'Normalizza prezzi',
+            'group'       => 'price',
+            'description' => 'Applica un preset di arrotondamento ai prezzi esistenti senza altre modifiche (es. tutto a .99 o al multiplo di 5). Utile dopo import o markup per uniformare il listino. Salta i prezzi a 0.',
+            'params'      => [
+                'target'   => 'select:regular_price,sale_price,both',
+                'rounding' => 'select:99,00,nearest_5,nearest_10,2dec',
+            ],
+        ],
 
         // ── STOCK ───────────────────────────────────────
         'set_stock_status' => [
@@ -238,7 +247,7 @@ function gh_execute_bulk_action( string $action, array $product_ids, array $para
     // Suspend WC transient rebuilds during bulk — rebuild once at the end
     $suspend_transients = in_array( $action, [
         'set_sale_percent', 'remove_sale', 'adjust_price', 'markup_percent',
-        'discount_percent', 'artificial_sale', 'collapse_sale',
+        'discount_percent', 'artificial_sale', 'collapse_sale', 'round_prices',
         'set_stock_status', 'set_stock_quantity', 'set_status',
     ], true );
 
@@ -273,10 +282,17 @@ function gh_execute_bulk_action( string $action, array $product_ids, array $para
             $failed++;
         }
 
-        // Clear object cache periodically to avoid memory bloat
+        // Clear the RUNTIME object cache periodically to avoid memory bloat
+        // during long loops. wp_cache_flush_runtime() (WP 6.1+) svuota solo
+        // la cache in-memory del processo: il vecchio wp_cache_flush()
+        // nukava anche la cache persistente (Redis/Memcached) dell'intero
+        // sito ogni 50 prodotti.
         if ( ( $success + $failed ) % 50 === 0 ) {
-            wc_delete_product_transients();
-            wp_cache_flush();
+            if ( function_exists( 'wp_cache_flush_runtime' ) ) {
+                wp_cache_flush_runtime();
+            } else {
+                wp_cache_flush();
+            }
         }
     }
 
@@ -356,6 +372,11 @@ function gh_apply_bulk_action( WC_Product $product, string $action, array $param
             $params['rounding'] ?? '99'
         ),
         'collapse_sale' => gh_collapse_sale( $product ),
+        'round_prices'  => gh_round_prices_action(
+            $product,
+            $params['target']   ?? 'regular_price',
+            $params['rounding'] ?? '99'
+        ),
 
         // ── STOCK ───────────────────────────────────────
         'set_stock_status'   => gh_set_stock_status( $product, $params['stock_status'] ?? 'instock' ),
@@ -567,6 +588,51 @@ function gh_collapse_sale( WC_Product $product ): true {
             $product->save();
         }
     }
+
+    return true;
+}
+
+/**
+ * Normalizza i prezzi esistenti applicando un preset di arrotondamento
+ * (gh_round_price) senza altre trasformazioni. Target 'both' tocca sia
+ * regular che sale; i prezzi a 0/vuoti vengono saltati.
+ */
+function gh_round_prices_action( WC_Product $product, string $target, string $rounding ): true {
+
+    $keys = match ( $target ) {
+        'sale_price' => [ '_sale_price' ],
+        'both'       => [ '_regular_price', '_sale_price' ],
+        default      => [ '_regular_price' ],
+    };
+
+    if ( $product->is_type( 'variable' ) ) {
+        foreach ( $product->get_children() as $var_id ) {
+            foreach ( $keys as $meta_key ) {
+                $current = (float) get_post_meta( $var_id, $meta_key, true );
+                if ( $current <= 0 ) continue;
+                $new = gh_round_price( $current, $rounding );
+                if ( $new !== $current ) update_post_meta( $var_id, $meta_key, $new );
+            }
+            $sale = (float) get_post_meta( $var_id, '_sale_price', true );
+            update_post_meta( $var_id, '_price', $sale > 0 ? $sale : get_post_meta( $var_id, '_regular_price', true ) );
+        }
+        return true;
+    }
+
+    $changed = false;
+    foreach ( $keys as $meta_key ) {
+        $current = (float) ( $meta_key === '_sale_price' ? $product->get_sale_price() : $product->get_regular_price() );
+        if ( $current <= 0 ) continue;
+        $new = gh_round_price( $current, $rounding );
+        if ( $new === $current ) continue;
+        if ( $meta_key === '_sale_price' ) {
+            $product->set_sale_price( $new );
+        } else {
+            $product->set_regular_price( $new );
+        }
+        $changed = true;
+    }
+    if ( $changed ) $product->save();
 
     return true;
 }

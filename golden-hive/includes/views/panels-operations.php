@@ -46,6 +46,7 @@
                         <option value="discount_percent">Sconto prezzo %</option>
                         <option value="artificial_sale">Crea saldo fittizio</option>
                         <option value="collapse_sale">Consolida saldo nel prezzo</option>
+                        <option value="round_prices">Normalizza prezzi</option>
                     </optgroup>
                     <optgroup label="Stock">
                         <option value="set_stock_status">Imposta stato stock</option>

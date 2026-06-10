@@ -232,6 +232,17 @@ function gh_sanitize_bulk_params( string $action, array $params ): array {
 
         'collapse_sale' => [],
 
+        'round_prices' => [
+            'target'   => in_array( $params['target'] ?? '', [ 'regular_price', 'sale_price', 'both' ], true )
+                ? $params['target']
+                : 'regular_price',
+            'rounding' => in_array(
+                $params['rounding'] ?? '',
+                [ '2dec', '99', '00', 'nearest_1', 'nearest_5', 'nearest_10' ],
+                true
+            ) ? $params['rounding'] : '99',
+        ],
+
         'set_stock_status' =>
             [ 'stock_status' => sanitize_key( $params['stock_status'] ?? 'instock' ) ],
 
@@ -246,6 +257,7 @@ function gh_sanitize_bulk_params( string $action, array $params ): array {
         'set_menu_order' =>
             [ 'menu_order' => intval( $params['menu_order'] ?? 0 ) ],
 
-        default => $params,
+        // Azioni senza parametri + default: mai passare input raw ai handler.
+        default => [],
     };
 }

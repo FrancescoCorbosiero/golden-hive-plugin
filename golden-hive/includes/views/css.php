@@ -863,6 +863,35 @@ body.gh-loading #gh #gh-progress{opacity:1}
 @keyframes gh-mfade{from{opacity:0}to{opacity:1}}
 @keyframes gh-mslide{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 
+/* ── Term Picker — multi-select ricercabile (GH.termPicker) ─────────────────
+   Sostituisce i <select multiple> nativi per brand/categorie/tag.
+   Control compatto con chips + dropdown con search; .up = drop-up quando
+   manca spazio sotto (es. bulk action bar in fondo al pannello). */
+#gh .gh-tp{position:relative;min-width:240px;max-width:380px}
+#gh .gh-tp-control{display:flex;flex-wrap:wrap;gap:4px;align-items:center;min-height:30px;padding:3px 24px 3px 6px;background:var(--s3);border:1px solid var(--b1);border-radius:4px;cursor:pointer;position:relative}
+#gh .gh-tp-control:hover,#gh .gh-tp.open .gh-tp-control,#gh .gh-tp-control:focus{border-color:var(--acc);outline:none}
+#gh .gh-tp-caret{position:absolute;right:8px;top:50%;transform:translateY(-50%);color:var(--dim);font-size:9px;pointer-events:none}
+#gh .gh-tp-placeholder{color:var(--dim);font-size:11px;padding:2px 2px}
+#gh .gh-tp-chip{display:inline-flex;align-items:center;gap:3px;background:var(--acc-15);border:1px solid var(--acc-30);color:var(--txt);font-size:11px;border-radius:3px;padding:1px 2px 1px 6px;max-width:140px}
+#gh .gh-tp-chip-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#gh .gh-tp-chip-x{cursor:pointer;color:var(--dim);font-weight:600;padding:0 4px;border-radius:2px}
+#gh .gh-tp-chip-x:hover{color:var(--red);background:var(--red-10)}
+#gh .gh-tp-more{font-size:10px;color:var(--dim);font-family:var(--mono);padding:0 2px}
+#gh .gh-tp-drop{display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:90;width:100%;min-width:280px;background:var(--s2);border:1px solid var(--b2);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,.45);padding:8px}
+#gh .gh-tp.up .gh-tp-drop{top:auto;bottom:calc(100% + 4px)}
+#gh .gh-tp.open .gh-tp-drop{display:block}
+#gh .gh-tp-search{width:100%;margin-bottom:6px;box-sizing:border-box}
+#gh .gh-tp-list{max-height:260px;overflow-y:auto}
+#gh .gh-tp-opt{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:4px;cursor:pointer;font-size:12px;color:var(--txt)}
+#gh .gh-tp-opt:hover,#gh .gh-tp-opt.hi{background:var(--s3)}
+#gh .gh-tp-box{width:14px;height:14px;flex-shrink:0;border:1px solid var(--b2);border-radius:3px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;line-height:1;color:transparent}
+#gh .gh-tp-opt.sel .gh-tp-box{background:var(--acc);border-color:var(--acc);color:#fff}
+#gh .gh-tp-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#gh .gh-tp-ind{width:12px;flex-shrink:0}
+#gh .gh-tp-foot{display:flex;align-items:center;justify-content:space-between;padding-top:6px;border-top:1px solid var(--b1);margin-top:6px}
+#gh .gh-tp-count{font-size:10px;color:var(--dim);font-family:var(--mono)}
+#gh .gh-tp-empty{padding:10px;color:var(--dim);font-size:11px;text-align:center}
+
 @media(max-width:768px){
     /* ── Sidebar tabs: shrink to icon-only ─────────────────────────── */
     #gh .tabs-col{width:48px}

@@ -594,6 +594,27 @@ GH.emptyState(icon, text, extraClass)
 GH.statusChip(label, variant)           // 'ok'|'err'|'warn'|'info'|'dim'
 ```
 
+### Term Picker — multi-select ricercabile (js-termpicker.php)
+
+Sostituisce i `<select multiple>` nativi per liste lunghe (brand, categorie,
+tag). Stile Shopify: control con chips + dropdown con search testuale
+(diacritics-insensitive), navigazione tastiera (frecce/Enter/Esc), "Pulisci",
+drop-up automatico se manca spazio sotto.
+
+```javascript
+GH.termPicker(containerEl, {
+    items: [{id, name, parent}],   // parent > 0 → riga indentata
+    selected: [12, 34],
+    placeholder: 'Cerca brand...',
+    onChange: ids => { ... },      // opzionale
+});
+// La selezione e sempre leggibile da containerEl._ghTpSelected (int[]).
+```
+
+Usato in Filtra & Agisci (condition builder term_ids + bulk param selectors
+via placeholder `<div class="gh-tp-mount" data-tp-kind="brand|category|tag">`).
+Riusabile in qualunque altra sezione. CSS: blocco `.gh-tp-*` in css.php.
+
 ### Convenzioni editor wiring
 
 Pattern consolidato (applicato a Template / Campaign wizard / Brand

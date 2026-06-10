@@ -62,6 +62,32 @@
             html += '<button class="btn btn-ghost" onclick="GH.removeCondition(' + i + ')" style="padding:4px 8px;color:var(--dim);">&times;</button></div>';
         });
         wrap.innerHTML = html;
+        mountTermPickers(wrap);
+    }
+
+    // Monta i GH.termPicker sui placeholder .gh-tp-mount creati da
+    // renderValueInput (condition builder, con data-tp-idx) e da
+    // category/brand/tagSelector (bulk params, senza data-tp-idx: la
+    // selezione si legge da el._ghTpSelected via collectBulkParams).
+    function mountTermPickers(root) {
+        root.querySelectorAll('.gh-tp-mount').forEach(function(el) {
+            if (el._ghTpMounted) return;
+            el._ghTpMounted = true;
+            const kind  = el.dataset.tpKind;
+            const items = kind === 'category' ? (filterMeta && filterMeta.categories || [])
+                        : kind === 'brand'    ? (filterMeta && filterMeta.brands     || [])
+                        : kind === 'tag'      ? (filterMeta && filterMeta.tags       || [])
+                        : [];
+            const label = kind === 'category' ? 'categorie' : kind === 'brand' ? 'brand' : 'tag';
+            const hasIdx = el.dataset.tpIdx !== undefined;
+            const idx    = hasIdx ? parseInt(el.dataset.tpIdx) : -1;
+            GH.termPicker(el, {
+                items: items,
+                selected: hasIdx && conditions[idx] && Array.isArray(conditions[idx].value) ? conditions[idx].value : [],
+                placeholder: 'Cerca ' + label + '...',
+                onChange: hasIdx ? function(ids) { if (conditions[idx]) conditions[idx].value = ids; } : null,
+            });
+        });
     }
 
     function renderValueInput(idx, cond) {
@@ -73,13 +99,9 @@
         if (vt === 'boolean') return '<select class="filter-select" onchange="GH.condValueChanged('+idx+',this.value===\'1\')" style="min-width:80px;"><option value="1"'+(val===true?' selected':'')+'>Si</option><option value="0"'+(val===false?' selected':'')+'>No</option></select>';
         if (vt === 'select') { let h='<select class="filter-select" onchange="GH.condValueChanged('+idx+',this.value)" style="min-width:120px;">'; (def.options||[]).forEach(function(o){h+='<option value="'+o+'"'+(val===o?' selected':'')+'>'+o+'</option>';}); return h+'</select>'; }
         if (vt === 'term_ids') {
-            const items = cond.type==='category'?(filterMeta.categories||[])
-                        : cond.type==='brand'?(filterMeta.brands||[])
-                        : cond.type==='tag'?(filterMeta.tags||[])
-                        : [];
-            let h='<select class="filter-select" multiple onchange="GH.condTermsChanged('+idx+',this)" style="min-width:200px;min-height:32px;">';
-            items.forEach(function(t){h+='<option value="'+t.id+'"'+(Array.isArray(val)&&val.includes(t.id)?' selected':'')+'>'+esc(t.name)+'</option>';});
-            return h+'</select>';
+            // Multi-select ricercabile (GH.termPicker), montato dopo l'innerHTML
+            // da mountTermPickers(): qui emettiamo solo il placeholder.
+            return '<div class="gh-tp-mount" data-tp-idx="'+idx+'" data-tp-kind="'+cond.type+'"></div>';
         }
         if (vt === 'text') return '<input type="text" class="filter-select" placeholder="Valore..." value="'+esc(val||'')+'" onchange="GH.condValueChanged('+idx+',this.value)" style="min-width:140px;">';
         if (vt === 'number') return '<input type="number" class="filter-select" placeholder="Valore" value="'+(val||'')+'" onchange="GH.condValueChanged('+idx+',parseFloat(this.value))" style="width:80px;">';
@@ -107,7 +129,6 @@
     GH.condTypeChanged = function(i,t) { conditions[i].type=t; const d=filterMeta?filterMeta.conditions:{}; if(d[t]){conditions[i].operator=d[t].operators[0]||'';conditions[i].value=null;conditions[i].attribute_name='';} renderConditions(); };
     GH.condOpChanged = function(i,o) { conditions[i].operator=o; renderConditions(); };
     GH.condValueChanged = function(i,v) { conditions[i].value=v; };
-    GH.condTermsChanged = function(i,sel) { conditions[i].value=Array.from(sel.selectedOptions).map(function(o){return parseInt(o.value);}); };
     GH.condRangeChanged = function(i,k,v) { if(!conditions[i].value||typeof conditions[i].value!=='object')conditions[i].value={}; conditions[i].value[k]=v; };
     GH.condAttrNameChanged = function(i,n) { conditions[i].attribute_name=n; conditions[i].value=null; renderConditions(); };
     GH.removeCondition = function(i) { conditions.splice(i,1); renderConditions(); };
@@ -524,27 +545,22 @@
             'set_menu_order':    '<input type="number" class="filter-select" id="bulk-order" placeholder="Ordine" min="0" style="width:80px;">',
         };
         wrap.innerHTML = pm[action] || '';
+        mountTermPickers(wrap);
     }
 
     function categorySelector(id) {
         if (!filterMeta) return '';
-        let h = '<select class="filter-select" id="'+id+'" multiple style="min-width:200px;min-height:32px;">';
-        (filterMeta.categories||[]).forEach(function(c){h+='<option value="'+c.id+'">'+(c.parent?'&nbsp;&nbsp;':'')+esc(c.name)+'</option>';});
-        return h + '</select>';
+        return '<div class="gh-tp-mount" id="'+id+'" data-tp-kind="category"></div>';
     }
     function brandSelector(id) {
         if (!filterMeta) return '';
         const brands = filterMeta.brands || [];
         if (!brands.length) return '<span style="color:var(--dim);font-size:11px;">Nessun brand (product_brand non registrato)</span>';
-        let h = '<select class="filter-select" id="'+id+'" multiple style="min-width:200px;min-height:32px;">';
-        brands.forEach(function(b){h+='<option value="'+b.id+'">'+(b.parent?'&nbsp;&nbsp;':'')+esc(b.name)+'</option>';});
-        return h + '</select>';
+        return '<div class="gh-tp-mount" id="'+id+'" data-tp-kind="brand"></div>';
     }
     function tagSelector(id) {
         if (!filterMeta) return '';
-        let h = '<select class="filter-select" id="'+id+'" multiple style="min-width:200px;min-height:32px;">';
-        (filterMeta.tags||[]).forEach(function(t){h+='<option value="'+t.id+'">'+esc(t.name)+'</option>';});
-        return h + '</select>';
+        return '<div class="gh-tp-mount" id="'+id+'" data-tp-kind="tag"></div>';
     }
 
     GH.executeBulk = async function() {
@@ -600,7 +616,7 @@
 
     function collectBulkParams(action) {
         const g=function(id){const e=document.getElementById(id);return e?e.value:'';};
-        const gm=function(id){const e=document.getElementById(id);if(!e)return[];return Array.from(e.selectedOptions).map(function(o){return parseInt(o.value);});};
+        const gm=function(id){const e=document.getElementById(id);if(!e)return[];if(Array.isArray(e._ghTpSelected))return e._ghTpSelected;return Array.from(e.selectedOptions||[]).map(function(o){return parseInt(o.value);});};
         return {
             'assign_categories':{category_ids:gm('bulk-cat-ids')}, 'remove_categories':{category_ids:gm('bulk-cat-ids')}, 'set_categories':{category_ids:gm('bulk-cat-ids')},
             'assign_brands':{brand_ids:gm('bulk-brand-ids')}, 'remove_brands':{brand_ids:gm('bulk-brand-ids')}, 'set_brands':{brand_ids:gm('bulk-brand-ids')},

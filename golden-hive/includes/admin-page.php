@@ -112,6 +112,7 @@ html.wp-toolbar,body.wp-admin.toplevel_page_golden-hive{background:#0c0d10}
 <script>
 <?php include GH_DIR . 'includes/views/js.php'; ?>
 <?php include GH_DIR . 'includes/views/js2.php'; ?>
+<?php include GH_DIR . 'includes/views/js-termpicker.php'; ?>
 <?php include GH_DIR . 'includes/views/js-settings.php'; ?>
 <?php include GH_DIR . 'includes/views/js-operations.php'; ?>
 <?php include GH_DIR . 'includes/views/js-inline.php'; ?>

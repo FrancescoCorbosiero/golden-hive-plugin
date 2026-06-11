@@ -119,7 +119,7 @@ function rp_em_render_order_meta_box( $post_or_order ): void {
         <?php if ( ! $binding['enabled'] || $binding['template_id'] === '' ) : ?>
             <p style="margin:12px 0;padding:8px;background:#fff4e5;border-left:3px solid #c68500;font-size:12px;color:#6b4a00;">
                 <strong>Evento <code>order_shipped</code> non configurato.</strong><br>
-                Vai in <em>Golden Hive &rarr; Email &rarr; Transazionali</em> per bindare
+                Vai in <em>Hive Commerce &rarr; Email &rarr; Transazionali</em> per bindare
                 un template ed abilitare l'invio.
             </p>
         <?php endif; ?>

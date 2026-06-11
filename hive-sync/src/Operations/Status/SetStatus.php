@@ -8,7 +8,7 @@ use HiveSync\Core\Operation\OperationContext;
 use HiveSync\Core\Operation\OperationResult;
 
 /**
- * Set the WordPress post_status on a product. Pure WP — no Golden Hive
+ * Set the WordPress post_status on a product. Pure WP — no Hive Commerce
  * coupling, runs equally well against a vanilla Woo install.
  */
 final class SetStatus implements Operation

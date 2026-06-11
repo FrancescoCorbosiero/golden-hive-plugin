@@ -1,4 +1,4 @@
-# Golden Hive — convenience wrappers for the docker stacks.
+# Hive Commerce — convenience wrappers for the docker stacks.
 # All recipes are thin shells around `docker compose`; if you don't use
 # make, the equivalent commands are documented in docker/README.md.
 

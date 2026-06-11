@@ -16,10 +16,3 @@ golden-hive/vendor/phar-io
 golden-hive/vendor/phpunit
 golden-hive/vendor/sebastian
 golden-hive/vendor/theseer
-# Sibling plugins not part of the suite image.
-rp-catalog-manager
-rp-email-marketing
-rp-media-cleaner
-rp-media-manager
-rp-product-manager
-rp-rest-caller

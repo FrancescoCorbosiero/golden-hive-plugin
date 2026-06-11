@@ -1,4 +1,4 @@
-# CLAUDE.md — Golden Hive
+# CLAUDE.md — Hive Commerce
 
 > Stai lavorando su **golden-hive**. La root del tuo lavoro è `/golden-hive/`.
 >
@@ -10,7 +10,12 @@
 
 ## Contesto del Plugin
 
-**Golden Hive** è una suite WooCommerce unificata che mergia le funzionalità di tutti i plugin standalone (`rp-product-manager`, `rp-media-cleaner`, `rp-rest-caller`, `rp-catalog-manager`, `rp-email-marketing`) in un'unica interfaccia admin con sidebar a tab.
+**Hive Commerce** (ex "Golden Hive") è una suite WooCommerce unificata in un'unica interfaccia admin con sidebar a tab. Ha assorbito le funzionalità degli ex plugin standalone `rp-*` (product-manager, media-cleaner, rest-caller, catalog-manager, email-marketing), ormai rimossi dal monorepo.
+
+> **Naming legacy:** la directory `golden-hive/`, l'entry point `golden-hive.php`,
+> i prefix (`gh_`/`rp_*`), le option keys, i cron hook e il namespace `GH\`
+> mantengono il vecchio nome per compatibilità con i dati persistiti delle
+> installazioni live. Vedi la nota "Rebrand" in `../CONVENTIONS.md`.
 
 ---
 
@@ -277,7 +282,7 @@ prima di procedere.
 |---|---|
 | Taxonomy | assign_categories, remove_categories, set_categories, assign_brands, remove_brands, set_brands, assign_tags, remove_tags |
 | Status | set_status |
-| Price | set_sale_percent, remove_sale, adjust_price, markup_percent, discount_percent |
+| Price | set_sale_percent, remove_sale, adjust_price, markup_percent, discount_percent, artificial_sale (prezzo corrente → sale_price + regular gonfiato per mostrare lo sconto %), collapse_sale (sale_price → nuovo regular, inverso di artificial_sale), round_prices (normalizza i prezzi con un preset di arrotondamento: .99/.00/multipli) |
 | Stock | set_stock_status, set_stock_quantity |
 | SEO | set_seo_template (con placeholder {name}, {sku}, {price}, {brand}, {type}) |
 | Media | remove_first_gallery_image, clear_gallery |
@@ -593,6 +598,27 @@ GH.copyToClipboard(text)                // Promise (fallback execCommand)
 GH.emptyState(icon, text, extraClass)
 GH.statusChip(label, variant)           // 'ok'|'err'|'warn'|'info'|'dim'
 ```
+
+### Term Picker — multi-select ricercabile (js-termpicker.php)
+
+Sostituisce i `<select multiple>` nativi per liste lunghe (brand, categorie,
+tag). Stile Shopify: control con chips + dropdown con search testuale
+(diacritics-insensitive), navigazione tastiera (frecce/Enter/Esc), "Pulisci",
+drop-up automatico se manca spazio sotto.
+
+```javascript
+GH.termPicker(containerEl, {
+    items: [{id, name, parent}],   // parent > 0 → riga indentata
+    selected: [12, 34],
+    placeholder: 'Cerca brand...',
+    onChange: ids => { ... },      // opzionale
+});
+// La selezione e sempre leggibile da containerEl._ghTpSelected (int[]).
+```
+
+Usato in Filtra & Agisci (condition builder term_ids + bulk param selectors
+via placeholder `<div class="gh-tp-mount" data-tp-kind="brand|category|tag">`).
+Riusabile in qualunque altra sezione. CSS: blocco `.gh-tp-*` in css.php.
 
 ### Convenzioni editor wiring
 

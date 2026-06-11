@@ -16,7 +16,7 @@
 viveva in `golden-hive/includes/feeds/*`. Sostituisce GS / SF / CSV /
 KicksDB feeds con una architettura a 3 buckets (new / update / patch)
 che riduce drasticamente i tempi di sync. Standalone — funziona senza
-Golden Hive — ma quando GH è attivo delega `materialize` al bridge
+Hive Commerce — ma quando GH è attivo delega `materialize` al bridge
 legacy che ha tutta la logica varianti + sideload media.
 
 Stato attuale (branch `claude/stabilize-hive-sync-plugin-FZjmQ`):

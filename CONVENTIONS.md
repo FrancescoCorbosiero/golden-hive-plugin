@@ -1,4 +1,4 @@
-# CONVENTIONS.md — Golden Hive Plugins
+# CONVENTIONS.md — Hive Commerce Plugins
 
 > Questo file è la source of truth per tutto ciò che è condiviso tra i plugin.
 > Ogni `CLAUDE.md` di plugin lo referenzia. In caso di conflitto, vince questo file.
@@ -13,47 +13,40 @@ golden-hive-plugin/
 ├── golden-hive/                 ← PLUGIN PRINCIPALE: suite unificata
 │   ├── golden-hive.php          ← Entry point
 │   └── includes/
-│       ├── product/             ← CRUD + varianti (da rp-product-manager)
+│       ├── product/             ← CRUD + varianti
 │       ├── core/                ← Product factory condiviso
 │       ├── catalog/             ← Catalogo, tassonomia, export/import
 │       ├── media/               ← Scanner, libreria, orfani, whitelist
 │       ├── feeds/               ← HTTP client, feed GoldenSneakers
 │       ├── filter/              ← Query engine composabile + condizioni
 │       ├── bulk/                ← Azioni bulk + ordinamento programmatico
-│       ├── email/               ← Contatti, mailer, campagne (da rp-email-marketing)
+│       ├── email/               ← Contatti, mailer, campagne
 │       ├── views/               ← CSS/JS asset per la UI admin
 │       └── admin-page.php       ← UI unificata con sidebar a tab
-├── rp-product-manager/          ← Standalone: CRUD prodotti (mergiato in golden-hive)
-├── rp-media-cleaner/            ← Standalone: scanner orfani + whitelist
-├── rp-rest-caller/              ← Standalone: HTTP client + feed importer
-├── rp-catalog-manager/          ← Standalone: export catalogo JSON
-└── rp-email-marketing/          ← Standalone: email marketing (mergiato in golden-hive)
+└── hive-sync/                   ← Sync orchestrator (non-WP)
 ```
 
-**Golden Hive** è il plugin principale. Contiene tutti i moduli in un'unica UI unificata.
-I plugin `rp-*` standalone rimangono per deployment indipendente — ma le funzionalità core (product, email) sono mergiate in golden-hive.
+**Hive Commerce** è il plugin principale e unico. Contiene tutti i moduli in un'unica UI unificata.
+I vecchi plugin standalone `rp-*` (product-manager, media-cleaner, rest-caller, catalog-manager, email-marketing, media-manager) sono stati **rimossi dal monorepo**: tutte le loro funzionalità sono mergiate in golden-hive. I moduli mergiati mantengono i prefix funzione originali (`rp_*`) per compatibilità con i dati esistenti.
 
-Ogni plugin è **deployato e attivato indipendentemente** su WordPress. Quando golden-hive e un plugin standalone sono entrambi attivi, le guard `function_exists()` / `defined()` prevengono il double-loading.
+### Rebrand "Golden Hive" → "Hive Commerce" — cosa NON è stato rinominato
 
----
+Il rebrand copre il nome visibile (plugin header, menu admin, UI, email,
+docs, commenti). Restano deliberatamente col nome legacy perché sono
+**identificatori persistiti o contratti runtime** — rinominarli romperebbe
+un'installazione live senza una migration:
 
-## Dipendenze Cross-Plugin
+- la directory del plugin `golden-hive/` e l'entry point `golden-hive.php`
+  (identità del plugin per WordPress: rinominarli lo disattiva all'update)
+- i prefix funzione/option/AJAX/nonce (`gh_*`, `rp_*`, `rp_cm_*`, `rp_em_*`, ...)
+- le option keys, i transient, i cron hook e i post meta (`_gh_*`)
+- il namespace PHP `GH\` (coerente con il prefix `gh_` mantenuto)
+- il path uploads `wp-content/uploads/golden-hive/csv/` (referenziato dai
+  feed config salvati in wp_options)
+- il package composer `golden-hive/plugin` (legato alla directory)
 
-| Plugin | Dipende da | Tipo | Comportamento se assente |
-|---|---|---|---|
-| `golden-hive` | — | Nessuna | Standalone completo con tutti i moduli |
-| `rp-rest-caller` | `rp-product-manager` | Opzionale | Tab "Import" nascosto, messaggio esplicativo |
-| `rp-catalog-manager` | — | Nessuna | Standalone completo |
-| `rp-media-cleaner` | — | Nessuna | Standalone completo |
-| `rp-email-marketing` | — | Nessuna | Standalone (Hustle opzionale per contatti) |
-
-**Regola:** le dipendenze opzionali si verificano con `function_exists()`, mai con `is_plugin_active()`. Questo rende i plugin indipendenti dall'ordine di attivazione.
-
-**Co-esistenza:** quando golden-hive e un plugin standalone condividono gli stessi file (product, email), ogni file ha una guard all'inizio:
-```php
-// Prevent double-loading
-if ( function_exists( 'rp_get_product' ) ) return;
-```
+Lo slug del menu admin invece è stato rinominato (`admin.php?page=hive-commerce`):
+non è persistito, cambia solo l'URL.
 
 ---
 
@@ -67,30 +60,14 @@ Ogni plugin/modulo ha un prefix univoco per evitare collisioni nel namespace glo
 | `golden-hive` (product) | `rp_` | `rp_ajax_*` | `rp_crud_nonce` | `rp_*` |
 | `golden-hive` (catalog) | `rp_cm_` | `rp_cm_ajax_*` | `gh_nonce` | `rp_cm_*` |
 | `golden-hive` (email) | `rp_em_` | `rp_em_ajax_*` | `rp_em_nonce` | `rp_em_*` |
-| `rp-product-manager` | `rp_` | `rp_ajax_*` | `rp_crud_nonce` | `rp_*` |
-| `rp-media-cleaner` | `rp_mc_` | `rp_mc_ajax_*` | `rp_mc_nonce` | `rp_mc_*` |
-| `rp-rest-caller` | `rp_rc_` | `rp_rc_ajax_*` | `rp_rc_nonce` | `rp_rc_*` |
-| `rp-catalog-manager` | `rp_cm_` | `rp_cm_ajax_*` | `rp_cm_nonce` | `rp_cm_*` |
-| `rp-email-marketing` | `rp_em_` | `rp_em_ajax_*` | `rp_em_nonce` | `rp_em_*` |
+| `golden-hive` (media) | `rp_mc_` | `rp_mc_ajax_*` | `rp_mc_nonce` | `rp_mc_*` |
+| `golden-hive` (feeds) | `rp_rc_` | `rp_rc_ajax_*` | `rp_rc_nonce` | `rp_rc_*` |
 
-**Nota:** i moduli mergiati in golden-hive mantengono il prefix originale per compatibilità. I moduli nuovi (filter, bulk) usano il prefix `gh_`.
+**Nota:** i moduli mergiati dagli ex plugin standalone mantengono il prefix originale per compatibilità con i dati persistiti. I moduli nuovi (filter, bulk) usano il prefix `gh_`.
 
 ---
 
-## Struttura Interna — Plugin Standalone
-
-Tutti i plugin standalone seguono lo stesso schema:
-
-```
-rp-{nome}/
-├── rp-{nome}.php        ← Entry point. SOLO require_once dei moduli. Zero logica.
-└── includes/
-    ├── *.php            ← Moduli con responsabilità singola (vedi CLAUDE.md del plugin)
-    ├── ajax.php         ← TUTTI i wp_ajax_* handler. Solo glue code.
-    └── admin-page.php   ← add_menu_page() + render HTML/CSS/JS.
-```
-
-## Struttura Interna — Golden Hive
+## Struttura Interna — Hive Commerce
 
 ```
 golden-hive/
@@ -227,14 +204,9 @@ Tutti i plugin condividono lo stesso design system. L'utente deve sentire che so
 ```
 
 ### Scope CSS
-Ogni plugin scopla i suoi stili sotto il suo ID root per non interferire con WP Admin:
+Il plugin scopla i suoi stili sotto il suo ID root per non interferire con WP Admin:
 ```css
-#gh    { ... }   /* golden-hive (plugin principale) */
-#rpm   { ... }   /* rp-product-manager */
-#rpmc  { ... }   /* rp-media-cleaner */
-#rprc  { ... }   /* rp-rest-caller */
-#rpcm  { ... }   /* rp-catalog-manager */
-#rpem  { ... }   /* rp-email-marketing */
+#gh { ... }   /* golden-hive (plugin principale) */
 ```
 
 ### Componenti Riutilizzabili
@@ -303,7 +275,7 @@ function hl(json) {
 CSS classi: `.jk` → `#a78bfa` (chiavi), `.js` → `--grn` (stringhe), `.jn` → `--amb` (numeri), `.jb` → `--acc` (boolean), `.jx` → `--red` (null)
 
 ### Layout Standard
-Golden Hive usa un layout sidebar + content:
+Hive Commerce usa un layout sidebar + content:
 ```
 ┌─────────────────────────────────────────┐
 │  Header bar (logo + titolo)             │
@@ -328,24 +300,19 @@ Il root div occupa `100vh` con `margin: -10px -20px -20px -20px` per annullare i
 
 | Plugin | Label menu | Dashicon | Posizione |
 |---|---|---|---|
-| `golden-hive` | Golden Hive | `dashicons-screenoptions` | 57 |
-| `rp-product-manager` | RP Products | `dashicons-sneakers` | 58 |
-| `rp-media-cleaner` | RP Media | `dashicons-images-alt2` | 59 |
-| `rp-rest-caller` | RP REST | `dashicons-rest-api` | 60 |
-| `rp-catalog-manager` | RP Catalog | `dashicons-category` | 61 |
-| `rp-email-marketing` | RP Email | `dashicons-email-alt` | 62 |
+| `golden-hive` | Hive Commerce | `dashicons-screenoptions` | 57 |
 
 ---
 
 ## Regex Condivisa: Attributo Taglia
 
-Usata da `rp-product-manager`, `rp-catalog-manager` e `golden-hive` per identificare l'attributo taglia nelle varianti WooCommerce:
+Usata da `golden-hive` per identificare l'attributo taglia nelle varianti WooCommerce:
 
 ```php
 const RP_SIZE_ATTRIBUTE_REGEX = '/(taglia|size|misura|eu|uk|us|fr|cm)/i';
 ```
 
-Se il negozio cambia il nome dell'attributo taglia, questa regex va aggiornata in tutti i plugin che la usano.
+Se il negozio cambia il nome dell'attributo taglia, questa regex va aggiornata ovunque sia usata.
 
 ---
 

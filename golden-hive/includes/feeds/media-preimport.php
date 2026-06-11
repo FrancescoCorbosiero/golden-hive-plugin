@@ -220,7 +220,7 @@ function gh_preimport_add_handle( $mh, array $active, array $item ): array {
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_MAXREDIRS      => 5,
         CURLOPT_SSL_VERIFYPEER => false,
-        CURLOPT_USERAGENT      => 'Mozilla/5.0 GoldenHive/1.0',
+        CURLOPT_USERAGENT      => 'Mozilla/5.0 HiveCommerce/1.0',
     ] );
 
     curl_multi_add_handle( $mh, $ch );
@@ -292,7 +292,7 @@ function gh_parallel_sideload_to_product( int $product_id, array $urls, string $
                 CURLOPT_FOLLOWLOCATION => true,
                 CURLOPT_MAXREDIRS      => 5,
                 CURLOPT_SSL_VERIFYPEER => false,
-                CURLOPT_USERAGENT      => 'Mozilla/5.0 GoldenHive/1.0',
+                CURLOPT_USERAGENT      => 'Mozilla/5.0 HiveCommerce/1.0',
             ] );
             curl_multi_add_handle( $mh, $ch );
             $handles[ $i ] = [ 'ch' => $ch, 'fp' => $fp, 'tmp' => $tmp, 'url' => $url ];

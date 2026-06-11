@@ -334,15 +334,47 @@ add_action( 'wp_ajax_rp_em_ajax_campaign_send', function () {
     // precedente e morta: permettiamo un retry. Senza questa logica la
     // campagna restava bloccata in 'sending' per sempre dopo un PHP crash.
     if ( ( $c['status'] ?? '' ) === RP_EM_STATUS_SENDING ) {
-        $lock_key = 'rp_em_camp_lock_' . md5( $id );
-        if ( get_transient( $lock_key ) ) {
+        if ( get_transient( rp_em_campaign_lock_key( $id ) ) ) {
             wp_send_json_error( 'Campagna gia in invio (lock attivo). Attendi il completamento.' );
         }
         // Lock scaduto / mai acquisito → run abbandonata, procediamo.
     }
 
+    // Path preferito: dispatch del job chunked in background. La response
+    // torna in millisecondi e l'invio prosegue via wp-cron a tick — niente
+    // piu richiesta AJAX aperta per minuti che Cloudflare tronca a ~100s.
+    // La UI polla rp_em_ajax_campaign_status per il progresso.
+    $dispatch = rp_em_dispatch_campaign_send( $id, 'manual' );
+    if ( ! empty( $dispatch['ok'] ) ) {
+        wp_send_json_success( [
+            'dispatched' => true,
+            'job_id'     => (string) ( $dispatch['job_id'] ?? '' ),
+        ] );
+    }
+    if ( ( $dispatch['reason'] ?? '' ) === 'already_sending' ) {
+        wp_send_json_error( 'Campagna gia in invio (lock attivo). Attendi il completamento.' );
+    }
+
+    // Fallback legacy: job runner non disponibile → invio sincrono.
     $result = rp_em_execute_campaign( $id );
     wp_send_json_success( rp_em_sanitize_utf8( $result ) );
+} );
+
+// Status leggero per il polling della UI durante l'invio in background:
+// niente last_render/payload (pesanti), solo status + stats.
+add_action( 'wp_ajax_rp_em_ajax_campaign_status', function () {
+    rp_em_ajax_guard();
+    $id = sanitize_text_field( (string) ( $_POST['id'] ?? '' ) );
+    $c  = $id !== '' ? rp_em_get_campaign( $id ) : null;
+    if ( ! $c ) wp_send_json_error( 'Campagna non trovata.' );
+
+    wp_send_json_success( rp_em_sanitize_utf8( [
+        'id'           => $c['id'],
+        'status'       => (string) ( $c['status'] ?? '' ),
+        'stats'        => (array) ( $c['stats'] ?? [] ),
+        'started_at'   => (string) ( $c['started_at'] ?? '' ),
+        'completed_at' => (string) ( $c['completed_at'] ?? '' ),
+    ] ) );
 } );
 
 add_action( 'wp_ajax_rp_em_ajax_campaign_preview', function () {

@@ -190,6 +190,9 @@ function gh_sanitize_bulk_params( string $action, array $params ): array {
         'assign_categories', 'remove_categories', 'set_categories' =>
             [ 'category_ids' => array_map( 'intval', $params['category_ids'] ?? [] ) ],
 
+        'assign_brands', 'remove_brands', 'set_brands' =>
+            [ 'brand_ids' => array_map( 'intval', $params['brand_ids'] ?? [] ) ],
+
         'assign_tags', 'remove_tags' =>
             [ 'tag_ids' => array_map( 'intval', $params['tag_ids'] ?? [] ) ],
 
@@ -218,6 +221,28 @@ function gh_sanitize_bulk_params( string $action, array $params ): array {
             ) ? $params['rounding'] : '2dec',
         ],
 
+        'artificial_sale' => [
+            'percent'  => max( 0, floatval( $params['percent'] ?? 0 ) ),
+            'rounding' => in_array(
+                $params['rounding'] ?? '',
+                [ 'none', '2dec', '99', '00', 'nearest_1', 'nearest_5', 'nearest_10' ],
+                true
+            ) ? $params['rounding'] : '99',
+        ],
+
+        'collapse_sale' => [],
+
+        'round_prices' => [
+            'target'   => in_array( $params['target'] ?? '', [ 'regular_price', 'sale_price', 'both' ], true )
+                ? $params['target']
+                : 'regular_price',
+            'rounding' => in_array(
+                $params['rounding'] ?? '',
+                [ '2dec', '99', '00', 'nearest_1', 'nearest_5', 'nearest_10' ],
+                true
+            ) ? $params['rounding'] : '99',
+        ],
+
         'set_stock_status' =>
             [ 'stock_status' => sanitize_key( $params['stock_status'] ?? 'instock' ) ],
 
@@ -232,6 +257,7 @@ function gh_sanitize_bulk_params( string $action, array $params ): array {
         'set_menu_order' =>
             [ 'menu_order' => intval( $params['menu_order'] ?? 0 ) ],
 
-        default => $params,
+        // Azioni senza parametri + default: mai passare input raw ai handler.
+        default => [],
     };
 }

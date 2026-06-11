@@ -181,6 +181,7 @@
                         <input class="cfg-input" id="em-camp-scheduled" type="datetime-local" />
                         <button class="btn btn-ghost" onclick="GH.emCampaignSchedule()">Schedula</button>
                         <button class="btn btn-warn" onclick="GH.emCampaignSend()"><span class="spin" id="em-camp-send-spin" style="display:none"></span> Invia ora</button>
+                        <span id="em-camp-send-progress" style="font-size:11px;color:var(--amb);font-family:var(--mono);"></span>
                     </div>
                     <div class="cfg-row">
                         <span class="cfg-label">Test a</span>

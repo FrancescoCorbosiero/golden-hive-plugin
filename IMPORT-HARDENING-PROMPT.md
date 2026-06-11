@@ -1,4 +1,4 @@
-# Claude Code Prompt — Golden Hive: Import Pipeline Hardening
+# Claude Code Prompt — Hive Commerce: Import Pipeline Hardening
 
 ## Context
 
@@ -23,7 +23,7 @@ This is a CLI-based WooCommerce importer built by the same team. It handles thou
 | `src/Pricing/PriceCalculator.php` | Tiered margin + floor price + rounding per brand/category |
 | `CLAUDE.md` | Full architecture docs, pipeline descriptions, catalog JSON structure |
 
-**IMPORTANT:** woo-importer is a standalone CLI tool using WC REST API externally. Golden Hive is a WordPress plugin running inside WP via AJAX. You cannot use the REST API pattern directly — adapt the logic to use WC PHP functions (`wc_get_product`, `$product->save()`, `wp_set_object_terms`, etc.) which are faster from inside WP anyway.
+**IMPORTANT:** woo-importer is a standalone CLI tool using WC REST API externally. Hive Commerce is a WordPress plugin running inside WP via AJAX. You cannot use the REST API pattern directly — adapt the logic to use WC PHP functions (`wc_get_product`, `$product->save()`, `wp_set_object_terms`, etc.) which are faster from inside WP anyway.
 
 ## What to implement
 

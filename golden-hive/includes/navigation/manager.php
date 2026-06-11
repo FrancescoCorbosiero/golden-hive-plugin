@@ -17,7 +17,7 @@
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Post meta che marca gli item creati automaticamente da Golden Hive.
+ * Post meta che marca gli item creati automaticamente da Hive Commerce.
  * Presente solo sui `nav_menu_item` generati da `gh_nav_populate_from_terms()`.
  */
 const GH_NAV_MANAGED_META = '_gh_nav_managed';
@@ -48,7 +48,7 @@ function gh_nav_get_menus(): array {
 
 /**
  * Ritorna gli item di un menu flat (mantiene l'ordine WP) arricchiti con un
- * flag `managed` che indica se l'item e stato generato da Golden Hive.
+ * flag `managed` che indica se l'item e stato generato da Hive Commerce.
  *
  * @param int $menu_id
  * @return array[] ogni item: { id, parent, order, title, type, object, object_id, url, managed }

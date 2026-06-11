@@ -3,7 +3,7 @@
  * Hive Sync host bridge.
  *
  * Binds the Hive Sync host adapter contract (filters/actions defined in
- * the Hive Sync plugin) to the Golden Hive functions that already exist.
+ * the Hive Sync plugin) to the Hive Commerce functions that already exist.
  * Purely additive: if Hive Sync is not installed nothing here ever runs;
  * if Hive Sync is installed but nothing calls the helpers, this file is
  * inert.
@@ -161,7 +161,7 @@ add_filter( 'hive_sync/host/media/preimport', function ( $attachment_id, string 
 /**
  * Product upsert. Routes simple/variable to the existing factory; falls
  * back to a minimal WC create when the factory is not loaded (so a
- * standalone Hive Sync deployment without Golden Hive still creates
+ * standalone Hive Sync deployment without Hive Commerce still creates
  * basic products).
  */
 add_filter( 'hive_sync/host/product/upsert', function ( $product_id, array $data, array $context = [] ) {

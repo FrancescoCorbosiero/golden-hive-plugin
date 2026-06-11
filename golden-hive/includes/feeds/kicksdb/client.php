@@ -58,7 +58,7 @@ function gh_kicksdb_auth_headers(): array {
     return [
         'Authorization' => 'Bearer ' . $key,
         'Accept'        => 'application/json',
-        'User-Agent'    => 'Mozilla/5.0 GoldenHive/1.0 (+KicksDB)',
+        'User-Agent'    => 'Mozilla/5.0 HiveCommerce/1.0 (+KicksDB)',
     ];
 }
 
@@ -269,7 +269,7 @@ function gh_kicksdb_request_multi( array $requests, int $concurrency = GH_KICKSD
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_MAXREDIRS      => 3,
             CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_USERAGENT      => 'Mozilla/5.0 GoldenHive/1.0 (+KicksDB)',
+            CURLOPT_USERAGENT      => 'Mozilla/5.0 HiveCommerce/1.0 (+KicksDB)',
         ] );
 
         curl_multi_add_handle( $mh, $ch );

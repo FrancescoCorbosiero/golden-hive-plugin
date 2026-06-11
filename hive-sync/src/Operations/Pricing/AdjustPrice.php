@@ -10,7 +10,7 @@ use HiveSync\Core\Operation\OperationResult;
 /**
  * Adjust the price by an absolute amount (positive = increase,
  * negative = decrease). Uses WC public API directly — runs against
- * any Woo install with no Golden Hive dependency.
+ * any Woo install with no Hive Commerce dependency.
  *
  * params:
  *   amount  float  required, non-zero

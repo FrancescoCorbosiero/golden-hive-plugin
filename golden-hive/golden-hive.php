@@ -61,6 +61,9 @@ require_once GH_DIR . 'includes/catalog/snapshot.php';
 require_once GH_DIR . 'includes/catalog/diff.php';
 require_once GH_DIR . 'includes/catalog/snapshot-ajax.php';
 require_once GH_DIR . 'includes/catalog/ajax.php';
+// Roundtrip REST wrapper (gh/v1) — programmatic export/preview/apply over
+// the same JSON envelope as the UI. Auth via Application Password.
+require_once GH_DIR . 'includes/catalog/rest-roundtrip.php';
 
 // Navigation — WP nav menus (read/write, auto-populate from taxonomy query)
 require_once GH_DIR . 'includes/navigation/manager.php';

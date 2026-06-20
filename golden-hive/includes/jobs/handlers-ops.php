@@ -101,6 +101,18 @@ add_action( 'gh_jobs_register', function () {
         'handler'     => 'gh_jobs_handler_rest_call',
     ] );
 
+    // ── Bulk import (background) ───────────────────────────
+    gh_jobs_register_kind( 'bulk_import', [
+        'label'       => 'Bulk Import (background)',
+        'description' => 'Importa prodotti da un file JSON a chunk, immune al cap ~100s di Cloudflare.',
+        'params'      => [
+            'file'          => [ 'type' => 'string', 'label' => 'File JSON (path in uploads)', 'required' => true ],
+            'mode'          => [ 'type' => 'enum',   'label' => 'Modalità', 'options' => [ 'create', 'create_or_update' ], 'default' => 'create' ],
+            'weight_budget' => [ 'type' => 'string', 'label' => 'Budget scritture/tick', 'default' => '80' ],
+        ],
+        'handler'     => 'gh_jobs_handler_bulk_import',
+    ] );
+
 }, 5 );
 
 // ─────────────────────────────────────────────────────────────
@@ -433,6 +445,110 @@ function gh_jobs_handler_bulk_action( array $job, array $context ): array {
             'failed'  => $cursor['failed_total'],
         ],
     ];
+}
+
+/**
+ * Handler: bulk_import (background, chunked).
+ *
+ * Reads a JSON products file from uploads and walks it in weight-bounded
+ * batches (1 + variation count), calling rp_cm_bulk_apply per batch. Each tick
+ * runs server-side via WP-Cron continuation — no held HTTP request — so it is
+ * immune to Cloudflare's ~100s cap. Live progress is mirrored into the job's
+ * last_summary so the UI/REST status poll can report it. The temp file is
+ * removed when the run completes.
+ *
+ * Cursor shape: { offset, created, updated, errors, total }
+ */
+function gh_jobs_handler_bulk_import( array $job, array $context ): array {
+    $p      = $job['params'] ?? [];
+    $file   = (string) ( $p['file'] ?? '' );
+    $mode   = (string) ( $p['mode'] ?? 'create' );
+    $budget = max( 1, (int) ( $p['weight_budget'] ?? 80 ) );
+
+    if ( ! in_array( $mode, [ 'create', 'create_or_update' ], true ) ) {
+        $mode = 'create';
+    }
+    if ( $file === '' || ! file_exists( $file ) ) {
+        return [ 'status' => 'error', 'error' => 'File import non trovato: ' . $file ];
+    }
+    if ( ! function_exists( 'rp_cm_bulk_apply' ) || ! function_exists( 'rp_cm_validate_bulk_json' ) ) {
+        return [ 'status' => 'error', 'error' => 'Bulk creator non disponibile.' ];
+    }
+
+    $data = json_decode( (string) file_get_contents( $file ), true );
+    if ( ! is_array( $data ) ) {
+        return [ 'status' => 'error', 'error' => 'File import illeggibile o non-JSON.' ];
+    }
+    $valid = rp_cm_validate_bulk_json( $data );
+    if ( is_wp_error( $valid ) ) {
+        return [ 'status' => 'error', 'error' => $valid->get_error_message() ];
+    }
+    $products = $valid['products'];
+    $total    = count( $products );
+
+    $cursor = $context['cursor'];
+    if ( ! is_array( $cursor ) || ! isset( $cursor['offset'] ) ) {
+        $cursor = [ 'offset' => 0, 'created' => 0, 'updated' => 0, 'errors' => 0, 'total' => $total ];
+    }
+
+    while ( $cursor['offset'] < $total ) {
+        if ( gh_jobs_should_yield() ) {
+            gh_jobs_bulk_import_progress( $job['id'], $cursor );
+            return [
+                'status'   => 'continue',
+                'cursor'   => $cursor,
+                'progress' => [ 'processed' => $cursor['offset'], 'of' => $total ],
+            ];
+        }
+
+        // Build one weight-bounded batch (always at least 1 product).
+        $batch = [];
+        $w     = 0;
+        while ( $cursor['offset'] < $total ) {
+            $entry  = $products[ $cursor['offset'] ];
+            $weight = 1 + ( is_array( $entry['variations'] ?? null ) ? count( $entry['variations'] ) : 0 );
+            if ( $batch && ( $w + $weight ) > $budget ) break;
+            $batch[] = $entry;
+            $w      += $weight;
+            $cursor['offset']++;
+        }
+
+        $res = rp_cm_bulk_apply( [ 'products' => $batch ], $mode );
+        $s   = $res['summary'] ?? [];
+        $cursor['created'] += (int) ( $s['created'] ?? 0 );
+        $cursor['updated'] += (int) ( $s['updated'] ?? 0 );
+        $cursor['errors']  += (int) ( $s['errors']  ?? 0 );
+    }
+
+    gh_jobs_bulk_import_progress( $job['id'], $cursor );
+    @unlink( $file );
+
+    return [
+        'status'  => 'done',
+        'summary' => [
+            'mode'      => $mode,
+            'total'     => $total,
+            'processed' => $cursor['offset'],
+            'created'   => $cursor['created'],
+            'updated'   => $cursor['updated'],
+            'errors'    => $cursor['errors'],
+        ],
+    ];
+}
+
+/**
+ * Mirrors bulk_import progress into the job's last_summary so a status poll can
+ * read live counters between ticks.
+ */
+function gh_jobs_bulk_import_progress( string $job_id, array $cursor ): void {
+    if ( ! function_exists( 'gh_jobs_update_fields' ) ) return;
+    gh_jobs_update_fields( $job_id, [ 'last_summary' => [
+        'processed' => (int) ( $cursor['offset']  ?? 0 ),
+        'total'     => (int) ( $cursor['total']   ?? 0 ),
+        'created'   => (int) ( $cursor['created'] ?? 0 ),
+        'updated'   => (int) ( $cursor['updated'] ?? 0 ),
+        'errors'    => (int) ( $cursor['errors']  ?? 0 ),
+    ] ] );
 }
 
 /**

@@ -192,3 +192,88 @@ function rp_cm_bulk_update_existing( int $product_id, array $entry ): array {
         'variation_count' => $var_count,
     ];
 }
+
+/**
+ * Dispatches a bulk import as a background job (kind bulk_import).
+ *
+ * Writes the products to a token-named file under uploads/gh-jobs/imports/ and
+ * fires a one-shot job that walks it in WP-Cron ticks. The dispatch returns in
+ * milliseconds, so the upload request never holds long enough to hit
+ * Cloudflare's ~100s cap; the actual import runs server-side and survives the
+ * user closing the tab.
+ *
+ * @param array  $data { products: [...] } (or a bare array).
+ * @param string $mode 'create' | 'create_or_update'
+ * @return array{job_id:string,total:int}|WP_Error
+ */
+function gh_cm_dispatch_bulk_import( array $data, string $mode = 'create' ): array|WP_Error {
+
+    if ( ! in_array( $mode, [ 'create', 'create_or_update' ], true ) ) {
+        $mode = 'create';
+    }
+    if ( ! function_exists( 'gh_jobs_save' ) || ! function_exists( 'gh_jobs_get_kind' ) || ! gh_jobs_get_kind( 'bulk_import' ) ) {
+        return new WP_Error( 'jobs_unavailable', 'Job runner non disponibile.' );
+    }
+
+    $valid = rp_cm_validate_bulk_json( $data );
+    if ( is_wp_error( $valid ) ) {
+        return $valid;
+    }
+    $products = $valid['products'];
+    $total    = count( $products );
+
+    // Persist the payload to disk (job params can't carry MBs of JSON).
+    $uploads = wp_get_upload_dir();
+    if ( ! empty( $uploads['error'] ) ) {
+        return new WP_Error( 'upload_dir', 'Upload dir non accessibile: ' . $uploads['error'] );
+    }
+    $dir = trailingslashit( $uploads['basedir'] ) . 'gh-jobs/imports';
+    if ( ! wp_mkdir_p( $dir ) ) {
+        return new WP_Error( 'mkdir', "Impossibile creare {$dir}" );
+    }
+    // Best-effort directory hardening (Apache; nginx ignores .htaccess, but the
+    // random token filename keeps the path unguessable).
+    if ( ! file_exists( $dir . '/.htaccess' ) ) {
+        @file_put_contents( $dir . '/.htaccess', "Require all denied\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n" );
+    }
+    if ( ! file_exists( $dir . '/index.php' ) ) {
+        @file_put_contents( $dir . '/index.php', "<?php // Silence is golden.\n" );
+    }
+
+    $token = function_exists( 'wp_generate_password' ) ? wp_generate_password( 16, false ) : bin2hex( random_bytes( 8 ) );
+    $path  = trailingslashit( $dir ) . 'import-' . wp_date( 'Ymd-His' ) . '-' . $token . '.json';
+    $json  = wp_json_encode( [ 'products' => $products ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+    if ( false === file_put_contents( $path, $json ) ) {
+        return new WP_Error( 'write', "Scrittura fallita: {$path}" );
+    }
+
+    $saved = gh_jobs_save( [
+        'kind'        => 'bulk_import',
+        'label'       => sprintf( 'Bulk Import · %d prodotti', $total ),
+        // Expression valida ma enabled:false → il cron non la schedula mai;
+        // facciamo un fire singolo qui sotto.
+        'cron'        => '0 0 1 1 *',
+        'enabled'     => false,
+        'max_runtime' => 3600,
+        'tick_budget' => 25,
+        'params'      => [ 'file' => $path, 'mode' => $mode, 'weight_budget' => '80' ],
+    ] );
+
+    if ( is_wp_error( $saved ) ) {
+        @unlink( $path );
+        return $saved;
+    }
+
+    // Seed progress so the first status poll has something to show.
+    gh_jobs_update_fields( $saved['id'], [
+        'last_status'  => 'continue',
+        'last_summary' => [ 'processed' => 0, 'total' => $total, 'created' => 0, 'updated' => 0, 'errors' => 0 ],
+    ] );
+
+    wp_schedule_single_event( time(), GH_JOBS_TICK_HOOK, [ $saved['id'] ] );
+    if ( function_exists( 'spawn_cron' ) ) {
+        spawn_cron( time() );
+    }
+
+    return [ 'job_id' => (string) $saved['id'], 'total' => $total ];
+}

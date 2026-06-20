@@ -185,6 +185,38 @@
         }catch(e){toast('Errore import: '+(e.message||e),'err',0)}
         finally{endRun();releaseWakeLock();ov.classList.remove('visible');btn.disabled=false;sp.style.display='none'}
     }
+    // Background: carica il file, lancia un job lato server (immune a Cloudflare)
+    // e polla lo stato. NON serve tenere la tab aperta: il job prosegue da solo.
+    // Niente run-guard qui — chiudere la pagina e sicuro.
+    async function bulkApplyBackground(){
+        if(!state.bulkJSON)return;
+        const ov=document.getElementById('imp-overlay'),ot=document.getElementById('imp-overlay-text');
+        ot.textContent='Avvio in background...';ov.classList.add('visible');
+        try{
+            const m=document.querySelector('input[name="bulk-mode"]:checked').value;
+            const r=await ajax('rp_cm_ajax_bulk_dispatch',{json_payload:JSON.stringify(state.bulkJSON),mode:m});
+            if(!r.success){toast('Errore avvio: '+(typeof r.data==='string'?r.data:'sconosciuto'),'err',0);ov.classList.remove('visible');return}
+            const jobId=r.data.job_id,total=r.data.total;
+            document.getElementById('imp-confirm-bar').style.display='none';
+            toast('Import avviato in background ('+total+' prodotti). Puoi chiudere la pagina.','ok',6000);
+            // Poll fino a done/error. Tollerante a status non disponibili.
+            let misses=0;
+            while(true){
+                await new Promise(res=>setTimeout(res,2500));
+                const st=await ajax('rp_cm_ajax_bulk_job_status',{job_id:jobId});
+                if(!st.success){ if(++misses>5){ot.textContent='Stato non disponibile — controlla il tab Jobs';break;} continue; }
+                misses=0;
+                const s=st.data.summary||{};
+                ot.textContent='Background: '+(s.processed||0)+' / '+(s.total||total)+'  ·  '+(s.created||0)+' creati, '+(s.updated||0)+' agg., '+(s.errors||0)+' err.';
+                if(st.data.done){
+                    if(st.data.status==='error'){toast('Import in background fallito — vedi tab Jobs','err',0);}
+                    else{toast('Import completato: '+(s.created||0)+' creati, '+(s.updated||0)+' aggiornati, '+(s.errors||0)+' errori',(s.errors)?'err':'ok',6000);}
+                    break;
+                }
+            }
+        }catch(e){toast('Errore: '+(e.message||e),'err',0)}
+        finally{ov.classList.remove('visible')}
+    }
     function bulkCancel(){document.getElementById('imp-confirm-bar').style.display='none';document.getElementById('imp-preview-area').innerHTML=''}
 
     // ── ROUNDTRIP EXPORT
@@ -1629,5 +1661,5 @@
         await dispatchReimport('sf', cfg, skus, overwriteMedia, 'sf-reimport-status');
     }
 
-    return{ajax,ajaxWithToast,toast,esc,emptyState,statusChip,confirm:ghConfirm,markDirty,clearDirty,isDirty,registerShortcuts,clearShortcuts,registerDeepOpener,updateHash,copyJSON,copyToClipboard,wireDirtyInputs,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsLabelPreview,gsLabelApply,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,gsPriceModeChange,gsReimportDispatch,gsLoadSettings,gsSaveSettings,sfLoadSettings,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,sfMarkupModeChange,sfReimportDispatch,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,exportSelectionAsFile,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvScheduleFeed,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog,nucPreview,nucExecute,feedCleanup};
+    return{ajax,ajaxWithToast,toast,esc,emptyState,statusChip,confirm:ghConfirm,markDirty,clearDirty,isDirty,registerShortcuts,clearShortcuts,registerDeepOpener,updateHash,copyJSON,copyToClipboard,wireDirtyInputs,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsLabelPreview,gsLabelApply,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,gsPriceModeChange,gsReimportDispatch,gsLoadSettings,gsSaveSettings,sfLoadSettings,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,sfMarkupModeChange,sfReimportDispatch,bulkPreview,bulkApply,bulkApplyBackground,bulkCancel,generateRoundtrip,exportSelectionAsFile,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvScheduleFeed,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog,nucPreview,nucExecute,feedCleanup};
 })();

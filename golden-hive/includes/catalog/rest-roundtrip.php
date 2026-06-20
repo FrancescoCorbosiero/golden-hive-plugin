@@ -138,6 +138,31 @@ add_action( 'rest_api_init', function () {
         ],
         'callback'            => 'gh_roundtrip_rest_bulk_apply',
     ] );
+
+    // ── BULK: DISPATCH BACKGROUND JOB (CDN-proof) ───────────
+    register_rest_route( GH_ROUNDTRIP_REST_NS, '/bulk/dispatch', [
+        'methods'             => WP_REST_Server::CREATABLE, // POST
+        'permission_callback' => 'gh_roundtrip_rest_permission',
+        'args'                => [
+            'mode' => [
+                'description' => 'create | create_or_update',
+                'required'    => false,
+                'default'     => 'create',
+                'enum'        => [ 'create', 'create_or_update' ],
+            ],
+        ],
+        'callback'            => 'gh_roundtrip_rest_bulk_dispatch',
+    ] );
+
+    // ── BULK: JOB STATUS (poll) ─────────────────────────────
+    register_rest_route( GH_ROUNDTRIP_REST_NS, '/bulk/job', [
+        'methods'             => WP_REST_Server::READABLE, // GET
+        'permission_callback' => 'gh_roundtrip_rest_permission',
+        'args'                => [
+            'id' => [ 'description' => 'Job ID restituito da /bulk/dispatch', 'required' => true ],
+        ],
+        'callback'            => 'gh_roundtrip_rest_bulk_job',
+    ] );
 } );
 
 // ── Callbacks ───────────────────────────────────────────────
@@ -224,6 +249,53 @@ function gh_roundtrip_rest_bulk_apply( WP_REST_Request $request ): WP_REST_Respo
     gh_roundtrip_log_apply( $result['summary'] ?? [], 'bulk:' . $mode );
 
     return new WP_REST_Response( $result, 200 );
+}
+
+/**
+ * POST /bulk/dispatch — body = { products: [...] }. Fires a background job and
+ * returns immediately. Immune to the ~100s proxy cap; the import runs in
+ * WP-Cron ticks server-side. Poll /bulk/job?id=... for progress.
+ */
+function gh_roundtrip_rest_bulk_dispatch( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+
+    $data = gh_roundtrip_rest_read_bulk( $request );
+    if ( is_wp_error( $data ) ) {
+        return $data;
+    }
+    if ( ! function_exists( 'gh_cm_dispatch_bulk_import' ) ) {
+        return new WP_Error( 'gh_unavailable', 'Dispatch non disponibile (job runner mancante).', [ 'status' => 500 ] );
+    }
+
+    $mode = gh_roundtrip_rest_bulk_mode( $request );
+    $res  = gh_cm_dispatch_bulk_import( $data, $mode );
+    if ( is_wp_error( $res ) ) {
+        return new WP_Error( $res->get_error_code(), $res->get_error_message(), [ 'status' => 500 ] );
+    }
+
+    return new WP_REST_Response( $res, 202 );
+}
+
+/**
+ * GET /bulk/job?id=... — status of a background bulk import.
+ */
+function gh_roundtrip_rest_bulk_job( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+
+    if ( ! function_exists( 'gh_jobs_get' ) ) {
+        return new WP_Error( 'gh_unavailable', 'Job runner non disponibile.', [ 'status' => 500 ] );
+    }
+    $job_id = (string) $request->get_param( 'id' );
+    $job    = $job_id !== '' ? gh_jobs_get( $job_id ) : null;
+    if ( ! $job ) {
+        return new WP_Error( 'gh_not_found', 'Job non trovato.', [ 'status' => 404 ] );
+    }
+
+    $status = (string) ( $job['last_status'] ?? 'continue' );
+    return new WP_REST_Response( [
+        'job_id'  => $job_id,
+        'status'  => $status,
+        'done'    => in_array( $status, [ 'done', 'error' ], true ),
+        'summary' => $job['last_summary'] ?? null,
+    ], 200 );
 }
 
 /**

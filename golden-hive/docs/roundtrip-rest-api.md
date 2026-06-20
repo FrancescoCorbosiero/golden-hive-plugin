@@ -157,30 +157,92 @@ Response (`200`):
 Each apply run is recorded in a capped audit log (`gh_roundtrip_apply_log`
 option, last 50 runs: time, user, mode, summary).
 
+### 4. Export IDs — `GET /roundtrip/ids`
+
+Returns just the product ID list for a filter set, so a client can **chunk the
+export** (avoiding the single huge request that Cloudflare truncates at ~100s →
+524). Same filter params as `/roundtrip/export` (minus `include_ids`).
+
+```bash
+curl -s -u "$WP_USER:$WP_APP_PASS" \
+  "https://your-site/wp-json/gh/v1/roundtrip/ids?status=publish"
+# → { "ids": [101,102,...], "total": 612 }
+```
+
+Then page the export 50 IDs at a time and merge the `products[]` arrays:
+
+```bash
+curl -s -u "$WP_USER:$WP_APP_PASS" \
+  "https://your-site/wp-json/gh/v1/roundtrip/export?include_ids=101,102,...,150"
+```
+
+---
+
+## Bulk create/update endpoints (`/bulk/*`)
+
+> These wrap a **different module** than the roundtrip importer: the **bulk
+> creator** (`bulk-creator.php`), which is what the admin **"Bulk JSON"** tab
+> and the **"Export JSON" → re-import** workflow use. Use these if you create
+> products or upsert by SKU; use `/roundtrip/*` for field-level diffing of
+> existing products.
+
+Body shape: `{ "products": [ ... ] }` (a bare array is also accepted). Each
+product needs `name`; simple products need `regular_price`; variable products
+need `variations`. `mode` is a query param:
+
+- `create` (default) — always create.
+- `create_or_update` — match by `sku`; update if found, else create.
+
+### `POST /bulk/preview` (no writes)
+
+```bash
+curl -s -u "$WP_USER:$WP_APP_PASS" -H "Content-Type: application/json" \
+  "https://your-site/wp-json/gh/v1/bulk/preview?mode=create_or_update" \
+  --data-binary @products.json
+```
+
+### `POST /bulk/apply` (writes)
+
+```bash
+curl -s -u "$WP_USER:$WP_APP_PASS" -H "Content-Type: application/json" \
+  "https://your-site/wp-json/gh/v1/bulk/apply?mode=create_or_update" \
+  --data-binary @products.json
+```
+
+A roundtrip **export file is compatible** as bulk input (both use `products[]`,
+and the export includes `name`/prices/variations) — but it runs through the
+create/upsert engine, not the field-level updater.
+
 ---
 
 ## The automation loop
 
 ```
-1. GET  /roundtrip/export            → roundtrip.json   (the core file)
-2. mutate roundtrip.json             with your external tool
-3. POST /roundtrip/preview           → assert the diff is what you expect
-4. POST /roundtrip/apply             → commit
+1. GET  /roundtrip/ids               → id list      (then page /export by include_ids)
+   GET  /roundtrip/export            → roundtrip.json (the core file)
+2. mutate the file                   with your external tool
+3a. POST /roundtrip/preview + apply  → field-level update of existing products
+3b. POST /bulk/preview + apply       → create / upsert-by-SKU products
 ```
 
-### Large catalogs — chunk the apply
+### Large catalogs — always chunk (Cloudflare ~100s cap)
 
-The file format tolerates a **partial** `products[]` array (the validator only
-needs `format`, `version`, and each item having `id` or `sku`). For big
-catalogs, split your edited file into slices of ~50 products and POST each as
-its own apply call — this mirrors what the browser UI does and avoids PHP/
-FastCGI timeouts. Each slice keeps the same envelope header:
+Behind Cloudflare a single request that runs past ~100s is killed with a 524.
+**Chunk both directions** into ~50-item batches — this is exactly what the admin
+UI now does:
+
+- **Export:** `GET /roundtrip/ids`, then loop `GET /roundtrip/export?include_ids=…`
+  50 IDs at a time, merging `products[]`.
+- **Import:** the roundtrip envelope and the bulk body both tolerate a partial
+  `products[]`, so POST 50 products per call and sum the `summary` counters.
 
 ```json
 { "format": "rp_cm_roundtrip", "version": 1, "products": [ /* ≤50 items */ ] }
 ```
 
-Sum the per-slice `summary` counters client-side for a total.
+```json
+{ "products": [ /* ≤50 items */ ] }
+```
 
 ---
 

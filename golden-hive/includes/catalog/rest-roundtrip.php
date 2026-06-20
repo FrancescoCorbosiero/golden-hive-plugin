@@ -94,6 +94,50 @@ add_action( 'rest_api_init', function () {
         ],
         'callback'            => 'gh_roundtrip_rest_apply',
     ] );
+
+    // ── EXPORT: ID LIST (per chunking client-side) ──────────
+    register_rest_route( GH_ROUNDTRIP_REST_NS, '/roundtrip/ids', [
+        'methods'             => WP_REST_Server::READABLE, // GET
+        'permission_callback' => 'gh_roundtrip_rest_permission',
+        'args'                => [
+            'filters'  => [ 'required' => false ],
+            'status'   => [ 'required' => false ],
+            'category' => [ 'required' => false ],
+            'brand'    => [ 'required' => false ],
+            'in_stock' => [ 'required' => false ],
+        ],
+        'callback'            => 'gh_roundtrip_rest_ids',
+    ] );
+
+    // ── BULK CREATE/UPDATE: PREVIEW ─────────────────────────
+    register_rest_route( GH_ROUNDTRIP_REST_NS, '/bulk/preview', [
+        'methods'             => WP_REST_Server::CREATABLE, // POST
+        'permission_callback' => 'gh_roundtrip_rest_permission',
+        'args'                => [
+            'mode' => [
+                'description' => 'create | create_or_update',
+                'required'    => false,
+                'default'     => 'create',
+                'enum'        => [ 'create', 'create_or_update' ],
+            ],
+        ],
+        'callback'            => 'gh_roundtrip_rest_bulk_preview',
+    ] );
+
+    // ── BULK CREATE/UPDATE: APPLY (writes) ──────────────────
+    register_rest_route( GH_ROUNDTRIP_REST_NS, '/bulk/apply', [
+        'methods'             => WP_REST_Server::CREATABLE, // POST
+        'permission_callback' => 'gh_roundtrip_rest_permission',
+        'args'                => [
+            'mode' => [
+                'description' => 'create | create_or_update',
+                'required'    => false,
+                'default'     => 'create',
+                'enum'        => [ 'create', 'create_or_update' ],
+            ],
+        ],
+        'callback'            => 'gh_roundtrip_rest_bulk_apply',
+    ] );
 } );
 
 // ── Callbacks ───────────────────────────────────────────────
@@ -114,6 +158,72 @@ function gh_roundtrip_rest_export( WP_REST_Request $request ): WP_REST_Response|
     $data = rp_cm_export_roundtrip( $filters );
 
     return new WP_REST_Response( $data, 200 );
+}
+
+/**
+ * GET /roundtrip/ids — just the product ID list for a filter set, so an
+ * external client can chunk the export the same way the UI does (fetch ids,
+ * then page through /roundtrip/export?include_ids=...).
+ */
+function gh_roundtrip_rest_ids( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+
+    if ( ! function_exists( 'rp_cm_get_product_ids' ) ) {
+        return new WP_Error( 'gh_unavailable', 'rp_cm_get_product_ids non disponibile.', [ 'status' => 500 ] );
+    }
+
+    gh_roundtrip_rest_raise_limits();
+
+    $filters = gh_roundtrip_rest_collect_filters( $request );
+    $ids     = rp_cm_get_product_ids( $filters );
+
+    return new WP_REST_Response( [ 'ids' => $ids, 'total' => count( $ids ) ], 200 );
+}
+
+/**
+ * POST /bulk/preview — body = { products: [...] }. Bulk creator (NOT the
+ * roundtrip importer). No writes.
+ */
+function gh_roundtrip_rest_bulk_preview( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+
+    $data = gh_roundtrip_rest_read_bulk( $request );
+    if ( is_wp_error( $data ) ) {
+        return $data;
+    }
+
+    gh_roundtrip_rest_raise_limits();
+    $mode = gh_roundtrip_rest_bulk_mode( $request );
+
+    try {
+        $result = rp_cm_bulk_preview( $data, $mode );
+    } catch ( \Throwable $e ) {
+        return new WP_Error( 'gh_preview_failed', 'Anteprima fallita: ' . $e->getMessage(), [ 'status' => 500 ] );
+    }
+
+    return new WP_REST_Response( $result, 200 );
+}
+
+/**
+ * POST /bulk/apply — body = { products: [...] }. Bulk creator. Writes.
+ */
+function gh_roundtrip_rest_bulk_apply( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+
+    $data = gh_roundtrip_rest_read_bulk( $request );
+    if ( is_wp_error( $data ) ) {
+        return $data;
+    }
+
+    gh_roundtrip_rest_raise_limits();
+    $mode = gh_roundtrip_rest_bulk_mode( $request );
+
+    try {
+        $result = rp_cm_bulk_apply( $data, $mode );
+    } catch ( \Throwable $e ) {
+        return new WP_Error( 'gh_apply_failed', 'Import fallito: ' . $e->getMessage(), [ 'status' => 500 ] );
+    }
+
+    gh_roundtrip_log_apply( $result['summary'] ?? [], 'bulk:' . $mode );
+
+    return new WP_REST_Response( $result, 200 );
 }
 
 /**
@@ -243,6 +353,43 @@ function gh_roundtrip_rest_read_envelope( WP_REST_Request $request ): array|WP_E
 function gh_roundtrip_rest_mode( WP_REST_Request $request ): string {
     $mode = (string) $request->get_param( 'mode' );
     return in_array( $mode, [ 'update_only', 'create_if_missing' ], true ) ? $mode : 'update_only';
+}
+
+/**
+ * Reads + validates the bulk body ({ products: [...] } or a bare array) via the
+ * bulk creator's own validator.
+ *
+ * @return array|WP_Error Normalized data ([ 'products' => [...] ]) on success.
+ */
+function gh_roundtrip_rest_read_bulk( WP_REST_Request $request ): array|WP_Error {
+
+    if ( ! function_exists( 'rp_cm_validate_bulk_json' ) ) {
+        return new WP_Error( 'gh_unavailable', 'Bulk creator non disponibile.', [ 'status' => 500 ] );
+    }
+
+    $data = $request->get_json_params();
+    if ( ! is_array( $data ) || empty( $data ) ) {
+        return new WP_Error(
+            'gh_bad_body',
+            'Body mancante o non-JSON. Invia { "products": [...] } come application/json.',
+            [ 'status' => 400 ]
+        );
+    }
+
+    $valid = rp_cm_validate_bulk_json( $data );
+    if ( is_wp_error( $valid ) ) {
+        return new WP_Error( $valid->get_error_code(), $valid->get_error_message(), [ 'status' => 400 ] );
+    }
+
+    return $valid; // normalized [ 'products' => [...] ]
+}
+
+/**
+ * Normalizes the bulk mode param.
+ */
+function gh_roundtrip_rest_bulk_mode( WP_REST_Request $request ): string {
+    $mode = (string) $request->get_param( 'mode' );
+    return in_array( $mode, [ 'create', 'create_or_update' ], true ) ? $mode : 'create';
 }
 
 /**

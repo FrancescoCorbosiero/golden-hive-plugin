@@ -116,8 +116,63 @@
     // ── BULK IMPORT
     function initBulkImport(){const drop=document.getElementById('imp-drop'),inp=document.getElementById('imp-file-input');inp.addEventListener('change',()=>{if(inp.files.length)handleBulkFile(inp.files[0])});drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('dragover')});drop.addEventListener('dragleave',()=>drop.classList.remove('dragover'));drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('dragover');if(e.dataTransfer.files.length)handleBulkFile(e.dataTransfer.files[0])})}
     function handleBulkFile(f){if(!f.name.endsWith('.json')){toast('Solo .json','err');return}const r=new FileReader();r.onload=()=>{try{let d=JSON.parse(r.result);if(Array.isArray(d))d={products:d};if(!d.products?.length){toast('Nessun prodotto','err');return}state.bulkJSON=d;document.getElementById('imp-file-name').textContent=f.name+' \u00b7 '+d.products.length+' prodotti';document.getElementById('imp-mode-row').style.display='flex';document.getElementById('imp-preview-area').innerHTML='';document.getElementById('imp-confirm-bar').style.display='none';toast(d.products.length+' prodotti','inf')}catch(e){toast('JSON non valido','err')}};r.readAsText(f)}
-    async function bulkPreview(){if(!state.bulkJSON)return;const btn=document.getElementById('btn-imp-preview'),sp=document.getElementById('imp-preview-spin');btn.disabled=true;sp.style.display='';try{const m=document.querySelector('input[name="bulk-mode"]:checked').value;const r=await ajax('rp_cm_ajax_bulk_preview',{json_payload:JSON.stringify(state.bulkJSON),mode:m});if(!r.success){toast('Errore: '+r.data,'err');return}const s=r.data.summary,a=document.getElementById('imp-preview-area');let h='<table class="ptable"><thead><tr><th>Azione</th><th>Nome</th><th>SKU</th><th>Tipo</th><th>Varianti</th></tr></thead><tbody>';for(const d of r.data.details){const ic=d.action==='create'?'st-create':'st-matched';h+='<tr><td class="'+ic+'">'+(d.action==='create'?'+ Nuovo':'\u21bb #'+d.existing_id)+'</td><td>'+esc(d.name)+'</td><td>'+esc(d.sku||'\u2013')+'</td><td>'+d.type+'</td><td>'+(d.variation_count||'\u2013')+'</td></tr>'}h+='</tbody></table>';a.innerHTML=h;document.getElementById('imp-confirm-text').innerHTML='<span>'+s.to_create+'</span> da creare'+(s.to_update?', <span>'+s.to_update+'</span> da aggiornare':'');document.getElementById('imp-confirm-bar').style.display='flex'}catch(e){toast('Errore','err')}finally{btn.disabled=false;sp.style.display='none'}}
-    async function bulkApply(){if(!state.bulkJSON)return;const ov=document.getElementById('imp-overlay'),ot=document.getElementById('imp-overlay-text'),btn=document.getElementById('btn-imp-apply'),sp=document.getElementById('imp-apply-spin');ot.textContent='Creazione prodotti...';ov.classList.add('visible');btn.disabled=true;sp.style.display='';try{const m=document.querySelector('input[name="bulk-mode"]:checked').value;const r=await ajax('rp_cm_ajax_bulk_apply',{json_payload:JSON.stringify(state.bulkJSON),mode:m});if(!r.success){toast('Errore','err');return}const s=r.data.summary,a=document.getElementById('imp-preview-area');let h='<table class="ptable"><thead><tr><th>Risultato</th><th>ID</th><th>Nome</th><th>SKU</th><th>Varianti</th></tr></thead><tbody>';for(const d of r.data.details){const c=d.status==='created'?'st-created':d.status==='updated'?'st-updated':'st-error';h+='<tr><td class="'+c+'">'+(d.status==='created'?'+ Creato':d.status==='updated'?'\u2713 Agg.':'\u2717 Err')+'</td><td>'+(d.id||'\u2013')+'</td><td>'+esc(d.name||'')+'</td><td>'+esc(d.sku||'')+'</td><td>'+(d.variation_count||'\u2013')+'</td></tr>'}h+='</tbody></table>';a.innerHTML=h;document.getElementById('imp-confirm-bar').style.display='none';toast(s.created+' creati, '+s.errors+' errori',s.errors?'err':'ok',5000)}catch(e){toast('Errore','err')}finally{ov.classList.remove('visible');btn.disabled=false;sp.style.display='none'}}
+    // Bulk JSON import chunked: stessa ragione del roundtrip (un payload con
+    // centinaia di prodotti supera il cap ~100s di Cloudflare). 50/batch, merge
+    // di summary+details client-side, retry per-chunk, guard + wake lock.
+    const BULK_BATCH = 50;
+    async function bulkRunChunked(action, mode, onProgress){
+        const all=state.bulkJSON.products||[];
+        const total=all.length;
+        const merged={summary:{},details:[]};
+        for(let i=0;i<total;i+=BULK_BATCH){
+            const slice=all.slice(i,i+BULK_BATCH);
+            let r=null;
+            for(let attempt=0;attempt<3;attempt++){
+                r=await ajax(action,{json_payload:JSON.stringify({products:slice}),mode});
+                if(r.success)break;
+                if(attempt<2){await new Promise(res=>setTimeout(res,1000*(attempt+1)));}
+            }
+            if(!r.success){const d=(typeof r.data==='string'&&r.data)?r.data:'errore sconosciuto';throw new Error('batch '+(Math.floor(i/BULK_BATCH)+1)+' (prodotti '+(i+1)+'-'+Math.min(i+BULK_BATCH,total)+'): '+d);}
+            const s=r.data.summary||{};
+            for(const k in s){if(typeof s[k]==='number')merged.summary[k]=(merged.summary[k]||0)+s[k];}
+            if(Array.isArray(r.data.details))merged.details.push(...r.data.details);
+            if(onProgress)onProgress(Math.min(i+BULK_BATCH,total),total);
+        }
+        return merged;
+    }
+    async function bulkPreview(){
+        if(!state.bulkJSON)return;
+        const ov=document.getElementById('imp-overlay'),ot=document.getElementById('imp-overlay-text'),btn=document.getElementById('btn-imp-preview'),sp=document.getElementById('imp-preview-spin');
+        ot.textContent='Anteprima...';ov.classList.add('visible');btn.disabled=true;sp.style.display='';
+        beginRun(); await acquireWakeLock();
+        try{
+            const m=document.querySelector('input[name="bulk-mode"]:checked').value;
+            const data=await bulkRunChunked('rp_cm_ajax_bulk_preview',m,(done,total)=>{ot.textContent='Anteprima '+done+' / '+total+'...';});
+            const s=data.summary,a=document.getElementById('imp-preview-area');
+            let h='<table class="ptable"><thead><tr><th>Azione</th><th>Nome</th><th>SKU</th><th>Tipo</th><th>Varianti</th></tr></thead><tbody>';
+            for(const d of data.details){const ic=d.action==='create'?'st-create':'st-matched';h+='<tr><td class="'+ic+'">'+(d.action==='create'?'+ Nuovo':'\u21bb #'+d.existing_id)+'</td><td>'+esc(d.name)+'</td><td>'+esc(d.sku||'\u2013')+'</td><td>'+d.type+'</td><td>'+(d.variation_count||'\u2013')+'</td></tr>'}
+            h+='</tbody></table>';a.innerHTML=h;
+            document.getElementById('imp-confirm-text').innerHTML='<span>'+(s.to_create||0)+'</span> da creare'+(s.to_update?', <span>'+s.to_update+'</span> da aggiornare':'');
+            document.getElementById('imp-confirm-bar').style.display='flex'
+        }catch(e){toast('Errore anteprima: '+(e.message||e),'err',0)}
+        finally{endRun();releaseWakeLock();ov.classList.remove('visible');btn.disabled=false;sp.style.display='none'}
+    }
+    async function bulkApply(){
+        if(!state.bulkJSON)return;
+        const ov=document.getElementById('imp-overlay'),ot=document.getElementById('imp-overlay-text'),btn=document.getElementById('btn-imp-apply'),sp=document.getElementById('imp-apply-spin');
+        ot.textContent='Creazione prodotti...';ov.classList.add('visible');btn.disabled=true;sp.style.display='';
+        beginRun(); await acquireWakeLock();
+        try{
+            const m=document.querySelector('input[name="bulk-mode"]:checked').value;
+            const data=await bulkRunChunked('rp_cm_ajax_bulk_apply',m,(done,total)=>{ot.textContent='Creazione '+done+' / '+total+'...';});
+            const s=data.summary,a=document.getElementById('imp-preview-area');
+            let h='<table class="ptable"><thead><tr><th>Risultato</th><th>ID</th><th>Nome</th><th>SKU</th><th>Varianti</th></tr></thead><tbody>';
+            for(const d of data.details){const c=d.status==='created'?'st-created':d.status==='updated'?'st-updated':'st-error';h+='<tr><td class="'+c+'">'+(d.status==='created'?'+ Creato':d.status==='updated'?'\u2713 Agg.':'\u2717 Err')+'</td><td>'+(d.id||'\u2013')+'</td><td>'+esc(d.name||'')+'</td><td>'+esc(d.sku||'')+'</td><td>'+(d.variation_count||'\u2013')+'</td></tr>'}
+            h+='</tbody></table>';a.innerHTML=h;document.getElementById('imp-confirm-bar').style.display='none';
+            toast((s.created||0)+' creati, '+(s.errors||0)+' errori',(s.errors)?'err':'ok',5000)
+        }catch(e){toast('Errore import: '+(e.message||e),'err',0)}
+        finally{endRun();releaseWakeLock();ov.classList.remove('visible');btn.disabled=false;sp.style.display='none'}
+    }
     function bulkCancel(){document.getElementById('imp-confirm-bar').style.display='none';document.getElementById('imp-preview-area').innerHTML=''}
 
     // ── ROUNDTRIP EXPORT
@@ -127,6 +182,37 @@
     // ~100s di Cloudflare -> 524 e muore. Stesso pattern dell'import: ogni
     // request e breve. Progress reale + wake lock + retry per-chunk.
     const RT_EXPORT_BATCH = 50;
+    // Pure: scarica i prodotti dati (per ID) a chunk e ritorna l'envelope merge.
+    // Riusato da generateRoundtrip (tab Roundtrip) e da exportSelectionAsFile
+    // (bottone "Export JSON" in Filtra & Agisci).
+    async function exportRoundtripChunked(ids, onProgress){
+        const total=(ids||[]).length;
+        let header=null;const products=[];
+        for(let i=0;i<total;i+=RT_EXPORT_BATCH){
+            const slice=ids.slice(i,i+RT_EXPORT_BATCH);
+            let r=null;
+            for(let attempt=0;attempt<3;attempt++){
+                r=await ajax('rp_cm_ajax_export_roundtrip',{include_ids:JSON.stringify(slice)});
+                if(r.success)break;
+                if(attempt<2){await new Promise(res=>setTimeout(res,1000*(attempt+1)));}
+            }
+            if(!r||!r.success){
+                const detail=(r&&typeof r.data==='string'&&r.data)?r.data:'errore sconosciuto';
+                throw new Error('batch prodotti '+(i+1)+'-'+Math.min(i+RT_EXPORT_BATCH,total)+': '+detail);
+            }
+            if(!header)header=r.data;
+            if(Array.isArray(r.data.products))products.push(...r.data.products);
+            if(onProgress)onProgress(Math.min(i+RT_EXPORT_BATCH,total),total);
+        }
+        return {
+            format:(header&&header.format)||'rp_cm_roundtrip',
+            version:(header&&header.version)||1,
+            generated_at:(header&&header.generated_at)||new Date().toISOString(),
+            site_url:(header&&header.site_url)||'',
+            product_count:products.length,
+            products
+        };
+    }
     async function generateRoundtrip(){
         const ov=document.getElementById('rt-overlay'),ot=document.getElementById('rt-overlay-text'),btn=document.getElementById('btn-rt-export'),sp=document.getElementById('rt-spin');
         ot.textContent='Conteggio prodotti...';ov.classList.add('visible');btn.disabled=true;sp.style.display='';
@@ -135,33 +221,9 @@
             const filters=JSON.stringify(getFilters('rt'));
             const idr=await ajax('rp_cm_ajax_export_roundtrip_ids',{filters});
             if(!idr.success){toast('Errore conteggio: '+(typeof idr.data==='string'?idr.data:'sconosciuto'),'err',0);return}
-            const ids=idr.data.ids||[],total=ids.length;
-            if(!total){toast('Nessun prodotto per questi filtri','inf');return}
-            let header=null;const products=[];
-            for(let i=0;i<total;i+=RT_EXPORT_BATCH){
-                const slice=ids.slice(i,i+RT_EXPORT_BATCH);
-                let r=null;
-                for(let attempt=0;attempt<3;attempt++){
-                    r=await ajax('rp_cm_ajax_export_roundtrip',{include_ids:JSON.stringify(slice)});
-                    if(r.success)break;
-                    if(attempt<2){await new Promise(res=>setTimeout(res,1000*(attempt+1)));}
-                }
-                if(!r||!r.success){
-                    const detail=(r&&typeof r.data==='string'&&r.data)?r.data:'errore sconosciuto';
-                    throw new Error('batch prodotti '+(i+1)+'-'+Math.min(i+RT_EXPORT_BATCH,total)+': '+detail);
-                }
-                if(!header)header=r.data;
-                if(Array.isArray(r.data.products))products.push(...r.data.products);
-                ot.textContent='Export '+Math.min(i+RT_EXPORT_BATCH,total)+' / '+total+'...';
-            }
-            const data={
-                format:(header&&header.format)||'rp_cm_roundtrip',
-                version:(header&&header.version)||1,
-                generated_at:(header&&header.generated_at)||new Date().toISOString(),
-                site_url:(header&&header.site_url)||'',
-                product_count:products.length,
-                products
-            };
+            const ids=idr.data.ids||[];
+            if(!ids.length){toast('Nessun prodotto per questi filtri','inf');return}
+            const data=await exportRoundtripChunked(ids,(done,total)=>{ot.textContent='Export '+done+' / '+total+'...';});
             state.roundtripData=data;
             const j=JSON.stringify(data,null,2);
             document.getElementById('btn-rt-copy').style.display='';
@@ -170,6 +232,28 @@
             toast('Export: '+data.product_count+' prodotti','ok')
         }catch(e){toast('Errore export: '+(e.message||e),'err',0)}
         finally{endRun();releaseWakeLock();ov.classList.remove('visible');btn.disabled=false;sp.style.display='none'}
+    }
+
+    // Public ("Export JSON" in Filtra & Agisci, via GH.exportSelectionAsFile):
+    // riceve gli ID selezionati, scarica a chunk e fa partire il download.
+    // Guard + wake lock perche su 600+ prodotti dura minuti.
+    async function exportSelectionAsFile(ids){
+        if(!ids||!ids.length){toast('Nessun prodotto selezionato','err');return}
+        beginRun(); await acquireWakeLock();
+        toast('Export JSON: '+ids.length+' prodotti...','ok',2500);
+        try{
+            const data=await exportRoundtripChunked(ids);
+            const json=JSON.stringify(data,null,2);
+            const blob=new Blob([json],{type:'application/json;charset=utf-8'});
+            const url=URL.createObjectURL(blob);
+            const a=document.createElement('a');
+            const stamp=new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+            a.href=url;a.download='roundtrip-subset-'+ids.length+'-'+stamp+'.json';
+            document.body.appendChild(a);a.click();
+            setTimeout(()=>{URL.revokeObjectURL(url);a.remove();},100);
+            toast('Export di '+data.product_count+' prodotti scaricato','ok')
+        }catch(e){toast('Errore export: '+(e.message||e),'err',0)}
+        finally{endRun();releaseWakeLock();}
     }
 
     // ── ROUNDTRIP IMPORT
@@ -1527,5 +1611,5 @@
         await dispatchReimport('sf', cfg, skus, overwriteMedia, 'sf-reimport-status');
     }
 
-    return{ajax,ajaxWithToast,toast,esc,emptyState,statusChip,confirm:ghConfirm,markDirty,clearDirty,isDirty,registerShortcuts,clearShortcuts,registerDeepOpener,updateHash,copyJSON,copyToClipboard,wireDirtyInputs,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsLabelPreview,gsLabelApply,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,gsPriceModeChange,gsReimportDispatch,gsLoadSettings,gsSaveSettings,sfLoadSettings,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,sfMarkupModeChange,sfReimportDispatch,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvScheduleFeed,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog,nucPreview,nucExecute,feedCleanup};
+    return{ajax,ajaxWithToast,toast,esc,emptyState,statusChip,confirm:ghConfirm,markDirty,clearDirty,isDirty,registerShortcuts,clearShortcuts,registerDeepOpener,updateHash,copyJSON,copyToClipboard,wireDirtyInputs,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsLabelPreview,gsLabelApply,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,gsPriceModeChange,gsReimportDispatch,gsLoadSettings,gsSaveSettings,sfLoadSettings,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,sfMarkupModeChange,sfReimportDispatch,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,exportSelectionAsFile,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvScheduleFeed,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog,nucPreview,nucExecute,feedCleanup};
 })();

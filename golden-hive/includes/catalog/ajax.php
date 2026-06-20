@@ -157,6 +157,54 @@ add_action( 'wp_ajax_rp_cm_ajax_bulk_preview', function () {
     wp_send_json_success( $result );
 } );
 
+// ── BULK IMPORT DISPATCH (background job) ───────────────────
+// Riceve il file intero, lo persiste su disco e lancia un job bulk_import che
+// gira a tick lato server (immune al cap ~100s di Cloudflare). Ritorna subito
+// job_id; la UI/REST pollano lo status. La request di upload e breve perche NON
+// processa i prodotti in modo sincrono.
+add_action( 'wp_ajax_rp_cm_ajax_bulk_dispatch', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $raw  = stripslashes( $_POST['json_payload'] ?? '{}' );
+    $data = json_decode( $raw, true );
+    if ( json_last_error() !== JSON_ERROR_NONE ) {
+        wp_send_json_error( 'JSON non valido: ' . json_last_error_msg() );
+    }
+    if ( ! function_exists( 'gh_cm_dispatch_bulk_import' ) ) {
+        wp_send_json_error( 'Dispatch non disponibile (job runner mancante).' );
+    }
+
+    $mode = sanitize_text_field( $_POST['mode'] ?? 'create' );
+    $res  = gh_cm_dispatch_bulk_import( $data, $mode );
+    if ( is_wp_error( $res ) ) {
+        wp_send_json_error( $res->get_error_message() );
+    }
+    wp_send_json_success( $res );
+} );
+
+// ── BULK IMPORT JOB STATUS (per il polling) ─────────────────
+add_action( 'wp_ajax_rp_cm_ajax_bulk_job_status', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    $job_id = sanitize_text_field( $_POST['job_id'] ?? '' );
+    if ( $job_id === '' || ! function_exists( 'gh_jobs_get' ) ) {
+        wp_send_json_error( 'job_id mancante.' );
+    }
+    $job = gh_jobs_get( $job_id );
+    if ( ! $job ) {
+        wp_send_json_error( 'Job non trovato.' );
+    }
+
+    $status = (string) ( $job['last_status'] ?? 'continue' );
+    wp_send_json_success( [
+        'status'  => $status,                                       // continue|done|error|skipped
+        'done'    => in_array( $status, [ 'done', 'error' ], true ),
+        'summary' => $job['last_summary'] ?? null,
+    ] );
+} );
+
 // ── BULK IMPORT APPLY ───────────────────────────────────────
 add_action( 'wp_ajax_rp_cm_ajax_bulk_apply', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );

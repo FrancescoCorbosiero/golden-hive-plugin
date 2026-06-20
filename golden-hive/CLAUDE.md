@@ -58,7 +58,7 @@ golden-hive/
     │   ├── taxonomy-manager.php ← rp_cm_get_taxonomy_tree, rp_cm_create_category, rp_cm_assign_product_categories
     │   ├── taxonomy-query.php   ← rp_cm_query_taxonomies (filter/sort/top-N), rp_cm_get_products_for_terms
     │   ├── smart-taxonomy.php   ← gh_smart_* (regole condizionali, STESSO schema conditions di Filter)
-    │   ├── bulk-creator.php     ← rp_cm_bulk_preview, rp_cm_bulk_apply
+    │   ├── bulk-creator.php     ← rp_cm_bulk_preview, rp_cm_bulk_apply, gh_cm_dispatch_bulk_import (background job CDN-proof)
     │   └── ajax.php             ← AJAX bridge (export_roundtrip supporta include_ids; export_roundtrip_ids = lista ID per chunking client-side)
     ├── navigation/              ← (prefix: gh_nav_)
     │   ├── manager.php          ← gh_nav_get_menus, _get_menu_items, _upsert_item, _populate_from_terms, _clear_managed_children
@@ -91,7 +91,7 @@ golden-hive/
     ├── jobs/                    ← Scheduler unificato (prefix: gh_jobs_)
     │   ├── cron-expr.php, registry.php, storage.php, log.php, runner.php, migrate.php
     │   ├── handlers-feeds.php   ← job kinds: csv_feed, config_feed, force_reimport, kicksdb_refresh_pricing
-    │   ├── handlers-ops.php
+    │   ├── handlers-ops.php     ← job kinds: gs_feed, email_campaign, media_cleanup, bulk_action, catalog_export, rest_call, bulk_import (background CDN-proof)
     │   └── ajax.php
     ├── filter/                  ← (prefix: gh_)
     │   ├── conditions.php       ← gh_get_condition_definitions, gh_evaluate_condition (23 tipi, include kicksdb_*/provenance_*)

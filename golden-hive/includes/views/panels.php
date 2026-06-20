@@ -410,6 +410,7 @@
     <div class="confirm-bar" id="imp-confirm-bar" style="display:none">
         <div class="summary-text" id="imp-confirm-text"></div>
         <button class="btn btn-ghost" onclick="GH.bulkCancel()">Annulla</button>
+        <button class="btn btn-ghost" id="btn-imp-bg" onclick="GH.bulkApplyBackground()" title="Esegue l'import lato server a tick: immune al timeout di Cloudflare e prosegue anche se chiudi la pagina">&#9211; Background</button>
         <button class="btn btn-warn" id="btn-imp-apply" onclick="GH.bulkApply()"><span class="spin" id="imp-apply-spin" style="display:none"></span> Crea prodotti</button>
     </div>
     <div class="gen-overlay" id="imp-overlay"><div class="gen-spinner"></div><div class="gen-text" id="imp-overlay-text">Elaborazione...</div></div>

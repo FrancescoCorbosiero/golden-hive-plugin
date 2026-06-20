@@ -116,27 +116,39 @@
     // ── BULK IMPORT
     function initBulkImport(){const drop=document.getElementById('imp-drop'),inp=document.getElementById('imp-file-input');inp.addEventListener('change',()=>{if(inp.files.length)handleBulkFile(inp.files[0])});drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('dragover')});drop.addEventListener('dragleave',()=>drop.classList.remove('dragover'));drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('dragover');if(e.dataTransfer.files.length)handleBulkFile(e.dataTransfer.files[0])})}
     function handleBulkFile(f){if(!f.name.endsWith('.json')){toast('Solo .json','err');return}const r=new FileReader();r.onload=()=>{try{let d=JSON.parse(r.result);if(Array.isArray(d))d={products:d};if(!d.products?.length){toast('Nessun prodotto','err');return}state.bulkJSON=d;document.getElementById('imp-file-name').textContent=f.name+' \u00b7 '+d.products.length+' prodotti';document.getElementById('imp-mode-row').style.display='flex';document.getElementById('imp-preview-area').innerHTML='';document.getElementById('imp-confirm-bar').style.display='none';toast(d.products.length+' prodotti','inf')}catch(e){toast('JSON non valido','err')}};r.readAsText(f)}
-    // Bulk JSON import chunked: stessa ragione del roundtrip (un payload con
-    // centinaia di prodotti supera il cap ~100s di Cloudflare). 50/batch, merge
-    // di summary+details client-side, retry per-chunk, guard + wake lock.
-    const BULK_BATCH = 50;
+    // Bulk JSON import chunked. Stessa ragione del roundtrip (un payload grande
+    // supera il cap ~100s di Cloudflare → 524), MA qui i batch sono dimensionati
+    // a "peso" non a numero fisso: un prodotto variabile con 13 varianti = ~14
+    // scritture WC (parent + varianti + sync), quindi 50 prodotti possono valere
+    // centinaia di save e sforare 100s lo stesso. Accumuliamo prodotti finche il
+    // peso (1 + n_varianti) resta sotto il budget, cosi ogni request ha un numero
+    // di scritture WC limitato a prescindere dalla distribuzione delle varianti.
+    const BULK_WEIGHT_BUDGET = 80;
+    function bulkWeight(p){ return 1 + ((p && p.variations && p.variations.length) || 0); }
     async function bulkRunChunked(action, mode, onProgress){
         const all=state.bulkJSON.products||[];
         const total=all.length;
         const merged={summary:{},details:[]};
-        for(let i=0;i<total;i+=BULK_BATCH){
-            const slice=all.slice(i,i+BULK_BATCH);
+        let i=0,done=0,batchNo=0;
+        while(i<total){
+            // Slice fino al budget di peso (sempre almeno 1 prodotto, anche se
+            // da solo pesa piu del budget).
+            let w=0,j=i;
+            while(j<total && (j===i || w+bulkWeight(all[j])<=BULK_WEIGHT_BUDGET)){ w+=bulkWeight(all[j]); j++; }
+            const slice=all.slice(i,j);
+            batchNo++;
             let r=null;
             for(let attempt=0;attempt<3;attempt++){
                 r=await ajax(action,{json_payload:JSON.stringify({products:slice}),mode});
                 if(r.success)break;
                 if(attempt<2){await new Promise(res=>setTimeout(res,1000*(attempt+1)));}
             }
-            if(!r.success){const d=(typeof r.data==='string'&&r.data)?r.data:'errore sconosciuto';throw new Error('batch '+(Math.floor(i/BULK_BATCH)+1)+' (prodotti '+(i+1)+'-'+Math.min(i+BULK_BATCH,total)+'): '+d);}
+            if(!r.success){const d=(typeof r.data==='string'&&r.data)?r.data:'errore sconosciuto';throw new Error('batch '+batchNo+' (prodotti '+(i+1)+'-'+j+'): '+d);}
             const s=r.data.summary||{};
             for(const k in s){if(typeof s[k]==='number')merged.summary[k]=(merged.summary[k]||0)+s[k];}
             if(Array.isArray(r.data.details))merged.details.push(...r.data.details);
-            if(onProgress)onProgress(Math.min(i+BULK_BATCH,total),total);
+            done+=slice.length;i=j;
+            if(onProgress)onProgress(done,total);
         }
         return merged;
     }
@@ -172,6 +184,38 @@
             toast((s.created||0)+' creati, '+(s.errors||0)+' errori',(s.errors)?'err':'ok',5000)
         }catch(e){toast('Errore import: '+(e.message||e),'err',0)}
         finally{endRun();releaseWakeLock();ov.classList.remove('visible');btn.disabled=false;sp.style.display='none'}
+    }
+    // Background: carica il file, lancia un job lato server (immune a Cloudflare)
+    // e polla lo stato. NON serve tenere la tab aperta: il job prosegue da solo.
+    // Niente run-guard qui — chiudere la pagina e sicuro.
+    async function bulkApplyBackground(){
+        if(!state.bulkJSON)return;
+        const ov=document.getElementById('imp-overlay'),ot=document.getElementById('imp-overlay-text');
+        ot.textContent='Avvio in background...';ov.classList.add('visible');
+        try{
+            const m=document.querySelector('input[name="bulk-mode"]:checked').value;
+            const r=await ajax('rp_cm_ajax_bulk_dispatch',{json_payload:JSON.stringify(state.bulkJSON),mode:m});
+            if(!r.success){toast('Errore avvio: '+(typeof r.data==='string'?r.data:'sconosciuto'),'err',0);ov.classList.remove('visible');return}
+            const jobId=r.data.job_id,total=r.data.total;
+            document.getElementById('imp-confirm-bar').style.display='none';
+            toast('Import avviato in background ('+total+' prodotti). Puoi chiudere la pagina.','ok',6000);
+            // Poll fino a done/error. Tollerante a status non disponibili.
+            let misses=0;
+            while(true){
+                await new Promise(res=>setTimeout(res,2500));
+                const st=await ajax('rp_cm_ajax_bulk_job_status',{job_id:jobId});
+                if(!st.success){ if(++misses>5){ot.textContent='Stato non disponibile — controlla il tab Jobs';break;} continue; }
+                misses=0;
+                const s=st.data.summary||{};
+                ot.textContent='Background: '+(s.processed||0)+' / '+(s.total||total)+'  ·  '+(s.created||0)+' creati, '+(s.updated||0)+' agg., '+(s.errors||0)+' err.';
+                if(st.data.done){
+                    if(st.data.status==='error'){toast('Import in background fallito — vedi tab Jobs','err',0);}
+                    else{toast('Import completato: '+(s.created||0)+' creati, '+(s.updated||0)+' aggiornati, '+(s.errors||0)+' errori',(s.errors)?'err':'ok',6000);}
+                    break;
+                }
+            }
+        }catch(e){toast('Errore: '+(e.message||e),'err',0)}
+        finally{ov.classList.remove('visible')}
     }
     function bulkCancel(){document.getElementById('imp-confirm-bar').style.display='none';document.getElementById('imp-preview-area').innerHTML=''}
 
@@ -259,19 +303,24 @@
     // ── ROUNDTRIP IMPORT
     function initRtImport(){const drop=document.getElementById('rt-drop'),inp=document.getElementById('rt-file-input');inp.addEventListener('change',()=>{if(inp.files.length)handleRtFile(inp.files[0])});drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('dragover')});drop.addEventListener('dragleave',()=>drop.classList.remove('dragover'));drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('dragover');if(e.dataTransfer.files.length)handleRtFile(e.dataTransfer.files[0])})}
     function handleRtFile(f){if(!f.name.endsWith('.json')){toast('Solo .json','err');return}const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(d.format!=='rp_cm_roundtrip'){toast('Formato non valido','err');return}state.importJSON=d;document.getElementById('rt-file-name').textContent=f.name+' \u00b7 '+(d.product_count||d.products?.length||0)+' prodotti';document.getElementById('rt-mode-row').style.display='flex';document.getElementById('rt-preview-area').innerHTML='';document.getElementById('rt-confirm-bar').style.display='none';toast('File caricato','inf')}catch(e){toast('JSON non valido','err')}};r.readAsText(f)}
-    // Invia i prodotti del roundtrip a chunk (50/batch) invece di un unico
-    // payload da 15MB. Un singolo request che processa 1600+ prodotti +
-    // migliaia di varianti supera il timeout PHP/FastCGI e moriva con un 500
-    // non-JSON dopo ~1h (sintomo: "Error" senza spiegazioni). Ogni batch e
-    // una richiesta breve; uniamo summary (somma dei contatori) e details.
-    const RT_BATCH = 50;
+    // Invia i prodotti del roundtrip a chunk invece di un unico payload da 15MB
+    // che supererebbe il timeout (Cloudflare 524 / PHP-FastCGI). Batch a "peso"
+    // (1 + n_varianti) e non a numero fisso: un prodotto con molte varianti =
+    // molte scritture WC, quindi 50 prodotti possono sforare 100s lo stesso.
+    // Uniamo summary (somma dei contatori) e details.
+    const RT_WEIGHT_BUDGET = 80;
+    function rtWeight(p){ return 1 + ((p && p.variations && p.variations.length) || 0); }
     async function rtRunChunked(action, mode, onProgress){
         const all = state.importJSON.products || [];
         const total = all.length;
         const merged = { summary:{}, details:[] };
-        for (let i = 0; i < total; i += RT_BATCH) {
-            const slice = all.slice(i, i + RT_BATCH);
+        let i = 0, done = 0, batchNo = 0;
+        while (i < total) {
+            let w = 0, j = i;
+            while (j < total && (j === i || w + rtWeight(all[j]) <= RT_WEIGHT_BUDGET)) { w += rtWeight(all[j]); j++; }
+            const slice = all.slice(i, j);
             const payload = { format:'rp_cm_roundtrip', version:1, products:slice };
+            batchNo++;
             // Retry per-chunk: un 524/timeout transitorio su un batch non deve
             // buttare a terra l'intera operazione (backoff 1s/2s).
             let r = null;
@@ -282,12 +331,13 @@
             }
             if (!r.success) {
                 const detail = (typeof r.data === 'string' && r.data) ? r.data : 'errore sconosciuto';
-                throw new Error('batch ' + (Math.floor(i / RT_BATCH) + 1) + ' (prodotti ' + (i + 1) + '\u2013' + Math.min(i + RT_BATCH, total) + '): ' + detail);
+                throw new Error('batch ' + batchNo + ' (prodotti ' + (i + 1) + '\u2013' + j + '): ' + detail);
             }
             const s = r.data.summary || {};
             for (const k in s) { if (typeof s[k] === 'number') merged.summary[k] = (merged.summary[k] || 0) + s[k]; }
             if (Array.isArray(r.data.details)) merged.details.push(...r.data.details);
-            if (onProgress) onProgress(Math.min(i + RT_BATCH, total), total);
+            done += slice.length; i = j;
+            if (onProgress) onProgress(done, total);
         }
         return merged;
     }
@@ -1611,5 +1661,5 @@
         await dispatchReimport('sf', cfg, skus, overwriteMedia, 'sf-reimport-status');
     }
 
-    return{ajax,ajaxWithToast,toast,esc,emptyState,statusChip,confirm:ghConfirm,markDirty,clearDirty,isDirty,registerShortcuts,clearShortcuts,registerDeepOpener,updateHash,copyJSON,copyToClipboard,wireDirtyInputs,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsLabelPreview,gsLabelApply,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,gsPriceModeChange,gsReimportDispatch,gsLoadSettings,gsSaveSettings,sfLoadSettings,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,sfMarkupModeChange,sfReimportDispatch,bulkPreview,bulkApply,bulkCancel,generateRoundtrip,exportSelectionAsFile,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvScheduleFeed,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog,nucPreview,nucExecute,feedCleanup};
+    return{ajax,ajaxWithToast,toast,esc,emptyState,statusChip,confirm:ghConfirm,markDirty,clearDirty,isDirty,registerShortcuts,clearShortcuts,registerDeepOpener,updateHash,copyJSON,copyToClipboard,wireDirtyInputs,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsLabelPreview,gsLabelApply,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,gsPriceModeChange,gsReimportDispatch,gsLoadSettings,gsSaveSettings,sfLoadSettings,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,sfMarkupModeChange,sfReimportDispatch,bulkPreview,bulkApply,bulkApplyBackground,bulkCancel,generateRoundtrip,exportSelectionAsFile,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvScheduleFeed,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog,nucPreview,nucExecute,feedCleanup};
 })();

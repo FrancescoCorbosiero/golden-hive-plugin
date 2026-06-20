@@ -213,6 +213,33 @@ A roundtrip **export file is compatible** as bulk input (both use `products[]`,
 and the export includes `name`/prices/variations) — but it runs through the
 create/upsert engine, not the field-level updater.
 
+### Background import — `POST /bulk/dispatch` + `GET /bulk/job` (CDN-proof)
+
+The most robust option for large catalogs: instead of holding an HTTP request
+while products are written, **dispatch a background job** and poll it. The
+import runs server-side in WP-Cron ticks, so Cloudflare's ~100s cap **does not
+apply at all**, and it keeps running even if the client disconnects.
+
+```bash
+# 1. Dispatch — returns 202 immediately
+curl -s -u "$WP_USER:$WP_APP_PASS" -H "Content-Type: application/json" \
+  "https://your-site/wp-json/gh/v1/bulk/dispatch?mode=create_or_update" \
+  --data-binary @products.json
+# → { "job_id": "job_xxx", "total": 1460 }
+
+# 2. Poll until done
+curl -s -u "$WP_USER:$WP_APP_PASS" \
+  "https://your-site/wp-json/gh/v1/bulk/job?id=job_xxx"
+# → { "status": "continue", "done": false,
+#     "summary": { "processed": 320, "total": 1460, "created": 0, "updated": 320, "errors": 0 } }
+# ... when finished: { "status": "done", "done": true, "summary": { ... } }
+```
+
+`status` is `continue` while running, then `done` or `error`. Requires WP-Cron
+to be firing (system cron → `wp-cron.php`, or default loopback) — same
+assumption as the rest of the job runner. Errors are recorded in the **Jobs**
+log.
+
 ---
 
 ## The automation loop

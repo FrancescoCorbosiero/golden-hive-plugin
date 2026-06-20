@@ -121,7 +121,56 @@
     function bulkCancel(){document.getElementById('imp-confirm-bar').style.display='none';document.getElementById('imp-preview-area').innerHTML=''}
 
     // ── ROUNDTRIP EXPORT
-    async function generateRoundtrip(){const ov=document.getElementById('rt-overlay'),ot=document.getElementById('rt-overlay-text'),btn=document.getElementById('btn-rt-export'),sp=document.getElementById('rt-spin');ot.textContent='Generazione export...';ov.classList.add('visible');btn.disabled=true;sp.style.display='';try{const r=await ajax('rp_cm_ajax_export_roundtrip',{filters:JSON.stringify(getFilters('rt'))});if(!r.success){toast('Errore','err');return}state.roundtripData=r.data;const j=JSON.stringify(r.data,null,2);document.getElementById('btn-rt-copy').style.display='';document.getElementById('btn-rt-download').style.display='';document.getElementById('rt-size').textContent=fileSize(new Blob([j]).size)+' \u00b7 '+r.data.product_count+' prodotti';toast('Export: '+r.data.product_count+' prodotti','ok')}catch(e){toast('Errore','err')}finally{ov.classList.remove('visible');btn.disabled=false;sp.style.display='none'}}
+    // Chunked: prima la lista ID (leggera), poi i prodotti a batch via
+    // include_ids con merge client-side. Un singolo export di 600+ prodotti
+    // (varianti + immagini + meta + 4 query tassonomia ciascuno) supera il cap
+    // ~100s di Cloudflare -> 524 e muore. Stesso pattern dell'import: ogni
+    // request e breve. Progress reale + wake lock + retry per-chunk.
+    const RT_EXPORT_BATCH = 50;
+    async function generateRoundtrip(){
+        const ov=document.getElementById('rt-overlay'),ot=document.getElementById('rt-overlay-text'),btn=document.getElementById('btn-rt-export'),sp=document.getElementById('rt-spin');
+        ot.textContent='Conteggio prodotti...';ov.classList.add('visible');btn.disabled=true;sp.style.display='';
+        beginRun(); await acquireWakeLock();
+        try{
+            const filters=JSON.stringify(getFilters('rt'));
+            const idr=await ajax('rp_cm_ajax_export_roundtrip_ids',{filters});
+            if(!idr.success){toast('Errore conteggio: '+(typeof idr.data==='string'?idr.data:'sconosciuto'),'err',0);return}
+            const ids=idr.data.ids||[],total=ids.length;
+            if(!total){toast('Nessun prodotto per questi filtri','inf');return}
+            let header=null;const products=[];
+            for(let i=0;i<total;i+=RT_EXPORT_BATCH){
+                const slice=ids.slice(i,i+RT_EXPORT_BATCH);
+                let r=null;
+                for(let attempt=0;attempt<3;attempt++){
+                    r=await ajax('rp_cm_ajax_export_roundtrip',{include_ids:JSON.stringify(slice)});
+                    if(r.success)break;
+                    if(attempt<2){await new Promise(res=>setTimeout(res,1000*(attempt+1)));}
+                }
+                if(!r||!r.success){
+                    const detail=(r&&typeof r.data==='string'&&r.data)?r.data:'errore sconosciuto';
+                    throw new Error('batch prodotti '+(i+1)+'-'+Math.min(i+RT_EXPORT_BATCH,total)+': '+detail);
+                }
+                if(!header)header=r.data;
+                if(Array.isArray(r.data.products))products.push(...r.data.products);
+                ot.textContent='Export '+Math.min(i+RT_EXPORT_BATCH,total)+' / '+total+'...';
+            }
+            const data={
+                format:(header&&header.format)||'rp_cm_roundtrip',
+                version:(header&&header.version)||1,
+                generated_at:(header&&header.generated_at)||new Date().toISOString(),
+                site_url:(header&&header.site_url)||'',
+                product_count:products.length,
+                products
+            };
+            state.roundtripData=data;
+            const j=JSON.stringify(data,null,2);
+            document.getElementById('btn-rt-copy').style.display='';
+            document.getElementById('btn-rt-download').style.display='';
+            document.getElementById('rt-size').textContent=fileSize(new Blob([j]).size)+' \u00b7 '+data.product_count+' prodotti';
+            toast('Export: '+data.product_count+' prodotti','ok')
+        }catch(e){toast('Errore export: '+(e.message||e),'err',0)}
+        finally{endRun();releaseWakeLock();ov.classList.remove('visible');btn.disabled=false;sp.style.display='none'}
+    }
 
     // ── ROUNDTRIP IMPORT
     function initRtImport(){const drop=document.getElementById('rt-drop'),inp=document.getElementById('rt-file-input');inp.addEventListener('change',()=>{if(inp.files.length)handleRtFile(inp.files[0])});drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('dragover')});drop.addEventListener('dragleave',()=>drop.classList.remove('dragover'));drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('dragover');if(e.dataTransfer.files.length)handleRtFile(e.dataTransfer.files[0])})}
@@ -139,7 +188,14 @@
         for (let i = 0; i < total; i += RT_BATCH) {
             const slice = all.slice(i, i + RT_BATCH);
             const payload = { format:'rp_cm_roundtrip', version:1, products:slice };
-            const r = await ajax(action, { json_payload: JSON.stringify(payload), mode });
+            // Retry per-chunk: un 524/timeout transitorio su un batch non deve
+            // buttare a terra l'intera operazione (backoff 1s/2s).
+            let r = null;
+            for (let attempt = 0; attempt < 3; attempt++) {
+                r = await ajax(action, { json_payload: JSON.stringify(payload), mode });
+                if (r.success) break;
+                if (attempt < 2) { await new Promise(res => setTimeout(res, 1000 * (attempt + 1))); }
+            }
             if (!r.success) {
                 const detail = (typeof r.data === 'string' && r.data) ? r.data : 'errore sconosciuto';
                 throw new Error('batch ' + (Math.floor(i / RT_BATCH) + 1) + ' (prodotti ' + (i + 1) + '\u2013' + Math.min(i + RT_BATCH, total) + '): ' + detail);
@@ -156,6 +212,7 @@
         const btn=document.getElementById('btn-rt-preview'),sp=document.getElementById('preview-spin');
         const ov=document.getElementById('rt-overlay'),ot=document.getElementById('rt-overlay-text');
         btn.disabled=true;sp.style.display='';ot.textContent='Anteprima...';ov.classList.add('visible');
+        beginRun(); await acquireWakeLock();
         try{
             const m=document.querySelector('input[name="import-mode"]:checked').value;
             const data=await rtRunChunked('rp_cm_ajax_import_preview',m,(done,total)=>{ot.textContent='Anteprima '+done+' / '+total+'...';});
@@ -165,13 +222,13 @@
             h+='</tbody></table>';a.innerHTML=h;
             if((s.with_changes||0)>0||(s.would_create||0)>0){let msg='<span>'+(s.with_changes||0)+'</span> da aggiornare';if(s.would_create)msg+=', <span>'+s.would_create+'</span> nuovi';document.getElementById('rt-confirm-text').innerHTML=msg;document.getElementById('rt-confirm-bar').style.display='flex'}else{toast('Nessuna modifica','inf')}
         }catch(e){toast('Errore anteprima: '+(e.message||e),'err',0)}
-        finally{ov.classList.remove('visible');btn.disabled=false;sp.style.display='none'}
+        finally{endRun();releaseWakeLock();ov.classList.remove('visible');btn.disabled=false;sp.style.display='none'}
     }
     async function importApply(){
         if(!state.importJSON)return;
         const ov=document.getElementById('rt-overlay'),ot=document.getElementById('rt-overlay-text'),btn=document.getElementById('btn-rt-apply'),sp=document.getElementById('apply-spin');
         ot.textContent='Applicazione...';ov.classList.add('visible');btn.disabled=true;sp.style.display='';
-        await acquireWakeLock();
+        beginRun(); await acquireWakeLock();
         try{
             const m=document.querySelector('input[name="import-mode"]:checked').value;
             const data=await rtRunChunked('rp_cm_ajax_import_apply',m,(done,total)=>{ot.textContent='Applicazione '+done+' / '+total+'...';});
@@ -182,7 +239,7 @@
             const parts=[];if(s.updated)parts.push(s.updated+' aggiornati');if(s.created)parts.push(s.created+' creati');if(s.skipped)parts.push(s.skipped+' saltati');if(s.errors)parts.push(s.errors+' errori');
             toast(parts.length?parts.join(', '):'Nessuna modifica',s.errors?'err':'ok',5000)
         }catch(e){toast('Errore import: '+(e.message||e),'err',0)}
-        finally{releaseWakeLock();ov.classList.remove('visible');btn.disabled=false;sp.style.display='none'}
+        finally{endRun();releaseWakeLock();ov.classList.remove('visible');btn.disabled=false;sp.style.display='none'}
     }
     function importCancel(){document.getElementById('rt-confirm-bar').style.display='none';document.getElementById('rt-preview-area').innerHTML=''}
 

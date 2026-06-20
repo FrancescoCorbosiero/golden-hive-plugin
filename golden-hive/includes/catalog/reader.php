@@ -68,6 +68,44 @@ function rp_cm_get_all_products( array $filters = [] ): array {
 }
 
 /**
+ * Ritorna SOLO gli ID prodotto per un set di filtri, nello stesso ordine di
+ * rp_cm_get_all_products. Usato per l'export roundtrip a chunk: il client
+ * prende prima la lista ID (leggera) e poi scarica i prodotti a batch via
+ * include_ids, cosi nessuna singola request costruisce l'intero catalogo
+ * (che su 600+ prodotti supera il cap ~100s di Cloudflare → 524).
+ *
+ * @param array $filters Stessi filtri di rp_cm_get_all_products.
+ * @return int[] ID prodotto ordinati.
+ */
+function rp_cm_get_product_ids( array $filters = [] ): array {
+
+    // Fast path: nessun filtro memory-phase → query SQL pura (return=ids),
+    // istantanea anche su migliaia di prodotti.
+    if ( empty( $filters['brand'] ) && empty( $filters['in_stock'] ) ) {
+        $args = [
+            'limit'   => -1,
+            'status'  => $filters['status'] ?? 'any',
+            'type'    => [ 'simple', 'variable' ],
+            'return'  => 'ids',
+            'orderby' => 'title',
+            'order'   => 'ASC',
+        ];
+        if ( ! empty( $filters['category'] ) ) {
+            $args['category'] = [ $filters['category'] ];
+        }
+        $ids = ( new WC_Product_Query( $args ) )->get_products();
+        return array_values( array_filter( array_map( 'intval', (array) $ids ) ) );
+    }
+
+    // Slow path: i filtri brand/in_stock richiedono hydration → riusa il
+    // reader completo e mappa gli ID (comunque molto piu leggero del full export).
+    return array_map(
+        static fn( WC_Product $p ): int => $p->get_id(),
+        rp_cm_get_all_products( $filters )
+    );
+}
+
+/**
  * Ritorna le varianti raw di un prodotto variabile.
  *
  * @param int $product_id ID del prodotto padre.

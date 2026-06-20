@@ -50,7 +50,7 @@ golden-hive/
     │   ├── variations.php       ← rp_search_products, rp_get_product_variations, rp_update_variation, rp_bulk_update_variations
     │   └── ajax.php             ← gh_ajax_product_search, _load, _save, _variations_save
     ├── catalog/                 ← Da rp-catalog-manager (prefix: rp_cm_)
-    │   ├── reader.php           ← rp_cm_get_all_products (accetta filters[include_ids] per subset export)
+    │   ├── reader.php           ← rp_cm_get_all_products (accetta filters[include_ids] per subset export) + rp_cm_get_product_ids (lista ID per export a chunk)
     │   ├── aggregator.php       ← rp_cm_aggregate_product, rp_cm_extract_sizes, rp_cm_calculate_pricing
     │   ├── tree-builder.php     ← rp_cm_build_tree, rp_cm_get_product_tree_path
     │   ├── exporter.php         ← rp_cm_export_catalog, rp_cm_export_roundtrip
@@ -59,7 +59,7 @@ golden-hive/
     │   ├── taxonomy-query.php   ← rp_cm_query_taxonomies (filter/sort/top-N), rp_cm_get_products_for_terms
     │   ├── smart-taxonomy.php   ← gh_smart_* (regole condizionali, STESSO schema conditions di Filter)
     │   ├── bulk-creator.php     ← rp_cm_bulk_preview, rp_cm_bulk_apply
-    │   └── ajax.php             ← AJAX bridge (export_roundtrip supporta include_ids)
+    │   └── ajax.php             ← AJAX bridge (export_roundtrip supporta include_ids; export_roundtrip_ids = lista ID per chunking client-side)
     ├── navigation/              ← (prefix: gh_nav_)
     │   ├── manager.php          ← gh_nav_get_menus, _get_menu_items, _upsert_item, _populate_from_terms, _clear_managed_children
     │   └── ajax.php             ← gh_ajax_taxonomy_query, gh_ajax_products_for_terms (hand-off TaxQuery→Bulk), gh_ajax_nav_{...}

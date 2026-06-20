@@ -28,6 +28,31 @@ add_action( 'wp_ajax_rp_cm_ajax_export_roundtrip', function () {
     wp_send_json_success( $result );
 } );
 
+// ── EXPORT ROUNDTRIP: ID LIST (per chunking client-side) ────
+// Ritorna solo gli ID prodotto per i filtri dati. Il client poi scarica i
+// prodotti a batch via rp_cm_ajax_export_roundtrip + include_ids, cosi nessuna
+// singola request costruisce l'intero catalogo (che oltre ~100s viene troncato
+// da Cloudflare con un 524).
+add_action( 'wp_ajax_rp_cm_ajax_export_roundtrip_ids', function () {
+    check_ajax_referer( 'gh_nonce', 'nonce' );
+    if ( ! current_user_can( 'manage_woocommerce' ) ) wp_die( 'Unauthorized' );
+
+    @set_time_limit( 120 );
+    if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'admin' );
+
+    $filters = [];
+    if ( ! empty( $_POST['filters'] ) ) {
+        $raw     = stripslashes( $_POST['filters'] );
+        $filters = json_decode( $raw, true ) ?: [];
+    }
+
+    $ids = rp_cm_get_product_ids( $filters );
+    wp_send_json_success( [
+        'ids'   => $ids,
+        'total' => count( $ids ),
+    ] );
+} );
+
 // ── IMPORT PREVIEW (dry-run) ────────────────────────────────
 add_action( 'wp_ajax_rp_cm_ajax_import_preview', function () {
     check_ajax_referer( 'gh_nonce', 'nonce' );

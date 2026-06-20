@@ -110,6 +110,24 @@ const GH = (function() {
     function releaseWakeLock() {
         if (_wakeLock) { _wakeLock.release().catch(()=>{}); _wakeLock = null; }
     }
+    // ── Long-run guard ─────────────────────────────────────────────
+    // Operazioni a chunk (export/import roundtrip) durano minuti. Due rischi
+    // se l'utente lascia: (1) beforeunload non avvisa, (2) il wake lock viene
+    // auto-rilasciato quando la tab passa in background e il loop fetch viene
+    // throttlato. beginRun/endRun avvolgono questi flussi: armano un warning
+    // di uscita e ri-acquisiscono il wake lock al ritorno sulla tab.
+    let _runActive = 0;
+    function beginRun() { _runActive++; }
+    function endRun()   { _runActive = Math.max(0, _runActive - 1); }
+    function isRunActive() { return _runActive > 0; }
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && _runActive > 0 && !_wakeLock) {
+            acquireWakeLock();
+        }
+    });
+    window.addEventListener('beforeunload', (e) => {
+        if (_runActive > 0) { e.preventDefault(); e.returnValue = ''; return ''; }
+    });
     function hl(j){return String(j).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,m=>{let c='jn';if(/^"/.test(m))c=/:$/.test(m)?'jk':'js';else if(/true|false/.test(m))c='jb';else if(/null/.test(m))c='jx';return'<span class="'+c+'">'+m+'</span>'})}
     function fileSize(b){if(b<1024)return b+' B';if(b<1048576)return(b/1024).toFixed(1)+' KB';return(b/1048576).toFixed(1)+' MB'}
     // ── Dirty tracking (global) ────────────────────────────────────

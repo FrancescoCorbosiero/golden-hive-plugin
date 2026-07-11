@@ -42,21 +42,34 @@ function rp_cm_validate_bulk_json( mixed $data ): array|WP_Error {
  * Preview del bulk import.
  *
  * @param array  $data Dati validati.
- * @param string $mode 'create' | 'create_or_update'
+ * @param string $mode 'create' | 'create_or_update' | 'sync'
  * @return array
  */
 function rp_cm_bulk_preview( array $data, string $mode = 'create' ): array {
 
+    // 'sync' matcha per SKU come 'create_or_update', ma in piu calcola quante
+    // varianti esistenti verrebbero nascoste (assenti dal JSON).
+    $update = in_array( $mode, [ 'create_or_update', 'sync' ], true );
+    $hide   = ( $mode === 'sync' );
+
     $details = [];
 
     foreach ( $data['products'] as $entry ) {
-        $sku      = $entry['sku'] ?? null;
-        $action   = 'create';
-        $existing = null;
+        $sku       = $entry['sku'] ?? null;
+        $action    = 'create';
+        $existing  = null;
+        $hide_count = 0;
 
-        if ( $mode === 'create_or_update' && $sku ) {
+        if ( $update && $sku ) {
             $existing_id = wc_get_product_id_by_sku( $sku );
-            if ( $existing_id ) { $action = 'update'; $existing = $existing_id; }
+            if ( $existing_id ) {
+                $action   = 'update';
+                $existing = $existing_id;
+
+                if ( $hide ) {
+                    $hide_count = gh_cm_count_missing_variations( $existing_id, $entry['variations'] ?? [] );
+                }
+            }
         }
 
         $details[] = [
@@ -67,6 +80,7 @@ function rp_cm_bulk_preview( array $data, string $mode = 'create' ): array {
             'action'          => $action,
             'existing_id'     => $existing,
             'variation_count' => count( $entry['variations'] ?? [] ),
+            'hide_count'      => $hide_count,
         ];
     }
 
@@ -75,6 +89,7 @@ function rp_cm_bulk_preview( array $data, string $mode = 'create' ): array {
             'total'     => count( $details ),
             'to_create' => count( array_filter( $details, fn( $d ) => $d['action'] === 'create' ) ),
             'to_update' => count( array_filter( $details, fn( $d ) => $d['action'] === 'update' ) ),
+            'to_hide'   => array_sum( array_map( fn( $d ) => (int) $d['hide_count'], $details ) ),
         ],
         'details' => $details,
     ];
@@ -84,10 +99,15 @@ function rp_cm_bulk_preview( array $data, string $mode = 'create' ): array {
  * Applica il bulk import. Usa gh_create_* per la creazione.
  *
  * @param array  $data Dati validati.
- * @param string $mode 'create' | 'create_or_update'
+ * @param string $mode 'create' | 'create_or_update' | 'sync'
  * @return array
  */
 function rp_cm_bulk_apply( array $data, string $mode = 'create' ): array {
+
+    // 'sync' = 'create_or_update' + nasconde le varianti esistenti assenti dal
+    // JSON (0 stock + disabilitate) invece di lasciarle orfane e in vendita.
+    $update       = in_array( $mode, [ 'create_or_update', 'sync' ], true );
+    $hide_missing = ( $mode === 'sync' );
 
     $details = [];
 
@@ -96,13 +116,13 @@ function rp_cm_bulk_apply( array $data, string $mode = 'create' ): array {
 
         // Check per aggiornamento
         $existing_id = null;
-        if ( $mode === 'create_or_update' && $sku ) {
+        if ( $update && $sku ) {
             $existing_id = wc_get_product_id_by_sku( $sku );
         }
 
         try {
             if ( $existing_id ) {
-                $result = rp_cm_bulk_update_existing( $existing_id, $entry );
+                $result = rp_cm_bulk_update_existing( $existing_id, $entry, $hide_missing );
             } else {
                 $type       = $entry['type'] ?? 'simple';
                 $product_id = $type === 'variable'
@@ -137,6 +157,7 @@ function rp_cm_bulk_apply( array $data, string $mode = 'create' ): array {
             'created' => count( array_filter( $details, fn( $d ) => $d['status'] === 'created' ) ),
             'updated' => count( array_filter( $details, fn( $d ) => $d['status'] === 'updated' ) ),
             'errors'  => count( array_filter( $details, fn( $d ) => $d['status'] === 'error' ) ),
+            'hidden'  => array_sum( array_map( fn( $d ) => (int) ( $d['hidden'] ?? 0 ), $details ) ),
         ],
         'details' => $details,
     ];
@@ -144,8 +165,15 @@ function rp_cm_bulk_apply( array $data, string $mode = 'create' ): array {
 
 /**
  * Aggiorna un prodotto esistente con i dati dal JSON.
+ *
+ * @param int   $product_id   ID del prodotto WC.
+ * @param array $entry        Dati dal JSON.
+ * @param bool  $hide_missing Se true (mode 'sync'), le varianti esistenti la cui
+ *                            SKU non compare nel JSON vengono nascoste (0 stock +
+ *                            disabilitate) invece di restare orfane e in vendita.
+ * @return array
  */
-function rp_cm_bulk_update_existing( int $product_id, array $entry ): array {
+function rp_cm_bulk_update_existing( int $product_id, array $entry, bool $hide_missing = false ): array {
 
     $product = wc_get_product( $product_id );
     if ( ! $product ) {
@@ -163,6 +191,7 @@ function rp_cm_bulk_update_existing( int $product_id, array $entry ): array {
 
     // Varianti
     $var_count = 0;
+    $hidden    = 0;
     if ( $product->is_type( 'variable' ) && ! empty( $entry['variations'] ) ) {
         foreach ( $entry['variations'] as $var_data ) {
             $var_id = null;
@@ -180,7 +209,21 @@ function rp_cm_bulk_update_existing( int $product_id, array $entry ): array {
             }
             $var_count++;
         }
+
+        // Sync mode: nascondi le taglie non piu presenti nel JSON. Va fatto
+        // DOPO il loop di upsert (cosi una SKU che torna nel feed viene prima
+        // ri-abilitata dall'upsert) e PRIMA della sync del parent.
+        if ( $hide_missing ) {
+            $hidden = gh_cm_hide_missing_variations( $product_id, $entry['variations'] );
+        }
+
         WC_Product_Variable::sync( $product_id );
+
+        // La sync del parent puo lasciare uno stock_status stantio quando le
+        // uniche varianti in stock sono appena state nascoste: riallinea.
+        if ( $hidden > 0 && function_exists( 'gh_fix_variable_stock_status' ) ) {
+            gh_fix_variable_stock_status( $product_id );
+        }
     }
 
     return [
@@ -190,7 +233,105 @@ function rp_cm_bulk_update_existing( int $product_id, array $entry ): array {
         'status'          => 'updated',
         'id'              => $product_id,
         'variation_count' => $var_count,
+        'hidden'          => $hidden,
     ];
+}
+
+/**
+ * Conta le varianti esistenti di un prodotto la cui SKU NON compare tra le
+ * varianti in arrivo dal JSON. Usato dal preview del mode 'sync'.
+ *
+ * @param int   $product_id           ID del prodotto padre.
+ * @param array $incoming_variations  Array di varianti dal JSON (ognuna con 'sku').
+ * @return int
+ */
+function gh_cm_count_missing_variations( int $product_id, array $incoming_variations ): int {
+
+    $product = wc_get_product( $product_id );
+    if ( ! $product || ! $product->is_type( 'variable' ) ) {
+        return 0;
+    }
+
+    $incoming = gh_cm_incoming_sku_set( $incoming_variations );
+    if ( empty( $incoming ) ) {
+        return 0; // Nessuna SKU in arrivo → non sappiamo cosa tenere: non nascondiamo nulla.
+    }
+
+    $count = 0;
+    foreach ( $product->get_children() as $child_id ) {
+        $v   = wc_get_product( $child_id );
+        if ( ! $v ) continue;
+        $sku = trim( (string) $v->get_sku() );
+        if ( $sku === '' ) continue;              // Senza SKU non possiamo matchare in sicurezza.
+        if ( isset( $incoming[ $sku ] ) ) continue;
+        if ( $v->get_status() === 'private' && ! $v->is_in_stock() ) continue; // Gia nascosta.
+        $count++;
+    }
+    return $count;
+}
+
+/**
+ * Nasconde le varianti esistenti assenti dal JSON: stock a 0 + out-of-stock +
+ * variante disabilitata (status 'private'), cosi WooCommerce non la mostra piu
+ * nel selettore taglie della pagina prodotto. Non elimina nulla — la variante
+ * (e il suo storico ordini) resta, e un import successivo che re-include quella
+ * SKU la ri-abilita tramite il normale path di upsert.
+ *
+ * @param int   $product_id           ID del prodotto padre.
+ * @param array $incoming_variations  Array di varianti dal JSON (ognuna con 'sku').
+ * @return int Numero di varianti nascoste.
+ */
+function gh_cm_hide_missing_variations( int $product_id, array $incoming_variations ): int {
+
+    $product = wc_get_product( $product_id );
+    if ( ! $product || ! $product->is_type( 'variable' ) ) {
+        return 0;
+    }
+
+    $incoming = gh_cm_incoming_sku_set( $incoming_variations );
+    // Guardia di sicurezza: se il JSON non porta NESSUNA SKU non abbiamo un
+    // riferimento affidabile per decidere cosa nascondere → non tocchiamo nulla.
+    if ( empty( $incoming ) ) {
+        return 0;
+    }
+
+    $hidden = 0;
+    foreach ( $product->get_children() as $child_id ) {
+        $v = wc_get_product( $child_id );
+        if ( ! $v || ! $v->is_type( 'variation' ) ) continue;
+
+        $sku = trim( (string) $v->get_sku() );
+        if ( $sku === '' ) continue;              // Senza SKU non matchabile: la lasciamo stare.
+        if ( isset( $incoming[ $sku ] ) ) continue; // Presente nel JSON: gestita dall'upsert.
+
+        // Gia nascosta in un giro precedente: idempotente, salta.
+        if ( $v->get_status() === 'private' && ! $v->is_in_stock() ) continue;
+
+        $v->set_manage_stock( true );
+        $v->set_stock_quantity( 0 );
+        $v->set_stock_status( 'outofstock' );
+        $v->set_status( 'private' ); // "Disabilitata" nel senso WC → esclusa da get_available_variations().
+        $v->save();
+        $hidden++;
+    }
+    return $hidden;
+}
+
+/**
+ * Costruisce un set (mappa sku => true) delle SKU non vuote in arrivo dal JSON.
+ *
+ * @param array $incoming_variations
+ * @return array<string,true>
+ */
+function gh_cm_incoming_sku_set( array $incoming_variations ): array {
+    $set = [];
+    foreach ( $incoming_variations as $var_data ) {
+        $sku = isset( $var_data['sku'] ) ? trim( (string) $var_data['sku'] ) : '';
+        if ( $sku !== '' ) {
+            $set[ $sku ] = true;
+        }
+    }
+    return $set;
 }
 
 /**
@@ -208,7 +349,7 @@ function rp_cm_bulk_update_existing( int $product_id, array $entry ): array {
  */
 function gh_cm_dispatch_bulk_import( array $data, string $mode = 'create' ): array|WP_Error {
 
-    if ( ! in_array( $mode, [ 'create', 'create_or_update' ], true ) ) {
+    if ( ! in_array( $mode, [ 'create', 'create_or_update', 'sync' ], true ) ) {
         $mode = 'create';
     }
     if ( ! function_exists( 'gh_jobs_save' ) || ! function_exists( 'gh_jobs_get_kind' ) || ! gh_jobs_get_kind( 'bulk_import' ) ) {

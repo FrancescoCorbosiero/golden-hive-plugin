@@ -192,6 +192,13 @@ need `variations`. `mode` is a query param:
 
 - `create` (default) — always create.
 - `create_or_update` — match by `sku`; update if found, else create.
+- `sync` — like `create_or_update`, and additionally **hides** existing
+  variations whose `sku` is absent from the product's `variations[]` in the
+  payload: they are set to `0` stock + out-of-stock and disabled (WooCommerce
+  status `private`), so they no longer render on the product page. Nothing is
+  deleted — a size that reappears in a later payload is re-enabled by the same
+  upsert. Preview reports the count as `summary.to_hide` (and per row as
+  `hide_count`); apply reports `summary.hidden` (per row as `hidden`).
 
 ### `POST /bulk/preview` (no writes)
 

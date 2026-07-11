@@ -461,7 +461,7 @@ function gh_roundtrip_rest_read_bulk( WP_REST_Request $request ): array|WP_Error
  */
 function gh_roundtrip_rest_bulk_mode( WP_REST_Request $request ): string {
     $mode = (string) $request->get_param( 'mode' );
-    return in_array( $mode, [ 'create', 'create_or_update' ], true ) ? $mode : 'create';
+    return in_array( $mode, [ 'create', 'create_or_update', 'sync' ], true ) ? $mode : 'create';
 }
 
 /**

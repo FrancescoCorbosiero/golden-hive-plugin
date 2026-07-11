@@ -58,7 +58,7 @@ golden-hive/
     │   ├── taxonomy-manager.php ← rp_cm_get_taxonomy_tree, rp_cm_create_category, rp_cm_assign_product_categories
     │   ├── taxonomy-query.php   ← rp_cm_query_taxonomies (filter/sort/top-N), rp_cm_get_products_for_terms
     │   ├── smart-taxonomy.php   ← gh_smart_* (regole condizionali, STESSO schema conditions di Filter)
-    │   ├── bulk-creator.php     ← rp_cm_bulk_preview, rp_cm_bulk_apply, gh_cm_dispatch_bulk_import (background job CDN-proof)
+    │   ├── bulk-creator.php     ← rp_cm_bulk_preview, rp_cm_bulk_apply (mode create|create_or_update|sync), gh_cm_dispatch_bulk_import (background job CDN-proof). Mode 'sync' nasconde le varianti assenti dal JSON (0 stock + disabilitate via gh_cm_hide_missing_variations), non le elimina
     │   └── ajax.php             ← AJAX bridge (export_roundtrip supporta include_ids; export_roundtrip_ids = lista ID per chunking client-side)
     ├── navigation/              ← (prefix: gh_nav_)
     │   ├── manager.php          ← gh_nav_get_menus, _get_menu_items, _upsert_item, _populate_from_terms, _clear_managed_children

@@ -162,9 +162,9 @@
             const data=await bulkRunChunked('rp_cm_ajax_bulk_preview',m,(done,total)=>{ot.textContent='Anteprima '+done+' / '+total+'...';});
             const s=data.summary,a=document.getElementById('imp-preview-area');
             let h='<table class="ptable"><thead><tr><th>Azione</th><th>Nome</th><th>SKU</th><th>Tipo</th><th>Varianti</th></tr></thead><tbody>';
-            for(const d of data.details){const ic=d.action==='create'?'st-create':'st-matched';h+='<tr><td class="'+ic+'">'+(d.action==='create'?'+ Nuovo':'\u21bb #'+d.existing_id)+'</td><td>'+esc(d.name)+'</td><td>'+esc(d.sku||'\u2013')+'</td><td>'+d.type+'</td><td>'+(d.variation_count||'\u2013')+'</td></tr>'}
+            for(const d of data.details){const ic=d.action==='create'?'st-create':'st-matched';const hc=d.hide_count?' <span style="color:var(--amb)" title="taglie da nascondere">\u2212'+d.hide_count+'</span>':'';h+='<tr><td class="'+ic+'">'+(d.action==='create'?'+ Nuovo':'\u21bb #'+d.existing_id)+'</td><td>'+esc(d.name)+'</td><td>'+esc(d.sku||'\u2013')+'</td><td>'+d.type+'</td><td>'+(d.variation_count||'\u2013')+hc+'</td></tr>'}
             h+='</tbody></table>';a.innerHTML=h;
-            document.getElementById('imp-confirm-text').innerHTML='<span>'+(s.to_create||0)+'</span> da creare'+(s.to_update?', <span>'+s.to_update+'</span> da aggiornare':'');
+            document.getElementById('imp-confirm-text').innerHTML='<span>'+(s.to_create||0)+'</span> da creare'+(s.to_update?', <span>'+s.to_update+'</span> da aggiornare':'')+(s.to_hide?', <span>'+s.to_hide+'</span> da nascondere':'');
             document.getElementById('imp-confirm-bar').style.display='flex'
         }catch(e){toast('Errore anteprima: '+(e.message||e),'err',0)}
         finally{endRun();releaseWakeLock();ov.classList.remove('visible');btn.disabled=false;sp.style.display='none'}
@@ -179,9 +179,9 @@
             const data=await bulkRunChunked('rp_cm_ajax_bulk_apply',m,(done,total)=>{ot.textContent='Creazione '+done+' / '+total+'...';});
             const s=data.summary,a=document.getElementById('imp-preview-area');
             let h='<table class="ptable"><thead><tr><th>Risultato</th><th>ID</th><th>Nome</th><th>SKU</th><th>Varianti</th></tr></thead><tbody>';
-            for(const d of data.details){const c=d.status==='created'?'st-created':d.status==='updated'?'st-updated':'st-error';h+='<tr><td class="'+c+'">'+(d.status==='created'?'+ Creato':d.status==='updated'?'\u2713 Agg.':'\u2717 Err')+'</td><td>'+(d.id||'\u2013')+'</td><td>'+esc(d.name||'')+'</td><td>'+esc(d.sku||'')+'</td><td>'+(d.variation_count||'\u2013')+'</td></tr>'}
+            for(const d of data.details){const c=d.status==='created'?'st-created':d.status==='updated'?'st-updated':'st-error';const hc=d.hidden?' <span style="color:var(--amb)" title="taglie nascoste">\u2212'+d.hidden+'</span>':'';h+='<tr><td class="'+c+'">'+(d.status==='created'?'+ Creato':d.status==='updated'?'\u2713 Agg.':'\u2717 Err')+'</td><td>'+(d.id||'\u2013')+'</td><td>'+esc(d.name||'')+'</td><td>'+esc(d.sku||'')+'</td><td>'+(d.variation_count||'\u2013')+hc+'</td></tr>'}
             h+='</tbody></table>';a.innerHTML=h;document.getElementById('imp-confirm-bar').style.display='none';
-            toast((s.created||0)+' creati, '+(s.errors||0)+' errori',(s.errors)?'err':'ok',5000)
+            toast((s.created||0)+' creati, '+(s.updated||0)+' aggiornati'+((s.hidden)?', '+s.hidden+' nascoste':'')+', '+(s.errors||0)+' errori',(s.errors)?'err':'ok',5000)
         }catch(e){toast('Errore import: '+(e.message||e),'err',0)}
         finally{endRun();releaseWakeLock();ov.classList.remove('visible');btn.disabled=false;sp.style.display='none'}
     }
@@ -207,10 +207,10 @@
                 if(!st.success){ if(++misses>5){ot.textContent='Stato non disponibile — controlla il tab Jobs';break;} continue; }
                 misses=0;
                 const s=st.data.summary||{};
-                ot.textContent='Background: '+(s.processed||0)+' / '+(s.total||total)+'  ·  '+(s.created||0)+' creati, '+(s.updated||0)+' agg., '+(s.errors||0)+' err.';
+                ot.textContent='Background: '+(s.processed||0)+' / '+(s.total||total)+'  ·  '+(s.created||0)+' creati, '+(s.updated||0)+' agg.'+((s.hidden)?', '+s.hidden+' nasc.':'')+', '+(s.errors||0)+' err.';
                 if(st.data.done){
                     if(st.data.status==='error'){toast('Import in background fallito — vedi tab Jobs','err',0);}
-                    else{toast('Import completato: '+(s.created||0)+' creati, '+(s.updated||0)+' aggiornati, '+(s.errors||0)+' errori',(s.errors)?'err':'ok',6000);}
+                    else{toast('Import completato: '+(s.created||0)+' creati, '+(s.updated||0)+' aggiornati'+((s.hidden)?', '+s.hidden+' nascoste':'')+', '+(s.errors||0)+' errori',(s.errors)?'err':'ok',6000);}
                     break;
                 }
             }

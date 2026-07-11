@@ -465,7 +465,7 @@ function gh_jobs_handler_bulk_import( array $job, array $context ): array {
     $mode   = (string) ( $p['mode'] ?? 'create' );
     $budget = max( 1, (int) ( $p['weight_budget'] ?? 80 ) );
 
-    if ( ! in_array( $mode, [ 'create', 'create_or_update' ], true ) ) {
+    if ( ! in_array( $mode, [ 'create', 'create_or_update', 'sync' ], true ) ) {
         $mode = 'create';
     }
     if ( $file === '' || ! file_exists( $file ) ) {
@@ -488,7 +488,7 @@ function gh_jobs_handler_bulk_import( array $job, array $context ): array {
 
     $cursor = $context['cursor'];
     if ( ! is_array( $cursor ) || ! isset( $cursor['offset'] ) ) {
-        $cursor = [ 'offset' => 0, 'created' => 0, 'updated' => 0, 'errors' => 0, 'total' => $total ];
+        $cursor = [ 'offset' => 0, 'created' => 0, 'updated' => 0, 'errors' => 0, 'hidden' => 0, 'total' => $total ];
     }
 
     while ( $cursor['offset'] < $total ) {
@@ -518,6 +518,7 @@ function gh_jobs_handler_bulk_import( array $job, array $context ): array {
         $cursor['created'] += (int) ( $s['created'] ?? 0 );
         $cursor['updated'] += (int) ( $s['updated'] ?? 0 );
         $cursor['errors']  += (int) ( $s['errors']  ?? 0 );
+        $cursor['hidden']  += (int) ( $s['hidden']  ?? 0 );
     }
 
     gh_jobs_bulk_import_progress( $job['id'], $cursor );
@@ -532,6 +533,7 @@ function gh_jobs_handler_bulk_import( array $job, array $context ): array {
             'created'   => $cursor['created'],
             'updated'   => $cursor['updated'],
             'errors'    => $cursor['errors'],
+            'hidden'    => $cursor['hidden'] ?? 0,
         ],
     ];
 }
@@ -548,6 +550,7 @@ function gh_jobs_bulk_import_progress( string $job_id, array $cursor ): void {
         'created'   => (int) ( $cursor['created'] ?? 0 ),
         'updated'   => (int) ( $cursor['updated'] ?? 0 ),
         'errors'    => (int) ( $cursor['errors']  ?? 0 ),
+        'hidden'    => (int) ( $cursor['hidden']  ?? 0 ),
     ] ] );
 }
 

@@ -403,6 +403,7 @@
     <div class="mode-row" id="imp-mode-row" style="display:none">
         <label><input type="radio" name="bulk-mode" value="create" checked /> Crea sempre</label>
         <label><input type="radio" name="bulk-mode" value="create_or_update" /> Crea o aggiorna (SKU)</label>
+        <label title="Come 'Crea o aggiorna', ma le varianti esistenti la cui SKU non &egrave; nel JSON vengono messe a 0 stock e disabilitate (nascoste dalla pagina prodotto). Nulla viene eliminato: una taglia che ritorna nel JSON viene riattivata."><input type="radio" name="bulk-mode" value="sync" /> Sincronizza (SKU): nascondi taglie mancanti</label>
         <div class="filter-sep"></div>
         <button class="btn btn-primary" id="btn-imp-preview" onclick="GH.bulkPreview()"><span class="spin" id="imp-preview-spin" style="display:none"></span> Preview</button>
     </div>

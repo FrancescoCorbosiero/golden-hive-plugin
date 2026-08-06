@@ -255,6 +255,20 @@ function gh_execute_bulk_action( string $action, array $product_ids, array $para
         add_filter( 'woocommerce_product_object_updated_props', '__return_empty_array', 999 );
     }
 
+    // Defer term recounts during taxonomy bulk ops: senza, OGNI
+    // wp_set_object_terms ricalcola il COUNT di ogni termine toccato
+    // (5.000 prodotti × 3 categorie = 15.000 COUNT query). Col defer
+    // WordPress accumula i termini dirty e riconta UNA volta al false.
+    $defer_terms = in_array( $action, [
+        'assign_categories', 'remove_categories', 'set_categories',
+        'assign_brands', 'remove_brands', 'set_brands',
+        'assign_tags', 'remove_tags',
+    ], true ) && function_exists( 'wp_defer_term_counting' );
+
+    if ( $defer_terms ) {
+        wp_defer_term_counting( true );
+    }
+
     // Track variable parents that need sync at the end
     $parents_to_sync = [];
 
@@ -298,6 +312,11 @@ function gh_execute_bulk_action( string $action, array $product_ids, array $para
 
     if ( $suspend_transients ) {
         remove_filter( 'woocommerce_product_object_updated_props', '__return_empty_array', 999 );
+    }
+
+    // Flush dei conteggi termini accumulati (una recount per termine).
+    if ( $defer_terms ) {
+        wp_defer_term_counting( false );
     }
 
     // Batch-sync all variable parents once at the end

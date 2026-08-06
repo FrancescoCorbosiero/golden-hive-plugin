@@ -47,22 +47,46 @@ function gh_filter_products( array $conditions = [], array $options = [] ): arra
     // pre-popolare il set di prodotti da bulk-editare. Se settato, limita
     // la query ai soli ID specificati (le condizioni continuano a filtrare
     // ulteriormente).
+    $has_include_ids = false;
     if ( ! empty( $options['include_ids'] ) && is_array( $options['include_ids'] ) ) {
         $ids = array_values( array_filter( array_map( 'intval', $options['include_ids'] ) ) );
         if ( ! empty( $ids ) ) {
             $db_args['include'] = $ids;
             $db_args['limit']   = -1;
+            $has_include_ids    = true;
         }
+    }
+
+    $memory_conditions = gh_get_memory_conditions( $conditions );
+
+    // Fast path: nessuna condizione memory-phase → la paginazione va in
+    // SQL. Il path legacy idratava l'INTERO catalogo come oggetti
+    // (limit -1) per poi buttarne via tutto tranne una pagina da 50:
+    // ~2.000 hydration e ~4.000 query per render di tabella.
+    if ( empty( $memory_conditions ) && ! $has_include_ids && $per_page > 0 ) {
+        $db_args['paginate'] = true;
+        $db_args['limit']    = $per_page;
+        $db_args['page']     = $page;
+
+        $result   = ( new WC_Product_Query( $db_args ) )->get_products();
+        $products = is_object( $result ) ? (array) ( $result->products ?? [] ) : (array) $result;
+        $total    = is_object( $result ) ? (int) ( $result->total ?? count( $products ) ) : count( $products );
+
+        return [
+            'products'    => gh_serialize_product_rows( $products ),
+            'total'       => $total,
+            'page'        => $page,
+            'per_page'    => $per_page,
+            'product_ids' => array_map( fn( WC_Product $p ) => $p->get_id(), $products ),
+        ];
     }
 
     $query    = new WC_Product_Query( $db_args );
     $products = $query->get_products();
 
     // ── FASE 2: filtri in memoria ────────────────────────────
-    $memory_conditions = gh_get_memory_conditions( $conditions );
-
     if ( ! empty( $memory_conditions ) ) {
-        $cache = [];
+        $cache = gh_build_condition_cache( $memory_conditions, $products );
         $products = array_filter( $products, function ( WC_Product $p ) use ( $memory_conditions, &$cache ) {
             foreach ( $memory_conditions as $cond ) {
                 if ( ! gh_evaluate_condition( $p, $cond, $cache ) ) {
@@ -84,7 +108,7 @@ function gh_filter_products( array $conditions = [], array $options = [] ): arra
 
     // ── Serializza per la UI ─────────────────────────────────
     $all_ids     = array_map( fn( WC_Product $p ) => $p->get_id(), $products );
-    $serialized  = array_map( 'gh_serialize_product_row', $products );
+    $serialized  = gh_serialize_product_rows( $products );
 
     return [
         'products'    => $serialized,
@@ -93,6 +117,38 @@ function gh_filter_products( array $conditions = [], array $options = [] ): arra
         'per_page'    => $per_page,
         'product_ids' => $all_ids,
     ];
+}
+
+/**
+ * Costruisce la cache condivisa per la valutazione delle condizioni
+ * memory-phase. Se una condizione tocca le varianti (variant_count,
+ * stock_status, has_size), i figli di TUTTI i candidati vengono risolti
+ * e primed in un colpo solo: senza, ogni prodotto pagava 1 query
+ * get_children + 2 query di hydration per variante durante il filtro
+ * (2.000 candidati × 10 varianti ≈ 40.000 query per una singola query
+ * "stock_status = partial").
+ *
+ * @param array        $memory_conditions Condizioni memory-phase attive.
+ * @param WC_Product[] $products          Candidati della fase DB.
+ * @return array Cache iniziale per gh_evaluate_condition (by-ref).
+ */
+function gh_build_condition_cache( array $memory_conditions, array $products ): array {
+
+    $cache = [];
+
+    $variant_types = [ 'variant_count', 'stock_status', 'has_size' ];
+    $needs_variants = (bool) array_filter(
+        $memory_conditions,
+        static fn( $c ) => in_array( $c['type'] ?? '', $variant_types, true )
+    );
+
+    if ( $needs_variants && function_exists( 'rp_cm_prime_variant_caches' ) ) {
+        $cache['children_map'] = rp_cm_prime_variant_caches(
+            array_map( static fn( WC_Product $p ): int => $p->get_id(), $products )
+        );
+    }
+
+    return $cache;
 }
 
 /**
@@ -105,24 +161,33 @@ function gh_filter_products( array $conditions = [], array $options = [] ): arra
 function gh_filter_product_ids( array $conditions = [] ): array {
 
     $db_args = gh_build_db_query( $conditions );
+
+    $memory_conditions = gh_get_memory_conditions( $conditions );
+
+    // Fast path: nessuna condizione memory-phase → solo ID dal DB.
+    // Il path legacy idratava OGNI prodotto del catalogo come oggetto
+    // WC_Product per poi tenerne solo l'ID: migliaia di query bruciate
+    // prima di ogni bulk action su set ampi.
+    if ( empty( $memory_conditions ) ) {
+        $db_args['return'] = 'ids';
+        $ids = ( new WC_Product_Query( $db_args ) )->get_products();
+        return array_values( array_map( 'intval', (array) $ids ) );
+    }
+
     $db_args['return'] = 'objects';
 
     $query    = new WC_Product_Query( $db_args );
     $products = $query->get_products();
 
-    $memory_conditions = gh_get_memory_conditions( $conditions );
-
-    if ( ! empty( $memory_conditions ) ) {
-        $cache = [];
-        $products = array_filter( $products, function ( WC_Product $p ) use ( $memory_conditions, &$cache ) {
-            foreach ( $memory_conditions as $cond ) {
-                if ( ! gh_evaluate_condition( $p, $cond, $cache ) ) {
-                    return false;
-                }
+    $cache = gh_build_condition_cache( $memory_conditions, $products );
+    $products = array_filter( $products, function ( WC_Product $p ) use ( $memory_conditions, &$cache ) {
+        foreach ( $memory_conditions as $cond ) {
+            if ( ! gh_evaluate_condition( $p, $cond, $cache ) ) {
+                return false;
             }
-            return true;
-        } );
-    }
+        }
+        return true;
+    } );
 
     return array_values( array_map( fn( WC_Product $p ) => $p->get_id(), $products ) );
 }
@@ -301,6 +366,27 @@ function gh_get_memory_conditions( array $conditions ): array {
 // ── SERIALIZER ────────────────────────────────────────────────────────────────
 
 /**
+ * Serializza una PAGINA di WC_Product per la UI, con term cache primed.
+ *
+ * Il serializer per-riga faceva 2 query di termini non-cachate a riga
+ * (wp_get_post_terms per categorie + brand): ~100 query per ogni render
+ * della tabella da 50 righe. Qui l'object term cache viene scaldata UNA
+ * volta per la pagina e le righe leggono da cache (get_the_terms).
+ *
+ * @param WC_Product[] $products
+ * @return array[]
+ */
+function gh_serialize_product_rows( array $products ): array {
+
+    $ids = array_map( static fn( WC_Product $p ): int => $p->get_id(), $products );
+    if ( $ids && function_exists( 'update_object_term_cache' ) ) {
+        update_object_term_cache( $ids, 'product' );
+    }
+
+    return array_map( 'gh_serialize_product_row', $products );
+}
+
+/**
  * Serializza un WC_Product in un array leggero per la UI della tabella risultati.
  *
  * @param WC_Product $product
@@ -322,7 +408,7 @@ function gh_serialize_product_row( WC_Product $product ): array {
         'stock_status'   => $product->get_stock_status(),
         'stock_quantity' => $product->get_stock_quantity(),
         'menu_order'     => (int) get_post_field( 'menu_order', $pid ),
-        'categories'     => rp_cm_get_product_category_names( $pid ),
+        'categories'     => gh_term_names_cached( $pid, 'product_cat' ),
         'brands'         => gh_get_product_brand_names( $pid ),
         'has_image'      => (bool) $product->get_image_id(),
         'variant_count'  => $product->is_type( 'variable' ) ? count( $product->get_children() ) : 0,
@@ -330,6 +416,25 @@ function gh_serialize_product_row( WC_Product $product ): array {
         'date_modified'  => $product->get_date_modified()?->date( 'Y-m-d' ) ?? '',
         'permalink'      => get_permalink( $pid ),
     ];
+}
+
+/**
+ * Nomi dei termini di una tassonomia via object term cache.
+ *
+ * A differenza di wp_get_post_terms (che interroga SEMPRE il DB),
+ * get_the_terms legge la cache scaldata da update_object_term_cache —
+ * su una pagina primed il costo è zero query. Stesso ordinamento
+ * (name ASC, il default di wp_get_object_terms usato da entrambe le vie).
+ *
+ * @param int    $product_id
+ * @param string $taxonomy
+ * @return string[]
+ */
+function gh_term_names_cached( int $product_id, string $taxonomy ): array {
+
+    $terms = get_the_terms( $product_id, $taxonomy );
+    if ( $terms === false || is_wp_error( $terms ) ) return [];
+    return array_values( wp_list_pluck( $terms, 'name' ) );
 }
 
 /**
@@ -346,6 +451,5 @@ function gh_get_product_brand_names( int $product_id ): array {
 
     if ( ! taxonomy_exists( 'product_brand' ) ) return [];
 
-    $terms = wp_get_post_terms( $product_id, 'product_brand', [ 'fields' => 'names' ] );
-    return is_wp_error( $terms ) ? [] : array_values( $terms );
+    return gh_term_names_cached( $product_id, 'product_brand' );
 }

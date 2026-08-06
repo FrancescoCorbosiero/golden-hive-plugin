@@ -20,6 +20,21 @@ add_action( 'admin_menu', function () {
 function gh_render_page(): void {
     $nonce = wp_create_nonce( 'gh_nonce' );
     $ajax  = admin_url( 'admin-ajax.php' );
+
+    // La sezione IMPORT della sidebar (feed esterni GS/SF/CSV/KicksDB +
+    // import manuali Bulk JSON/Roundtrip) è NASCOSTA di default: la
+    // sincronizzazione è gestita da strumenti esterni (Hive Sync, CLI).
+    // È solo UI-hiding, non una rimozione: tutto il PHP resta caricato —
+    // AJAX handler, bridge hive-sync (rp_rc_gs_* / gh_sf_*), REST gh/v1,
+    // job kinds, cron — perché altri plugin/tool chiamano questo codice.
+    // I pannelli restano nel DOM e i deep-link (#/gsfeed, #/roundtrip, …)
+    // continuano a funzionare come scorciatoia d'emergenza.
+    // Ri-mostrare la sezione: define( 'GH_SHOW_IMPORT_UI', true ) in
+    // wp-config.php, oppure add_filter( 'gh_import_ui_visible', '__return_true' ).
+    $show_import_ui = apply_filters(
+        'gh_import_ui_visible',
+        defined( 'GH_SHOW_IMPORT_UI' ) && GH_SHOW_IMPORT_UI
+    );
     ?>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -70,6 +85,7 @@ html.wp-toolbar,body.wp-admin.toplevel_page_hive-commerce{background:#0c0d10}
             <div class="tab-section">MAPPER</div>
             <div class="tab-item" data-mp-tab="rules" onclick="GH.switchTab('mapper-rules',this)"><span class="tab-icon">&#9881;</span><span class="tab-label">Regole</span></div>
             <div class="tab-item" data-mp-tab="editor" onclick="GH.switchTab('mapper-editor',this)"><span class="tab-icon">&#9783;</span><span class="tab-label">Editor</span></div>
+<?php if ( $show_import_ui ) : ?>
             <div class="tab-section">IMPORT</div>
             <div class="tab-item" onclick="GH.switchTab('gsfeed',this);GH.gsLoadSettings()"><span class="tab-icon">&#9733;</span><span class="tab-label">GS Feed</span></div>
             <div class="tab-item" onclick="GH.switchTab('sffeed',this);GH.sfLoadSettings()"><span class="tab-icon">&#9879;</span><span class="tab-label">SF Feed</span></div>
@@ -77,6 +93,9 @@ html.wp-toolbar,body.wp-admin.toplevel_page_hive-commerce{background:#0c0d10}
             <div class="tab-item" data-kdb-tab="lookup" onclick="GH.switchTab('kicksdb',this);GH.kdbInit()"><span class="tab-icon">&#9883;</span><span class="tab-label">KicksDB</span></div>
             <div class="tab-item" onclick="GH.switchTab('bulkimport',this)"><span class="tab-icon">&#8615;</span><span class="tab-label">Bulk JSON</span></div>
             <div class="tab-item" onclick="GH.switchTab('roundtrip',this)"><span class="tab-icon">&#8644;</span><span class="tab-label">Roundtrip</span></div>
+<?php else : ?>
+            <div class="tab-section">CATALOGO</div>
+<?php endif; ?>
             <div class="tab-item" onclick="GH.switchTab('history',this);GH.histInit()"><span class="tab-icon">&#9201;</span><span class="tab-label">Catalog History</span></div>
             <div class="tab-section">JOBS</div>
             <div class="tab-item" onclick="GH.switchTab('jobs',this)"><span class="tab-icon">&#9202;</span><span class="tab-label">Jobs</span></div>

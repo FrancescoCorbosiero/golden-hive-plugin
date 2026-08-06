@@ -639,6 +639,13 @@ function gh_round_prices_action( WC_Product $product, string $target, string $ro
 
 /**
  * Aggiusta il prezzo (aggiunge/sottrae importo).
+ *
+ * I prezzi assenti/a 0 vengono saltati (stessa semantica di
+ * gh_round_prices_action e gh_apply_percent_change): "+5€" su una
+ * variante senza _regular_price non deve INVENTARE un prezzo di 5€ —
+ * quella taglia era volutamente senza prezzo (non acquistabile).
+ * Idem per target sale_price su prodotti senza sconto attivo: non
+ * creiamo un saldo dal nulla.
  */
 function gh_adjust_price( WC_Product $product, float $amount, string $target ): true {
 
@@ -649,6 +656,7 @@ function gh_adjust_price( WC_Product $product, float $amount, string $target ): 
     if ( $product->is_type( 'variable' ) ) {
         foreach ( $product->get_children() as $var_id ) {
             $current = (float) get_post_meta( $var_id, $meta_key, true );
+            if ( $current <= 0 ) continue;
             $new     = max( 0, round( $current + $amount, 2 ) );
             update_post_meta( $var_id, $meta_key, $new > 0 ? $new : '' );
             $sale = (float) get_post_meta( $var_id, '_sale_price', true );
@@ -656,6 +664,7 @@ function gh_adjust_price( WC_Product $product, float $amount, string $target ): 
         }
     } else {
         $current = (float) ( $target === 'sale_price' ? $product->get_sale_price() : $product->get_regular_price() );
+        if ( $current <= 0 ) return true;
         $new     = max( 0, round( $current + $amount, 2 ) );
         if ( $target === 'sale_price' ) {
             $product->set_sale_price( $new > 0 ? $new : '' );

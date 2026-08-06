@@ -27,7 +27,9 @@ function rp_cm_validate_bulk_json( mixed $data ): array|WP_Error {
             return new WP_Error( 'missing_name', "Prodotto indice {$i}: campo 'name' obbligatorio." );
         }
         $type = $p['type'] ?? 'simple';
-        if ( $type === 'simple' && empty( $p['regular_price'] ) ) {
+        // is_numeric, non empty(): empty("0") è true e un prezzo 0 è
+        // legittimo (omaggi, sample). Il batch intero veniva rifiutato.
+        if ( $type === 'simple' && ( ! isset( $p['regular_price'] ) || ! is_numeric( $p['regular_price'] ) ) ) {
             return new WP_Error( 'missing_price', "Prodotto '{$p['name']}': 'regular_price' obbligatorio per simple." );
         }
         if ( $type === 'variable' && empty( $p['variations'] ) ) {

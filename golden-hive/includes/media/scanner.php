@@ -346,14 +346,25 @@ function rp_mm_get_orphan_attachments( ?array $usage_map = null, int $data_limit
  * Evita O(n × m) di scansioni ripetute quando stiamo flaggando migliaia di
  * orfani.
  *
+ * Include anche le entry della whitelist Hive Sync (union di enforcement,
+ * stessa logica di rp_mm_is_whitelisted): il preview di Safe Cleanup deve
+ * mostrare come protetti gli stessi attachment che il delete rifiutera.
+ *
  * @return array<int,?string> [ attachment_id => reason ]
  */
 function rp_mm_build_whitelist_index(): array {
 
-    $list  = rp_mm_get_whitelist();
     $index = [];
 
-    foreach ( $list as $entry ) {
+    $external = get_option( 'hsync_media_whitelist', [] );
+    foreach ( is_array( $external ) ? $external : [] as $entry ) {
+        $id = isset( $entry['id'] ) ? (int) $entry['id'] : 0;
+        if ( $id > 0 ) {
+            $index[ $id ] = $entry['reason'] ?? null;
+        }
+    }
+
+    foreach ( rp_mm_get_whitelist() as $entry ) {
         $id = isset( $entry['id'] ) ? (int) $entry['id'] : 0;
         if ( $id > 0 ) {
             $index[ $id ] = $entry['reason'] ?? null;

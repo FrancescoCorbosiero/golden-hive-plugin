@@ -112,11 +112,15 @@ function rp_mm_is_used( int $attachment_id ): bool {
     ] );
     if ( $as_thumb ) return true;
 
-    // Gallery WooCommerce
+    // Gallery WooCommerce. posts_per_page DEVE essere -1: LIKE '%23%'
+    // matcha anche gallery che contengono 123/230/1023. Con un solo
+    // candidato, un falso positivo del LIKE maschera il prodotto che
+    // usa davvero l'attachment e il check ritorna false — via libera
+    // a una wp_delete_attachment(force=true) irreversibile.
     $as_gallery = get_posts( [
         'post_type'      => 'product',
         'post_status'    => 'any',
-        'posts_per_page' => 1,
+        'posts_per_page' => -1,
         'fields'         => 'ids',
         'meta_query'     => [ [
             'key'     => '_product_image_gallery',

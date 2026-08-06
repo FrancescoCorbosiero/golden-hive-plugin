@@ -75,17 +75,32 @@ function rp_mm_remove_from_whitelist( int $id ): bool {
 /**
  * Controlla se un attachment e in whitelist.
  *
+ * Enforcement-only union: oltre alla whitelist propria (rp_mm_whitelist)
+ * viene rispettata anche quella di Hive Sync (hsync_media_whitelist),
+ * letta direttamente dall'option cosi la protezione vale anche quando
+ * l'altro plugin non e attivo ma i suoi dati sono ancora nel DB. Le
+ * funzioni CRUD/list restano scoped alla sola whitelist propria: ogni
+ * UI gestisce la sua lista, ma nessun cleaner cancella un attachment
+ * protetto dall'altra.
+ *
  * @param int $attachment_id
  * @return bool
  */
 function rp_mm_is_whitelisted( int $attachment_id ): bool {
 
-    $list = rp_mm_get_whitelist();
-    $url  = wp_get_attachment_url( $attachment_id );
+    $url = wp_get_attachment_url( $attachment_id );
 
-    foreach ( $list as $entry ) {
+    foreach ( rp_mm_get_whitelist() as $entry ) {
         if ( ( $entry['id'] ?? null ) === $attachment_id ) return true;
         if ( $url && ( $entry['url'] ?? null ) === $url ) return true;
+    }
+
+    $external = get_option( 'hsync_media_whitelist', [] );
+    if ( is_array( $external ) ) {
+        foreach ( $external as $entry ) {
+            if ( (int) ( $entry['id'] ?? 0 ) === $attachment_id ) return true;
+            if ( $url && ( $entry['url'] ?? null ) === $url ) return true;
+        }
     }
 
     return false;

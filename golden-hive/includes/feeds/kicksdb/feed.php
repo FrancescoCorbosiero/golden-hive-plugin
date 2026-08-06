@@ -431,11 +431,15 @@ function gh_kicksdb_refresh_pricing( array $skus, array $options = [] ): array {
         return [ 'summary' => [ 'updated' => 0, 'skipped' => 0, 'errors' => 0 ], 'details' => [] ];
     }
 
-    // 1. Filter su tracked=1
+    // 1. Filter su tracked=1 — batched: N SKU → 2 query invece di 2N
+    // (wc_get_product_id_by_sku + get_post_meta per ogni SKU).
+    $sku_map      = gh_sku_to_id_map( $skus );
+    $tracked_meta = gh_batch_get_meta( array_values( $sku_map ), [ '_gh_kicksdb_tracked' ] );
+
     $tracked = [];
     foreach ( $skus as $sku ) {
-        $pid = wc_get_product_id_by_sku( $sku );
-        if ( $pid && get_post_meta( $pid, '_gh_kicksdb_tracked', true ) === '1' ) {
+        $pid = $sku_map[ $sku ] ?? 0;
+        if ( $pid && ( $tracked_meta[ $pid ]['_gh_kicksdb_tracked'] ?? '' ) === '1' ) {
             $tracked[ $sku ] = $pid;
         }
     }
@@ -457,17 +461,46 @@ function gh_kicksdb_refresh_pricing( array $skus, array $options = [] ): array {
     // 2. Batch fetch pricing
     $resp = gh_kicksdb_get_prices_batch( array_keys( $tracked ) );
 
-    // 3. Costruisci remap size_us → size_eu da variations esistenti WC
+    // 3. Costruisci remap size_us → size_eu da variations esistenti WC.
+    // Batched: figli di tutti i parent in 1 query, attributo+meta in 1,
+    // slug→nome termine in 1 — il loop legacy faceva 2 hydration + 1
+    // term lookup PER variante (500 SKU × 12 taglie ≈ 18.000 query).
     $size_remap = [];
-    foreach ( $tracked as $sku => $pid ) {
-        $variations = wc_get_product( $pid )?->get_children() ?? [];
-        foreach ( $variations as $vid ) {
-            $v = wc_get_product( $vid );
-            if ( ! $v ) continue;
-            $eu = $v->get_attribute( 'pa_taglia' );
-            $us = get_post_meta( $vid, '_gh_kicksdb_size_us', true );
-            if ( $eu && $us ) {
-                $size_remap[ $sku . '|' . $us ] = $eu;
+    if ( $tracked ) {
+        global $wpdb;
+        $parent_ids   = array_values( $tracked );
+        $placeholders = implode( ',', array_fill( 0, count( $parent_ids ), '%d' ) );
+        $child_rows   = $wpdb->get_results( $wpdb->prepare(
+            "SELECT ID, post_parent FROM {$wpdb->posts}
+             WHERE post_type = 'product_variation'
+               AND post_status != 'trash'
+               AND post_parent IN ({$placeholders})",
+            $parent_ids
+        ) );
+
+        $parent_of = [];
+        foreach ( (array) $child_rows as $row ) {
+            $parent_of[ (int) $row->ID ] = (int) $row->post_parent;
+        }
+        $vmeta = gh_batch_get_meta( array_keys( $parent_of ), [ 'attribute_pa_taglia', '_gh_kicksdb_size_us' ] );
+
+        // Slug → nome termine (stessa risoluzione di get_attribute(),
+        // fallback allo slug raw quando il termine non esiste piu).
+        $size_names = [];
+        if ( taxonomy_exists( 'pa_taglia' ) ) {
+            $terms = get_terms( [ 'taxonomy' => 'pa_taglia', 'hide_empty' => false ] );
+            foreach ( is_wp_error( $terms ) ? [] : $terms as $t ) {
+                $size_names[ $t->slug ] = $t->name;
+            }
+        }
+
+        $sku_of_parent = array_flip( $tracked ); // pid => sku
+        foreach ( $parent_of as $vid => $ppid ) {
+            $slug = (string) ( $vmeta[ $vid ]['attribute_pa_taglia'] ?? '' );
+            $us   = (string) ( $vmeta[ $vid ]['_gh_kicksdb_size_us'] ?? '' );
+            $sku  = (string) ( $sku_of_parent[ $ppid ] ?? '' );
+            if ( $slug !== '' && $us !== '' && $sku !== '' ) {
+                $size_remap[ $sku . '|' . $us ] = $size_names[ $slug ] ?? $slug;
             }
         }
     }
@@ -476,7 +509,18 @@ function gh_kicksdb_refresh_pricing( array $skus, array $options = [] ): array {
     $prices = gh_kicksdb_extract_standard_prices( $resp, $size_remap );
     $priced = gh_kicksdb_apply_markup_to_map( $prices );
 
-    // 5. Applica per ciascun SKU tracked
+    // 5. Applica per ciascun SKU tracked. Gli SKU variante candidati
+    // (<sku>-EU<taglia>) vengono risolti in blocco e le cache primed:
+    // il loop di scrittura non paga piu 2 query di lookup per taglia.
+    $candidate_var_skus = [];
+    foreach ( $tracked as $sku => $pid ) {
+        foreach ( array_keys( $priced[ $sku ] ?? [] ) as $size_eu ) {
+            $candidate_var_skus[] = $sku . '-EU' . $size_eu;
+        }
+    }
+    $var_sku_map = gh_sku_to_id_map( $candidate_var_skus );
+    gh_prime_product_caches( array_values( $var_sku_map ) );
+
     $updated = 0;
     $errors  = 0;
 
@@ -499,7 +543,7 @@ function gh_kicksdb_refresh_pricing( array $skus, array $options = [] ): array {
         $applied_to = [];
         foreach ( $priced[ $sku ] as $size_eu => $info ) {
             $var_sku = $sku . '-EU' . $size_eu;
-            $var_id  = wc_get_product_id_by_sku( $var_sku );
+            $var_id  = $var_sku_map[ $var_sku ] ?? 0;
             if ( ! $var_id ) continue;
             $v = wc_get_product( $var_id );
             if ( ! $v || ! $v->is_type( 'variation' ) ) continue;

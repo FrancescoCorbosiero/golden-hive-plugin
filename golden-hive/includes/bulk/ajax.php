@@ -150,6 +150,9 @@ add_action( 'wp_ajax_gh_ajax_sort_preview', function () {
     $step  = intval( $_POST['step'] ?? 10 );
 
     $result = gh_sort_preview( $product_ids, $rule, $start, $step );
+    if ( ! empty( $result['error'] ) ) {
+        wp_send_json_error( 'Regola di ordinamento sconosciuta: ' . $rule );
+    }
 
     wp_send_json_success( $result );
 } );
@@ -175,6 +178,9 @@ add_action( 'wp_ajax_gh_ajax_sort_apply', function () {
     $step  = intval( $_POST['step'] ?? 10 );
 
     $result = gh_sort_products( $product_ids, $rule, $start, $step );
+    if ( ! empty( $result['error'] ) ) {
+        wp_send_json_error( 'Regola di ordinamento sconosciuta: ' . $rule );
+    }
 
     wp_send_json_success( $result );
 } );

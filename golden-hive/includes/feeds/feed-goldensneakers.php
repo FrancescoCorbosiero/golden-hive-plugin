@@ -301,6 +301,13 @@ function rp_rc_gs_transform_all( array $products, string $price_mode = 'direct',
 /**
  * Confronta i prodotti GS trasformati con lo stato attuale di WooCommerce.
  *
+ * Batch-first: TUTTI gli SKU (parent + varianti) vengono risolti in una
+ * manciata di query via gh_sku_to_id_map(), i parent trovati vengono
+ * primed in cache (gh_prime_product_caches) e i meta delle varianti letti
+ * in blocco. Il vecchio flusso faceva 2 query per parent + 2 per variante
+ * (wc_get_product_id_by_sku + hydration): ~44.000 query per un feed da
+ * 2.000 SKU × 10 taglie, PRIMA di scrivere qualsiasi cosa.
+ *
  * @param array $woo_products Prodotti trasformati (output di transform_all).
  * @return array [ 'new' => [...], 'update' => [...], 'unchanged' => [...], 'summary' => [...] ]
  */
@@ -310,11 +317,41 @@ function rp_rc_gs_diff( array $woo_products ): array {
     $update    = [];
     $unchanged = [];
 
+    // ── Batch: risolvi ogni SKU (parent + varianti) in poche query.
+    $all_skus = [];
+    foreach ( $woo_products as $product ) {
+        if ( ! empty( $product['sku'] ) ) $all_skus[] = (string) $product['sku'];
+        foreach ( (array) ( $product['variations'] ?? [] ) as $var ) {
+            if ( ! empty( $var['sku'] ) ) $all_skus[] = (string) $var['sku'];
+        }
+    }
+    $sku_map = gh_sku_to_id_map( $all_skus );
+
+    // Parent trovati: cache warm-up così wc_get_product() non tocca il DB.
+    $parent_ids = [];
+    foreach ( $woo_products as $product ) {
+        $sku = (string) ( $product['sku'] ?? '' );
+        if ( $sku !== '' && isset( $sku_map[ $sku ] ) ) $parent_ids[] = $sku_map[ $sku ];
+    }
+    gh_prime_product_caches( $parent_ids );
+
+    // Meta delle varianti esistenti letti in blocco (niente hydration:
+    // al detect servono solo _stock e _sale_price).
+    $var_ids = [];
+    foreach ( $woo_products as $product ) {
+        foreach ( (array) ( $product['variations'] ?? [] ) as $var ) {
+            $vsku = (string) ( $var['sku'] ?? '' );
+            if ( $vsku !== '' && isset( $sku_map[ $vsku ] ) ) $var_ids[] = $sku_map[ $vsku ];
+        }
+    }
+    $var_meta  = gh_batch_get_meta( $var_ids, [ '_stock', '_sale_price' ] );
+    $var_index = [ 'ids' => $sku_map, 'meta' => $var_meta ];
+
     foreach ( $woo_products as $product ) {
         $sku = $product['sku'] ?? '';
         if ( ! $sku ) { $new[] = $product; continue; }
 
-        $existing_id = wc_get_product_id_by_sku( $sku );
+        $existing_id = $sku_map[ $sku ] ?? 0;
         if ( ! $existing_id ) {
             $new[] = $product;
             continue;
@@ -324,7 +361,7 @@ function rp_rc_gs_diff( array $woo_products ): array {
         if ( ! $existing ) { $new[] = $product; continue; }
 
         // Controlla se ci sono differenze
-        $changes = rp_rc_gs_detect_changes( $existing, $product );
+        $changes = rp_rc_gs_detect_changes( $existing, $product, $var_index );
         if ( $changes ) {
             $product['_existing_id'] = $existing_id;
             $product['_changes']     = $changes;
@@ -351,11 +388,16 @@ function rp_rc_gs_diff( array $woo_products ): array {
 /**
  * Rileva differenze tra prodotto WC esistente e dati GS.
  *
- * @param WC_Product $existing Prodotto WC.
- * @param array      $new_data Dati trasformati.
+ * @param WC_Product $existing  Prodotto WC.
+ * @param array      $new_data  Dati trasformati.
+ * @param array|null $var_index Indice batched opzionale (da rp_rc_gs_diff):
+ *                              [ 'ids' => [sku=>id], 'meta' => [id=>[_stock,_sale_price]] ].
+ *                              Con l'indice il confronto varianti è a costo
+ *                              zero query; senza (null) mantiene il lookup
+ *                              per-SKU legacy per i chiamanti esterni.
  * @return array Lista di campi cambiati o array vuoto.
  */
-function rp_rc_gs_detect_changes( WC_Product $existing, array $new_data ): array {
+function rp_rc_gs_detect_changes( WC_Product $existing, array $new_data, ?array $var_index = null ): array {
 
     $changes = [];
 
@@ -369,6 +411,26 @@ function rp_rc_gs_detect_changes( WC_Product $existing, array $new_data ): array
         foreach ( $new_data['variations'] as $new_var ) {
             $var_sku = $new_var['sku'] ?? '';
             if ( ! $var_sku ) continue;
+
+            if ( $var_index !== null ) {
+                // Path batched: valori dal meta index, zero query.
+                $var_id = $var_index['ids'][ $var_sku ] ?? 0;
+                if ( $var_id ) {
+                    $meta = $var_index['meta'][ $var_id ] ?? [];
+                    // (int)'' === 0 === (int)null: stessa coercion del
+                    // legacy (int) $v->get_stock_quantity().
+                    if ( (int) ( $meta['_stock'] ?? 0 ) !== (int) $new_var['stock_quantity'] ) {
+                        $changes[] = 'stock:' . $var_sku;
+                    }
+                    if ( (string) ( $meta['_sale_price'] ?? '' ) !== (string) $new_var['sale_price'] ) {
+                        $changes[] = 'price:' . $var_sku;
+                    }
+                } else {
+                    $changes[] = 'new_variation:' . $var_sku;
+                }
+                continue;
+            }
+
             $var_id = wc_get_product_id_by_sku( $var_sku );
             if ( $var_id ) {
                 $v = wc_get_product( $var_id );

@@ -170,6 +170,18 @@ views/*.php, admin-page.php        → "UI" (zero logica business)
 > (assorbito come shortcut in Media Library). La logica PHP sottostante
 > (exporter, scanner) resta disponibile per Jobs/altri moduli.
 
+> **Nascosti (non rimossi) — sezione IMPORT**: i tab GS Feed / SF Feed /
+> CSV Feed / KicksDB / Bulk JSON / Roundtrip non compaiono più nella
+> sidebar: la sincronizzazione è gestita da strumenti esterni (Hive Sync,
+> CLI). È SOLO UI-hiding in `admin-page.php`: tutto il PHP resta caricato
+> e funzionante — AJAX handler, bridge hive-sync (`rp_rc_gs_*`/`gh_sf_*`),
+> REST `gh/v1`, job kinds del runner, cron scheduler — perché altri
+> plugin/tool chiamano questo codice. I pannelli restano nel DOM e i
+> deep-link (`#/gsfeed`, `#/roundtrip`, …) funzionano come scorciatoia.
+> Catalog History resta visibile (sezione CATALOGO): è monitoring, non
+> import. Ri-mostrare tutto: `define( 'GH_SHOW_IMPORT_UI', true )` in
+> wp-config.php oppure `add_filter( 'gh_import_ui_visible', '__return_true' )`.
+
 ---
 
 ## Inline Editor — Architettura

@@ -113,18 +113,18 @@ function gh_cron_parse_field( string $raw, int $min, int $max, string $name ): a
             return new WP_Error( 'cron_value', "Valore non valido in '{$name}': {$chunk}" );
         }
 
-        // Day-of-week: accept 7 as Sunday (normalize to 0)
-        if ( $name === 'dow' ) {
-            if ( $from === 7 ) $from = 0;
-            if ( $to === 7 ) $to = 0;
-        }
+        // Day-of-week: accept 7 as Sunday (Vixie compat). Validate contro
+        // 0-7 ed espandi PRIMA di ripiegare 7 su 0 — normalizzare gli
+        // estremi del range prima dell'espansione trasformava '0-7' in
+        // "solo domenica" (0-0) e rifiutava '1-7' come range invertito.
+        $eff_max = ( $name === 'dow' ) ? 7 : $max;
 
-        if ( $from < $min || $from > $max || $to < $min || $to > $max || $from > $to ) {
+        if ( $from < $min || $from > $eff_max || $to < $min || $to > $eff_max || $from > $to ) {
             return new WP_Error( 'cron_bounds', "Range fuori bound in '{$name}' ({$min}-{$max}): {$chunk}" );
         }
 
         for ( $v = $from; $v <= $to; $v += $step ) {
-            $values[ $v ] = true;
+            $values[ ( $name === 'dow' && $v === 7 ) ? 0 : $v ] = true;
         }
     }
 

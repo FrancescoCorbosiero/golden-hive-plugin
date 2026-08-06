@@ -334,7 +334,7 @@ add_action( 'wp_ajax_rp_em_ajax_campaign_send', function () {
     // precedente e morta: permettiamo un retry. Senza questa logica la
     // campagna restava bloccata in 'sending' per sempre dopo un PHP crash.
     if ( ( $c['status'] ?? '' ) === RP_EM_STATUS_SENDING ) {
-        if ( get_transient( rp_em_campaign_lock_key( $id ) ) ) {
+        if ( rp_em_campaign_lock_active( $id ) ) {
             wp_send_json_error( 'Campagna gia in invio (lock attivo). Attendi il completamento.' );
         }
         // Lock scaduto / mai acquisito → run abbandonata, procediamo.

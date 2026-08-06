@@ -215,6 +215,11 @@ function gh_csv_diff( array $products ): array {
     $update    = [];
     $unchanged = [];
 
+    // Batch: tutti gli SKU risolti in poche query e cache dei match
+    // primed — il loop sotto non paga piu 2 query per riga feed.
+    $sku_map = gh_sku_to_id_map( array_column( $products, 'sku' ) );
+    gh_prime_product_caches( array_values( $sku_map ) );
+
     foreach ( $products as $product ) {
         $sku = $product['sku'] ?? '';
         if ( ! $sku ) {
@@ -222,7 +227,7 @@ function gh_csv_diff( array $products ): array {
             continue;
         }
 
-        $existing_id = wc_get_product_id_by_sku( $sku );
+        $existing_id = $sku_map[ $sku ] ?? 0;
         if ( ! $existing_id ) {
             $new[] = $product;
             continue;

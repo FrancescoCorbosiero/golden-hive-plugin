@@ -59,8 +59,15 @@ final class StockOnlyClassifier
      * (treated as unknown — the classifier doesn't have an opinion).
      * Names mirror the keys ParentScalarLookup exposes so the
      * classifier reads them straight off the pre-loaded snapshot.
+     *
+     * ORDER MATTERS: cheap byte-comparable fields first. description /
+     * short_description are the two that pay a wp_kses_post pass per
+     * side — with this ordering they are only ever normalized when
+     * name/sku/status already match (i.e. for rows that are candidates
+     * for unchanged/updateStock, the majority on a settled catalog...
+     * which is exactly where the memoized kses cache below also bites).
      */
-    private const COMPARABLE_FIELDS = [ 'name', 'sku', 'description', 'short_description', 'status' ];
+    private const COMPARABLE_FIELDS = [ 'name', 'sku', 'status', 'description', 'short_description' ];
 
     /**
      * Three-way classification. $variationLookup + $parentTermSlugs +
@@ -127,10 +134,15 @@ final class StockOnlyClassifier
         // every SF item ends up in updateFull on every run because
         // get_description returns the wp_kses_post'd form while the
         // feed carries the raw form.
-        foreach ( $item->data as $k => $v ) {
-            if ( in_array( $k, self::STOCK_KEYS, true ) ) continue;
+        //
+        // Iterazione sui 5 campi comparabili, NON su tutte le ~60
+        // chiavi dell'item: il loop invertito faceva 2 in_array per
+        // chiave per item (~1,2M chiamate su un feed da 10k) per
+        // scartare il 90% delle chiavi.
+        foreach ( self::COMPARABLE_FIELDS as $k ) {
+            if ( ! array_key_exists( $k, $item->data ) ) continue;
+            $v = $item->data[ $k ];
             if ( ! is_scalar( $v ) ) continue;
-            if ( ! in_array( $k, self::COMPARABLE_FIELDS, true ) ) continue;
             $cur = $scalar[ $k ] ?? '';
             if ( ! is_scalar( $cur ) ) continue;
             $feedNorm = self::normalizeFor( (string) $k, (string) $v );
@@ -473,6 +485,18 @@ final class StockOnlyClassifier
     }
 
     /**
+     * Memo del round-trip wp_kses_post, keyed md5(input). Le description
+     * di un feed sono stabili tra i tick e ampiamente condivise tra
+     * varianti dello stesso modello: su un re-sync da 10k item le ~40k
+     * passate kses collassano al numero di description DISTINTE. Il
+     * reset a 20k entry limita la memoria sui feed patologici (~qualche
+     * MB al massimo prima del flush).
+     *
+     * @var array<string, string>
+     */
+    private static array $ksesMemo = [];
+
+    /**
      * Canonicalize a scalar field value so feed-side vs Woo-side
      * comparison ignores artifacts that don't represent a real change:
      *
@@ -496,12 +520,18 @@ final class StockOnlyClassifier
         $value = trim( $value );
         if ( $field === 'description' || $field === 'short_description' ) {
             if ( function_exists( 'wp_kses_post' ) ) {
-                $value = \wp_kses_post( $value );
-                // wp_kses_post can leave trailing whitespace after
-                // stripping disallowed tags — re-trim defensively
-                // so a stripped <script> at end-of-string doesn't
-                // leave a phantom space behind.
-                $value = trim( $value );
+                $memoKey = md5( $value );
+                if ( ! isset( self::$ksesMemo[ $memoKey ] ) ) {
+                    if ( count( self::$ksesMemo ) > 20000 ) {
+                        self::$ksesMemo = [];
+                    }
+                    // wp_kses_post can leave trailing whitespace after
+                    // stripping disallowed tags — re-trim defensively
+                    // so a stripped <script> at end-of-string doesn't
+                    // leave a phantom space behind.
+                    self::$ksesMemo[ $memoKey ] = trim( \wp_kses_post( $value ) );
+                }
+                $value = self::$ksesMemo[ $memoKey ];
             }
         }
         return $value;

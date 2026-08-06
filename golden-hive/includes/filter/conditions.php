@@ -547,7 +547,11 @@ function gh_eval_has_size( WC_Product $product, string $operator, string $size, 
 function gh_get_cached_variants( int $product_id, array &$cache ): array {
 
     if ( ! isset( $cache['variants'][ $product_id ] ) ) {
-        $cache['variants'][ $product_id ] = rp_cm_get_product_variants( $product_id );
+        // children_map: pre-risolto in blocco dal query engine
+        // (rp_cm_prime_variant_caches) quando le condizioni toccano le
+        // varianti — evita la query get_children per singolo parent.
+        $children = $cache['children_map'][ $product_id ] ?? null;
+        $cache['variants'][ $product_id ] = rp_cm_get_product_variants( $product_id, $children );
     }
     return $cache['variants'][ $product_id ];
 }

@@ -37,6 +37,7 @@ unset( $gh_autoload );
 require_once GH_DIR . 'includes/core/option-store.php';
 require_once GH_DIR . 'includes/core/ajax-helpers.php';
 require_once GH_DIR . 'includes/core/ui-helpers.php';
+require_once GH_DIR . 'includes/core/batch-lookup.php';
 require_once GH_DIR . 'includes/core/version.php';
 
 // Product — CRUD + variations (merged from rp-product-manager)

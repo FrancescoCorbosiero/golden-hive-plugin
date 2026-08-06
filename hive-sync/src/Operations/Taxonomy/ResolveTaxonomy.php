@@ -46,6 +46,30 @@ final class ResolveTaxonomy implements ImportRule
         'product_tag'   => 'tag_ids',
     ];
 
+    /**
+     * Request-static memo: (create_missing|taxonomy|name) → term_id|null.
+     *
+     * Il value-space di un feed è minuscolo e quasi costante (taglie
+     * 36-48, ~50 brand, 2-3 categorie) ma il resolver veniva invocato
+     * per OGNI item: 10k item × ~18 nomi ≈ 180.000 dispatch
+     * apply_filters → get_term_by per ~300-600 valori distinti. Stesso
+     * pattern già usato da ensureGlobalAttribute qui sotto. Anche i
+     * null (nome irrisolvibile) sono cachati — senza, ogni item ripaga
+     * il tentativo di create fallito.
+     *
+     * @var array<string, int|null>
+     */
+    private static array $termMemo = [];
+
+    private static function resolveTermId( string $taxonomy, string $name, array $context ): ?int
+    {
+        $key = ( empty( $context['create_missing'] ) ? '0' : '1' ) . '|' . $taxonomy . '|' . $name;
+        if ( ! array_key_exists( $key, self::$termMemo ) ) {
+            self::$termMemo[ $key ] = \hsync_resolve_taxonomy( $taxonomy, $name, $context );
+        }
+        return self::$termMemo[ $key ];
+    }
+
     public function id(): string { return self::ID; }
     public function label(): string { return 'Risolvi tassonomia (categorie/brand/tag/attributi)'; }
 
@@ -85,7 +109,7 @@ final class ResolveTaxonomy implements ImportRule
 
             $ids = [];
             foreach ( $names as $name ) {
-                $tid = \hsync_resolve_taxonomy( $taxonomy, $name, $context );
+                $tid = self::resolveTermId( $taxonomy, $name, $context );
                 if ( $tid !== null && $tid > 0 ) $ids[] = $tid;
             }
             if ( $ids ) {
@@ -127,7 +151,7 @@ final class ResolveTaxonomy implements ImportRule
 
             $ids = [];
             foreach ( $names as $name ) {
-                $tid = \hsync_resolve_taxonomy( $taxKey, $name, $context );
+                $tid = self::resolveTermId( $taxKey, $name, $context );
                 if ( $tid !== null && $tid > 0 ) $ids[] = $tid;
             }
             if ( $ids ) {

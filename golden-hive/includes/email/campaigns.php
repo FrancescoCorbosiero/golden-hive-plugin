@@ -206,7 +206,7 @@ function rp_em_unschedule_campaign( string $campaign_id ): void {
 /**
  * Esegue una campagna: valida, renderizza, risolve contatti, invia.
  *
- * Protetto da un lock basato su transient per evitare doppio-send:
+ * Protetto da un lock atomico su wp_options per evitare doppio-send:
  * - AJAX click + cron che scatta nello stesso istante
  * - User che clicca "Invia ora" due volte
  * - Due richieste AJAX in race su hoster a bassa concorrenza
@@ -224,10 +224,10 @@ function rp_em_execute_campaign( string $campaign_id ): array {
         return [ 'sent' => 0, 'failed' => 0, 'errors' => [ 'Campagna non trovata.' ] ];
     }
 
-    // ── Concurrency lock — acquisizione atomica via transient.
-    $lock_key = rp_em_campaign_lock_key( $campaign_id );
+    // ── Concurrency lock — acquisizione atomica (INSERT IGNORE, un solo
+    // vincitore anche con richieste simultanee).
     $lock_ttl = (int) apply_filters( 'rp_em_campaign_lock_ttl', RP_EM_CAMPAIGN_LOCK_TTL );
-    if ( get_transient( $lock_key ) ) {
+    if ( ! rp_em_acquire_campaign_lock( $campaign_id, $lock_ttl ) ) {
         return [
             'sent'           => 0,
             'failed'         => 0,
@@ -235,11 +235,10 @@ function rp_em_execute_campaign( string $campaign_id ): array {
             'skipped_reason' => 'locked',
         ];
     }
-    set_transient( $lock_key, (string) time(), $lock_ttl );
 
     // Garantiamo rilascio del lock anche in caso di fatal PHP: register_shutdown.
-    register_shutdown_function( function () use ( $lock_key ) {
-        delete_transient( $lock_key );
+    register_shutdown_function( function () use ( $campaign_id ) {
+        rp_em_release_campaign_lock( $campaign_id );
     } );
 
     // Wrap tutto il resto in try/finally cosi il lock viene rilasciato
@@ -427,7 +426,7 @@ function rp_em_finalize_campaign_send( string $campaign_id, array $result ): str
 }
 
 /**
- * Chiave del transient di lock anti doppio-invio per una campagna.
+ * Chiave del lock anti doppio-invio per una campagna (row in wp_options).
  * Condivisa tra il path sincrono (execute) e quello background (dispatch+job).
  */
 function rp_em_campaign_lock_key( string $campaign_id ): string {
@@ -435,9 +434,99 @@ function rp_em_campaign_lock_key( string $campaign_id ): string {
 }
 
 /**
+ * Acquisizione ATOMICA del lock anti doppio-invio.
+ *
+ * Il vecchio check-then-set su transient (get_transient → set_transient)
+ * era un TOCTOU: due richieste simultanee ("Invia ora" double-click, o
+ * AJAX + cron nello stesso istante) leggevano entrambe "nessun lock" e
+ * partivano entrambe → intera lista contatti spedita due volte.
+ *
+ * Qui il vincitore è deciso dal DB: INSERT IGNORE contro l'indice UNIQUE
+ * su option_name inserisce esattamente una riga — il perdente riceve
+ * 0 affected rows. Niente add_option(): con la cache 'notoptions'
+ * avvelenata da una lettura precedente, add_option salta il pre-check e
+ * il suo INSERT … ON DUPLICATE KEY UPDATE sovrascrive il lock del
+ * vincitore riportando true a entrambi.
+ *
+ * Lock scaduto (run morta senza release): takeover via UPDATE
+ * compare-and-swap sul valore letto — anche qui un solo vincitore.
+ *
+ * @param string   $campaign_id
+ * @param int|null $ttl Secondi oltre i quali un lock è considerato stale.
+ * @return bool True se il lock è nostro.
+ */
+function rp_em_acquire_campaign_lock( string $campaign_id, ?int $ttl = null ): bool {
+    global $wpdb;
+
+    $ttl ??= (int) apply_filters( 'rp_em_campaign_lock_ttl', RP_EM_CAMPAIGN_LOCK_TTL );
+    $key  = rp_em_campaign_lock_key( $campaign_id );
+    $now  = (string) time();
+
+    $inserted = $wpdb->query( $wpdb->prepare(
+        "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+        $key,
+        $now
+    ) );
+    if ( $inserted === 1 ) {
+        wp_cache_delete( $key, 'options' );
+        wp_cache_delete( 'notoptions', 'options' );
+        return true;
+    }
+
+    // Riga già presente: lock legittimo o stale. Lettura diretta (no
+    // option cache) per decidere.
+    $raw = $wpdb->get_var( $wpdb->prepare(
+        "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s",
+        $key
+    ) );
+    if ( $raw === null ) {
+        // Rilasciato tra INSERT e SELECT: il prossimo tentativo riuscirà.
+        return false;
+    }
+    $held = (int) $raw;
+    if ( $held > 0 && ( time() - $held ) <= $ttl ) {
+        return false; // Lock attivo di un'altra run.
+    }
+
+    // Stale: takeover CAS — vince un solo reclaimer.
+    $claimed = $wpdb->query( $wpdb->prepare(
+        "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+        $now,
+        $key,
+        (string) $raw
+    ) );
+    if ( $claimed === 1 ) {
+        wp_cache_delete( $key, 'options' );
+        return true;
+    }
+    return false;
+}
+
+/**
+ * True se il lock anti doppio-invio è attivo (presente e non stale).
+ * Lettura diretta dal DB: il chiamante decide sulla base dello stato
+ * corrente, non di una cache di request.
+ */
+function rp_em_campaign_lock_active( string $campaign_id, ?int $ttl = null ): bool {
+    global $wpdb;
+
+    $ttl ??= (int) apply_filters( 'rp_em_campaign_lock_ttl', RP_EM_CAMPAIGN_LOCK_TTL );
+    $raw  = $wpdb->get_var( $wpdb->prepare(
+        "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s",
+        rp_em_campaign_lock_key( $campaign_id )
+    ) );
+    $held = (int) ( $raw ?? 0 );
+    return $held > 0 && ( time() - $held ) <= $ttl;
+}
+
+/**
  * Rilascia il lock anti doppio-invio di una campagna.
+ *
+ * Il delete_transient copre i lock legacy pre-upgrade (quando il lock
+ * viveva in un transient): innocuo quando non esiste.
  */
 function rp_em_release_campaign_lock( string $campaign_id ): void {
+    delete_option( rp_em_campaign_lock_key( $campaign_id ) );
     delete_transient( rp_em_campaign_lock_key( $campaign_id ) );
 }
 
@@ -473,12 +562,10 @@ function rp_em_dispatch_campaign_send( string $campaign_id, string $trigger = 'm
         return [ 'ok' => false, 'reason' => 'jobs_unavailable', 'error' => 'Job runner non disponibile.' ];
     }
 
-    $lock_key = rp_em_campaign_lock_key( $campaign_id );
     $lock_ttl = (int) apply_filters( 'rp_em_campaign_lock_ttl', RP_EM_CAMPAIGN_LOCK_TTL );
-    if ( get_transient( $lock_key ) ) {
+    if ( ! rp_em_acquire_campaign_lock( $campaign_id, $lock_ttl ) ) {
         return [ 'ok' => false, 'reason' => 'already_sending', 'error' => 'Invio gia in corso per questa campagna.' ];
     }
-    set_transient( $lock_key, (string) time(), $lock_ttl );
 
     $saved = gh_jobs_save( [
         'kind'        => 'email_campaign',
@@ -493,7 +580,7 @@ function rp_em_dispatch_campaign_send( string $campaign_id, string $trigger = 'm
     ] );
 
     if ( is_wp_error( $saved ) ) {
-        delete_transient( $lock_key );
+        rp_em_release_campaign_lock( $campaign_id );
         return [ 'ok' => false, 'reason' => 'job_save_failed', 'error' => $saved->get_error_message() ];
     }
 

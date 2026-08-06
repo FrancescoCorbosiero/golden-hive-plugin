@@ -118,7 +118,15 @@ final class MarkupResolver
     private static function matches(array $data, array $rule): bool
     {
         $actual = self::dotGet($data, $rule['field']);
-        if ($actual === null) return false;
+        // Il bail-out su campo mancante vale SOLO per gli operatori
+        // positivi. I negativi (not_equals / not_in) sono le regole
+        // catch-all — "_gs_brand not_in [Nike, Adidas] → +45%" deve
+        // coprire ANCHE le righe che il brand non lo dichiarano
+        // proprio: col bail-out cieco quei prodotti scivolavano sul
+        // fallback flat (spesso 0%) e finivano online a prezzo costo.
+        // Campo assente = stringa vuota ai fini del confronto.
+        $isNegative = in_array($rule['operator'], ['not_equals', 'not_in'], true);
+        if ($actual === null && ! $isNegative) return false;
         // Case-insensitive comparison for ALL string ops. Operators
         // type rule values by hand ("nike", "pantaloni") while feeds
         // ship Title Case ("Nike", "Pantaloni"). Strict === would

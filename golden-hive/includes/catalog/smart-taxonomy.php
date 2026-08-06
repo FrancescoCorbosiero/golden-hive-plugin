@@ -211,24 +211,27 @@ function gh_smart_sync_all(): array {
  */
 function gh_smart_evaluate_product( int $product_id ): void {
 
+    // Bail-out economico PRIMA di idratare il prodotto: questo hook gira
+    // su OGNI $product->save() — inclusi i loop di bulk action e import.
+    // Senza regole attive l'installazione non deve pagare nulla.
+    $rules = array_filter(
+        gh_smart_get_rules(),
+        static fn( $r ) => ! empty( $r['enabled'] ) && ! empty( $r['conditions'] )
+    );
+    if ( ! $rules ) return;
+
     $product = wc_get_product( $product_id );
     if ( ! $product ) return;
 
     // Non processare varianti — solo parent
     if ( $product->is_type( 'variation' ) ) return;
 
-    $rules = gh_smart_get_rules();
     $cache = [];
 
     foreach ( $rules as $rule ) {
-        if ( empty( $rule['enabled'] ) ) continue;
-
-        $conditions = $rule['conditions'] ?? [];
-        if ( empty( $conditions ) ) continue;
-
         // Valuta ogni condizione
         $match = true;
-        foreach ( $conditions as $cond ) {
+        foreach ( $rule['conditions'] as $cond ) {
             if ( ! gh_evaluate_condition( $product, $cond, $cache ) ) {
                 $match = false;
                 break;
@@ -239,8 +242,11 @@ function gh_smart_evaluate_product( int $product_id ): void {
             $term_id  = (int) $rule['term_id'];
             $taxonomy = $rule['taxonomy'] ?? 'product_cat';
 
-            $current = wp_get_post_terms( $product_id, $taxonomy, [ 'fields' => 'ids' ] );
-            if ( ! is_wp_error( $current ) && ! in_array( $term_id, $current, true ) ) {
+            // has_term legge l'object term cache (primed dal save appena
+            // avvenuto) invece della query diretta di wp_get_post_terms.
+            // Su WP_Error il valore truthy non-bool fa comunque skip —
+            // stesso esito del vecchio guard is_wp_error.
+            if ( ! has_term( $term_id, $taxonomy, $product_id ) ) {
                 wp_set_object_terms( $product_id, [ $term_id ], $taxonomy, true );
             }
         }

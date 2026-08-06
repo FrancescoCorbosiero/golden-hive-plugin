@@ -255,6 +255,20 @@ function gh_execute_bulk_action( string $action, array $product_ids, array $para
         add_filter( 'woocommerce_product_object_updated_props', '__return_empty_array', 999 );
     }
 
+    // Defer term recounts during taxonomy bulk ops: senza, OGNI
+    // wp_set_object_terms ricalcola il COUNT di ogni termine toccato
+    // (5.000 prodotti × 3 categorie = 15.000 COUNT query). Col defer
+    // WordPress accumula i termini dirty e riconta UNA volta al false.
+    $defer_terms = in_array( $action, [
+        'assign_categories', 'remove_categories', 'set_categories',
+        'assign_brands', 'remove_brands', 'set_brands',
+        'assign_tags', 'remove_tags',
+    ], true ) && function_exists( 'wp_defer_term_counting' );
+
+    if ( $defer_terms ) {
+        wp_defer_term_counting( true );
+    }
+
     // Track variable parents that need sync at the end
     $parents_to_sync = [];
 
@@ -298,6 +312,11 @@ function gh_execute_bulk_action( string $action, array $product_ids, array $para
 
     if ( $suspend_transients ) {
         remove_filter( 'woocommerce_product_object_updated_props', '__return_empty_array', 999 );
+    }
+
+    // Flush dei conteggi termini accumulati (una recount per termine).
+    if ( $defer_terms ) {
+        wp_defer_term_counting( false );
     }
 
     // Batch-sync all variable parents once at the end
@@ -639,6 +658,13 @@ function gh_round_prices_action( WC_Product $product, string $target, string $ro
 
 /**
  * Aggiusta il prezzo (aggiunge/sottrae importo).
+ *
+ * I prezzi assenti/a 0 vengono saltati (stessa semantica di
+ * gh_round_prices_action e gh_apply_percent_change): "+5€" su una
+ * variante senza _regular_price non deve INVENTARE un prezzo di 5€ —
+ * quella taglia era volutamente senza prezzo (non acquistabile).
+ * Idem per target sale_price su prodotti senza sconto attivo: non
+ * creiamo un saldo dal nulla.
  */
 function gh_adjust_price( WC_Product $product, float $amount, string $target ): true {
 
@@ -649,6 +675,7 @@ function gh_adjust_price( WC_Product $product, float $amount, string $target ): 
     if ( $product->is_type( 'variable' ) ) {
         foreach ( $product->get_children() as $var_id ) {
             $current = (float) get_post_meta( $var_id, $meta_key, true );
+            if ( $current <= 0 ) continue;
             $new     = max( 0, round( $current + $amount, 2 ) );
             update_post_meta( $var_id, $meta_key, $new > 0 ? $new : '' );
             $sale = (float) get_post_meta( $var_id, '_sale_price', true );
@@ -656,6 +683,7 @@ function gh_adjust_price( WC_Product $product, float $amount, string $target ): 
         }
     } else {
         $current = (float) ( $target === 'sale_price' ? $product->get_sale_price() : $product->get_regular_price() );
+        if ( $current <= 0 ) return true;
         $new     = max( 0, round( $current + $amount, 2 ) );
         if ( $target === 'sale_price' ) {
             $product->set_sale_price( $new > 0 ? $new : '' );

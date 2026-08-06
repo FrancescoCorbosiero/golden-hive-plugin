@@ -542,11 +542,13 @@ final class JsonSource extends AbstractSource
             return MaterializeResult::failed('upsert_returned_no_id');
         }
         // Without a richer return contract we can't tell created vs
-        // updated — assume "updated" when the SKU was already present
-        // (the diff would have classified it; we re-check here).
-        $existed = function_exists('wc_get_product_id_by_sku')
-            ? (int) \wc_get_product_id_by_sku($item->sku) === $pid && ! empty($item->data['_existing_id'])
-            : ! empty($item->data['_existing_id']);
+        // updated — the diff already answered it by stamping
+        // _existing_id on the update bucket. The old extra
+        // wc_get_product_id_by_sku roundtrip (one meta query per item)
+        // could only DOWNGRADE a legitimate update to "created" when
+        // the upsert re-keyed the SKU — a mislabel either way, minus
+        // the query.
+        $existed = ! empty($item->data['_existing_id']);
         return $existed
             ? MaterializeResult::updated($pid)
             : MaterializeResult::created($pid);

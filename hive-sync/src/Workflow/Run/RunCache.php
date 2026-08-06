@@ -57,7 +57,7 @@ final class RunCache
      * or any deserialization failure (treats corruption as cache miss,
      * NOT as fatal — the caller falls through to a fresh fetch+diff).
      *
-     * @return array{warnings: array<int,string>, fetched_count: int, diff: Diff}|null
+     * @return array{warnings: array<int,string>, fetched_count: int, diff: Diff, unchanged_count: int}|null
      */
     public static function get( int $runId ): ?array
     {
@@ -81,19 +81,29 @@ final class RunCache
         if ( ! is_array( $payload ) ) return null;
         if ( ! isset( $payload['diff'] ) || ! $payload['diff'] instanceof Diff ) return null;
 
+        // Blob scritto prima dello strip del bucket unchanged: il conteggio
+        // vive ancora dentro il Diff.
+        if ( ! isset( $payload['unchanged_count'] ) ) {
+            $payload['unchanged_count'] = count( $payload['diff']->unchanged );
+        }
+
         return $payload;
     }
 
     /**
      * @param array<int, string> $warnings
+     * @param int                $unchangedCount Conteggio del bucket unchanged
+     *                                           PRIMA dello strip (il Diff
+     *                                           cachato lo porta vuoto).
      */
-    public static function set( int $runId, array $warnings, int $fetchedCount, Diff $diff ): void
+    public static function set( int $runId, array $warnings, int $fetchedCount, Diff $diff, int $unchangedCount = 0 ): void
     {
         if ( $runId <= 0 ) return;
         $payload = [
-            'warnings'      => $warnings,
-            'fetched_count' => $fetchedCount,
-            'diff'          => $diff,
+            'warnings'        => $warnings,
+            'fetched_count'   => $fetchedCount,
+            'diff'            => $diff,
+            'unchanged_count' => $unchangedCount,
         ];
         $serialized = serialize( $payload );
         $compressed = @gzcompress( $serialized, 6 );

@@ -157,17 +157,46 @@ final class ImportRunner
         // against wp_hsync_runs above — may hydrate from cache.
         if ( $isResume ) {
             $cached = RunCache::get( $runId );
+            if ( $cached === null && $startIndex > 0 ) {
+                // Cache evasa/scaduta A META' run (TTL 2h, o eviction
+                // dell'object cache). Il re-fetch+re-diff qui sotto
+                // produce una coda DIVERSA: gli item gia' importati si
+                // riclassificano unchanged/updateStock e spariscono dal
+                // bucket new, quindi un indice POSIZIONALE nella coda
+                // ricostruita salterebbe item reali mai processati — il
+                // run chiudeva 'done' perdendo silenziosamente la testa
+                // della coda. Il diff e' idempotente per costruzione:
+                // ripartire da 0 ri-attraversa gli item gia' fatti come
+                // no-op e processa davvero i mancanti.
+                $startIndex = 0;
+            }
         } else {
             RunCache::clear( $runId );
             $cached = null;
         }
-        $fetchWarnings = [];
-        $fetchedCount  = 0;
+        $fetchWarnings  = [];
+        $fetchedCount   = 0;
+        $unchangedCount = 0;
+
+        // Hoisted: serve gia' qui per decidere COSA cachare (il bucket
+        // unchanged e' processato solo dai run force_recreate).
+        $forceRecreate = ! empty( $options['force_recreate'] );
+
+        // Una cache scritta da un run non-force porta unchanged strippato;
+        // se il resume chiede force_recreate la coda force deve includere
+        // anche quegli item → la cache non basta, si ri-diffa da zero.
+        if ( $forceRecreate && $cached !== null
+            && (int) $cached['unchanged_count'] > 0
+            && count( $cached['diff']->unchanged ) === 0 ) {
+            $cached     = null;
+            $startIndex = 0;
+        }
 
         if ( $cached !== null ) {
-            $fetchWarnings = $cached['warnings'];
-            $fetchedCount  = $cached['fetched_count'];
-            $diff          = $cached['diff'];
+            $fetchWarnings  = $cached['warnings'];
+            $fetchedCount   = $cached['fetched_count'];
+            $diff           = $cached['diff'];
+            $unchangedCount = (int) $cached['unchanged_count'];
         } else {
             try {
                 $fetch = $source->fetch( new FetchRequest( $config, $options ), $ctx );
@@ -191,18 +220,29 @@ final class ImportRunner
                 $this->runs->finish( $runId, 'failed', [ 'error' => $e->getMessage() ] );
                 return [ 'status' => 'failed', 'run_id' => $runId, 'error' => $e->getMessage() ];
             }
-            $items         = $fetch->items;
-            $diff          = $source->diff( $items, $ctx );
-            $fetchWarnings = $fetch->warnings;
-            $fetchedCount  = count( $items );
+            $items          = $fetch->items;
+            $diff           = $source->diff( $items, $ctx );
+            $fetchWarnings  = $fetch->warnings;
+            $fetchedCount   = count( $items );
+            $unchangedCount = count( $diff->unchanged );
             // Cache a raw-stripped copy. FeedItem.raw is audit-only and
             // never reaches materialize (it reads ->data), but on a 10k
             // SF feed it roughly doubles the serialized blob — and the
             // smaller the cached value, the more reliably it fits a WP
             // transient (max_allowed_packet on the DB path, item-size
-            // caps on object caches). This tick keeps the live $diff
-            // (with raw) for its summary + processing.
-            RunCache::set( $runId, $fetchWarnings, $fetchedCount, self::cacheableDiff( $diff ) );
+            // caps on object caches). The unchanged bucket (~95% of a
+            // settled catalog) is stripped too — the loop never touches
+            // it, only the count is reported — EXCEPT on force_recreate
+            // runs, whose queue is rebuilt from unchanged as well. This
+            // tick keeps the live $diff (with raw) for its summary +
+            // processing.
+            RunCache::set(
+                $runId,
+                $fetchWarnings,
+                $fetchedCount,
+                self::cacheableDiff( $diff, $forceRecreate ),
+                $unchangedCount
+            );
         }
 
         // `unchanged` is reported as a top-level metric — items the diff
@@ -217,7 +257,9 @@ final class ImportRunner
             'new'           => count( $diff->new ),
             'update'        => count( $diff->update ),
             'update_stock'  => count( $diff->updateStock ),
-            'unchanged'     => count( $diff->unchanged ),
+            // Dal conteggio dedicato, NON da count(diff->unchanged): sui
+            // tick resumed il Diff cachato porta il bucket strippato.
+            'unchanged'     => $unchangedCount,
             'created'       => 0,
             'updated'       => 0,
             'recreated'     => 0,
@@ -565,11 +607,15 @@ final class ImportRunner
             // an empty shell" class of bug where the bridge silently
             // drops variants or fails to attach prices/stocks. Five
             // signals: type, variations count, first variant's
-            // reg/sale/qty, parent's stock_status. Read-only:
-            // adds latency only when wc_get_product() resolves the
-            // freshly-created/updated product (which is in WC's
-            // object cache anyway).
-            if ( $r->productId !== null && $r->productId > 0 && function_exists( 'wc_get_product' ) ) {
+            // reg/sale/qty, parent's stock_status.
+            //
+            // Capped at the first 100 rows per tick — esattamente cio'
+            // che il return consuma (array_slice($rows, 0, 100)). NON
+            // e' gratis: get_children() rilegge il transient figli che
+            // la write del bridge ha appena invalidato (query piena) +
+            // 2 hydration per item. Su un first-import da 10k pagava
+            // ~30.000 query di sola telemetria che nessuno leggeva.
+            if ( count( $rows ) < 100 && $r->productId !== null && $r->productId > 0 && function_exists( 'wc_get_product' ) ) {
                 $writtenShape = [ 'pid' => (int) $r->productId ];
                 $w = \wc_get_product( (int) $r->productId );
                 if ( $w ) {
@@ -653,8 +699,15 @@ final class ImportRunner
      * the serialized size of a large SF/GS diff. FeedItem is readonly,
      * so each item carrying a non-empty raw is rebuilt; empty-raw items
      * pass through untouched.
+     *
+     * The unchanged bucket is dropped entirely unless $keepUnchanged
+     * (force_recreate runs, whose queue rebuilds from it): the loop
+     * never reads it — only its count is reported, and that travels as
+     * a separate scalar in the RunCache payload. On a settled catalog
+     * unchanged is ~95% of the items, so this cuts the per-tick
+     * decode+unserialize cost and the transient size by ~10-20x.
      */
-    private static function cacheableDiff( Diff $diff ): Diff
+    private static function cacheableDiff( Diff $diff, bool $keepUnchanged = false ): Diff
     {
         $strip = static function ( array $items ): array {
             $out = [];
@@ -669,7 +722,7 @@ final class ImportRunner
         return new Diff(
             new:         $strip( $diff->new ),
             update:      $strip( $diff->update ),
-            unchanged:   $strip( $diff->unchanged ),
+            unchanged:   $keepUnchanged ? $strip( $diff->unchanged ) : [],
             updateStock: $strip( $diff->updateStock ),
         );
     }
@@ -752,8 +805,18 @@ final class ImportRunner
      */
     private static function fastStockPatch( FeedItem $item ): ?int
     {
-        if ( ! function_exists( 'wc_get_product_id_by_sku' ) ) return null;
-        $pid = \wc_get_product_id_by_sku( $item->sku );
+        if ( ! function_exists( 'wc_get_product' ) ) return null;
+
+        // diff() stampa _existing_id su ogni item che instrada qui (lo
+        // stesso contratto che StockOnlyClassifier::classify onora):
+        // fidarsi evita il roundtrip wc_get_product_id_by_sku — una meta
+        // query per item sul path che i docs chiamano perf-critico.
+        // Fallback al lookup solo per item costruiti a mano.
+        $pid = (int) ( $item->data['_existing_id'] ?? 0 );
+        if ( $pid <= 0 ) {
+            if ( ! function_exists( 'wc_get_product_id_by_sku' ) ) return null;
+            $pid = (int) \wc_get_product_id_by_sku( $item->sku );
+        }
         if ( ! $pid ) return null;
         $product = \wc_get_product( $pid );
         if ( ! $product ) return null;
@@ -814,12 +877,35 @@ final class ImportRunner
                 $product->save();
             }
 
+            // Risolvi le variazioni dal SET FIGLI del parent, non con una
+            // wc_get_product_id_by_sku globale per taglia: una passata di
+            // priming (post+meta dei figli) + lettura _sku dalla cache.
+            // Il loop legacy pagava ~2 query per variazione — su un
+            // refresh stock tipico (5k prodotti × 15 taglie) ~150.000
+            // query di solo lookup. In piu' il match e' ora scopato al
+            // parent: una collisione di SKU con la variazione di un ALTRO
+            // prodotto non puo' piu' farci patchare il prodotto sbagliato.
+            $child_ids = array_map( 'intval', $product->get_children() );
+            if ( $child_ids && function_exists( '_prime_post_caches' ) ) {
+                \_prime_post_caches( $child_ids, false, true );
+            }
+            $vid_by_sku    = [];
+            $vid_by_sku_lc = [];
+            foreach ( $child_ids as $cid ) {
+                $csku = (string) \get_post_meta( $cid, '_sku', true );
+                if ( $csku === '' ) continue;
+                $vid_by_sku[ $csku ]                  ??= $cid;
+                $vid_by_sku_lc[ strtolower( $csku ) ] ??= $cid;
+            }
+
             $touched_any = false;
             foreach ( $variations as $var_data ) {
                 if ( ! is_array( $var_data ) ) continue;
                 $var_sku = (string) ( $var_data['sku'] ?? '' );
                 if ( $var_sku === '' ) continue;
-                $var_id = \wc_get_product_id_by_sku( $var_sku );
+                $var_id = $vid_by_sku[ $var_sku ]
+                    ?? $vid_by_sku_lc[ strtolower( $var_sku ) ]
+                    ?? 0;
                 if ( ! $var_id ) continue;  // new size? full update path will handle creation
                 $v = \wc_get_product( $var_id );
                 if ( ! $v || ! $v->is_type( 'variation' ) ) continue;

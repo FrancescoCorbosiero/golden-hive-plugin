@@ -938,12 +938,17 @@ final class CsvSource extends AbstractSource
                 'price'    => (float) ($row['PRICE'] ?? $products[$parentSku]['cost_price']),
             ];
             $products[$parentSku]['_raw_rows'][] = $row;
-            // Recompute aggregate stock from the actual sum of sizes
-            // (overrides whatever the PRODUCT-row QUANTITY column
-            // happened to claim — matches legacy gh_sf_normalize).
-            $products[$parentSku]['total_quantity'] = array_sum(
-                array_column($products[$parentSku]['sizes'], 'quantity')
-            );
+            // Aggregate stock: the FIRST size row replaces the
+            // PRODUCT-row QUANTITY claim, the rest accumulate — same
+            // outcome as legacy gh_sf_normalize's full re-sum, but O(S)
+            // instead of O(S²) per product (the old array_sum ×
+            // array_column pass over the growing sizes array copied
+            // S(S+1)/2 elements — ~1.2M redundant copies on a 150k-row
+            // SF feed).
+            if (count($products[$parentSku]['sizes']) === 1) {
+                $products[$parentSku]['total_quantity'] = 0;
+            }
+            $products[$parentSku]['total_quantity'] += (int) ($row['QUANTITY'] ?? 0);
         }
 
         $items = [];

@@ -88,7 +88,17 @@ function gh_get_sort_rules(): array {
  */
 function gh_sort_products( array $product_ids, string $rule, int $start_order = 10, int $step = 10 ): array {
 
-    // Carica prodotti
+    // Una regola sconosciuta NON deve riscrivere menu_order in ordine
+    // arbitrario (il vecchio comparator default fn() => 0 lo faceva,
+    // riportando pure "rule applicata" al chiamante).
+    if ( ! isset( gh_get_sort_rules()[ $rule ] ) ) {
+        return [ 'rule' => $rule, 'total' => 0, 'updated' => 0, 'preview' => [], 'error' => 'unknown_rule' ];
+    }
+
+    // Carica prodotti (cache primed: niente 2 query per prodotto)
+    if ( function_exists( 'gh_prime_product_caches' ) ) {
+        gh_prime_product_caches( array_map( 'intval', $product_ids ) );
+    }
     $products = [];
     foreach ( $product_ids as $pid ) {
         $p = wc_get_product( intval( $pid ) );
@@ -100,7 +110,7 @@ function gh_sort_products( array $product_ids, string $rule, int $start_order = 
     }
 
     // Ordina con la regola
-    usort( $products, gh_get_comparator( $rule ) );
+    $products = gh_sort_products_list( $products, $rule );
 
     // Scrivi menu_order
     $updated = 0;
@@ -147,6 +157,13 @@ function gh_sort_products( array $product_ids, string $rule, int $start_order = 
  */
 function gh_sort_preview( array $product_ids, string $rule, int $start_order = 10, int $step = 10 ): array {
 
+    if ( ! isset( gh_get_sort_rules()[ $rule ] ) ) {
+        return [ 'rule' => $rule, 'total' => 0, 'preview' => [], 'error' => 'unknown_rule' ];
+    }
+
+    if ( function_exists( 'gh_prime_product_caches' ) ) {
+        gh_prime_product_caches( array_map( 'intval', $product_ids ) );
+    }
     $products = [];
     foreach ( $product_ids as $pid ) {
         $p = wc_get_product( intval( $pid ) );
@@ -157,7 +174,7 @@ function gh_sort_preview( array $product_ids, string $rule, int $start_order = 1
         return [ 'rule' => $rule, 'total' => 0, 'preview' => [] ];
     }
 
-    usort( $products, gh_get_comparator( $rule ) );
+    $products = gh_sort_products_list( $products, $rule );
 
     $preview = [];
     $order   = $start_order;
@@ -182,61 +199,108 @@ function gh_sort_preview( array $product_ids, string $rule, int $start_order = 1
     ];
 }
 
-// ── COMPARATORS ───────────────────────────────────────────────────────────────
+// ── SORT CORE ─────────────────────────────────────────────────────────────────
 
 /**
- * Ritorna la funzione di confronto per una regola di ordinamento.
+ * Ordina una lista di prodotti secondo una regola — decorate/sort/undecorate.
  *
- * @param string $rule
- * @return callable
+ * La chiave di ordinamento viene calcolata UNA volta per prodotto, non
+ * dentro il comparatore: il vecchio usort richiamava il comparator
+ * O(n log n) volte e per stock/varianti ogni chiamata ricaricava i figli
+ * dal DB (2.000 prodotti ≈ 22.000 confronti × fino a 10 wc_get_product
+ * l'uno ≈ centinaia di migliaia di load per UN ordinamento). Il contesto
+ * batch (mappa figli, set on-sale) viene risolto in 1-4 query totali.
+ *
+ * Stabile per costruzione: a parita di chiave vince l'ordine di input.
+ *
+ * @param WC_Product[] $products Prodotti da ordinare.
+ * @param string       $rule     Chiave regola da gh_get_sort_rules().
+ * @return WC_Product[] Lista ordinata.
  */
-function gh_get_comparator( string $rule ): callable {
+function gh_sort_products_list( array $products, string $rule ): array {
+
+    $ids = array_map( static fn( WC_Product $p ): int => $p->get_id(), $products );
+
+    // Contesto batch per le regole che ne hanno bisogno.
+    $children_map = null;
+    if ( in_array( $rule, [ 'stock_first', 'stock_last', 'variant_count_desc' ], true )
+        && function_exists( 'rp_cm_prime_variant_caches' ) ) {
+        $children_map = rp_cm_prime_variant_caches( $ids );
+    }
+
+    // Set canonico WooCommerce dei prodotti in saldo: include i parent
+    // variable delle varianti scontate — il vecchio comparator leggeva
+    // get_sale_price() sul parent, che per i variable è SEMPRE '' →
+    // sale_first era un no-op silenzioso sull'intero catalogo variable.
+    $onsale = null;
+    if ( $rule === 'sale_first' && function_exists( 'wc_get_product_ids_on_sale' ) ) {
+        $onsale = array_flip( array_map( 'intval', (array) wc_get_product_ids_on_sale() ) );
+    }
+
+    // Decorate: [ chiave, indice input (stabilita), prodotto ].
+    $decorated = [];
+    foreach ( $products as $i => $p ) {
+        $decorated[] = [ gh_sort_key( $p, $rule, $children_map, $onsale ), $i, $p ];
+    }
+
+    // Direzione: le regole "desc-like" invertono il confronto della chiave.
+    $dir = in_array(
+        $rule,
+        [ 'name_desc', 'price_desc', 'date_newest', 'stock_first', 'variant_count_desc', 'sale_first' ],
+        true
+    ) ? -1 : 1;
+
+    usort( $decorated, static function ( array $x, array $y ) use ( $dir ): int {
+        // strcmp per chiavi stringa (byte-compare, come i comparator
+        // legacy): lo spaceship su due stringhe numeriche confronterebbe
+        // numericamente, cambiando l'ordine di nomi/SKU tipo "501".
+        $c = is_string( $x[0] )
+            ? strcmp( $x[0], (string) $y[0] )
+            : ( $x[0] <=> $y[0] );
+        if ( $c !== 0 ) return $dir * $c;
+        return $x[1] <=> $y[1];
+    } );
+
+    return array_column( $decorated, 2 );
+}
+
+/**
+ * Chiave scalare di ordinamento per un prodotto secondo una regola.
+ *
+ * @param WC_Product      $product
+ * @param string          $rule         Chiave regola (gia validata).
+ * @param array|null      $children_map [ parent_id => child_ids ] batch (o null).
+ * @param array|null      $onsale       Set (flipped) degli ID on-sale (o null).
+ * @return int|float|string
+ */
+function gh_sort_key( WC_Product $product, string $rule, ?array $children_map, ?array $onsale ): int|float|string {
+
+    $pid = $product->get_id();
 
     return match ( $rule ) {
-        'name_asc'  => fn( WC_Product $a, WC_Product $b ) =>
-            strcmp( mb_strtolower( $a->get_name() ), mb_strtolower( $b->get_name() ) ),
-
-        'name_desc' => fn( WC_Product $a, WC_Product $b ) =>
-            strcmp( mb_strtolower( $b->get_name() ), mb_strtolower( $a->get_name() ) ),
-
-        'price_asc' => fn( WC_Product $a, WC_Product $b ) =>
-            (float) $a->get_price() <=> (float) $b->get_price(),
-
-        'price_desc' => fn( WC_Product $a, WC_Product $b ) =>
-            (float) $b->get_price() <=> (float) $a->get_price(),
-
-        'date_newest' => fn( WC_Product $a, WC_Product $b ) =>
-            ( $b->get_date_created()?->getTimestamp() ?? 0 ) <=> ( $a->get_date_created()?->getTimestamp() ?? 0 ),
-
-        'date_oldest' => fn( WC_Product $a, WC_Product $b ) =>
-            ( $a->get_date_created()?->getTimestamp() ?? 0 ) <=> ( $b->get_date_created()?->getTimestamp() ?? 0 ),
-
-        'stock_first' => fn( WC_Product $a, WC_Product $b ) =>
-            gh_stock_sort_value( $b ) <=> gh_stock_sort_value( $a ),
-
-        'stock_last' => fn( WC_Product $a, WC_Product $b ) =>
-            gh_stock_sort_value( $a ) <=> gh_stock_sort_value( $b ),
-
-        'sku_asc' => fn( WC_Product $a, WC_Product $b ) =>
-            strcmp( $a->get_sku(), $b->get_sku() ),
-
-        'variant_count_desc' => fn( WC_Product $a, WC_Product $b ) =>
-            count( $b->get_children() ) <=> count( $a->get_children() ),
-
-        'sale_first' => fn( WC_Product $a, WC_Product $b ) =>
-            ( $b->get_sale_price() !== '' ? 1 : 0 ) <=> ( $a->get_sale_price() !== '' ? 1 : 0 ),
-
-        default => fn() => 0,
+        'name_asc', 'name_desc'     => mb_strtolower( $product->get_name() ),
+        'price_asc', 'price_desc'   => (float) $product->get_price(),
+        'date_newest', 'date_oldest' => $product->get_date_created()?->getTimestamp() ?? 0,
+        'stock_first', 'stock_last' => gh_stock_sort_value( $product, $children_map[ $pid ] ?? null ),
+        'sku_asc'                   => (string) $product->get_sku(),
+        'variant_count_desc'        => count( $children_map[ $pid ] ?? $product->get_children() ),
+        'sale_first'                => $onsale !== null
+            ? ( isset( $onsale[ $pid ] ) ? 1 : 0 )
+            : ( $product->is_on_sale() ? 1 : 0 ),
+        default                     => 0,
     };
 }
 
 /**
  * Valore numerico per ordinamento stock (1 = in stock, 0 = out).
+ *
+ * @param WC_Product $product
+ * @param int[]|null $children_ids Figli gia risolti (batch); null = lookup autonomo.
  */
-function gh_stock_sort_value( WC_Product $product ): int {
+function gh_stock_sort_value( WC_Product $product, ?array $children_ids = null ): int {
 
     if ( $product->is_type( 'variable' ) ) {
-        foreach ( $product->get_children() as $var_id ) {
+        foreach ( $children_ids ?? $product->get_children() as $var_id ) {
             $v = wc_get_product( $var_id );
             if ( $v && $v->get_stock_status() === 'instock' ) return 1;
         }

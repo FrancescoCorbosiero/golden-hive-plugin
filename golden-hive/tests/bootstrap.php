@@ -12,3 +12,9 @@ declare(strict_types=1);
  */
 
 require_once __DIR__ . '/../vendor/autoload.php';
+
+// Minimal WP shims (ABSPATH + WP_Error + wp_timezone) so selected
+// procedural includes/ files can be loaded and unit-tested in
+// isolation. Guarded by function_exists/class_exists, so a real
+// WordPress load always takes precedence.
+require_once __DIR__ . '/wp-stubs.php';

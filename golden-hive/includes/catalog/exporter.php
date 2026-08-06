@@ -18,8 +18,14 @@ function rp_cm_export_catalog( array $filters = [] ): array {
     $products = rp_cm_get_all_products( $filters );
     $entries  = [];
 
+    // Figli risolti + cache primed per l'intero set in ~4 query.
+    $children_map = rp_cm_prime_variant_caches(
+        array_map( static fn( WC_Product $p ): int => $p->get_id(), $products )
+    );
+
     foreach ( $products as $product ) {
-        $variants  = rp_cm_get_product_variants( $product->get_id() );
+        $id        = $product->get_id();
+        $variants  = rp_cm_get_product_variants( $id, $children_map[ $id ] ?? [] );
         $entries[] = rp_cm_aggregate_product( $product, $variants );
     }
 
@@ -50,9 +56,14 @@ function rp_cm_export_roundtrip( array $filters = [] ): array {
     $products = rp_cm_get_all_products( $filters );
     $entries  = [];
 
+    // Figli risolti + cache primed per l'intero set in ~4 query.
+    $children_map = rp_cm_prime_variant_caches(
+        array_map( static fn( WC_Product $p ): int => $p->get_id(), $products )
+    );
+
     foreach ( $products as $product ) {
         $id       = $product->get_id();
-        $variants = rp_cm_get_product_variants( $id );
+        $variants = rp_cm_get_product_variants( $id, $children_map[ $id ] ?? [] );
         $images   = rp_cm_get_product_images( $id );
 
         // Varianti raw

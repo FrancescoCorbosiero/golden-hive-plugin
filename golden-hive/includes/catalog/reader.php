@@ -108,23 +108,86 @@ function rp_cm_get_product_ids( array $filters = [] ): array {
 /**
  * Ritorna le varianti raw di un prodotto variabile.
  *
- * @param int $product_id ID del prodotto padre.
+ * @param int        $product_id   ID del prodotto padre.
+ * @param int[]|null $children_ids ID figli gia risolti (da
+ *                                 rp_cm_prime_variant_caches): salta la
+ *                                 query get_children per-parent. Null =
+ *                                 comportamento legacy (lookup autonomo).
  * @return WC_Product_Variation[] Array vuoto se prodotto simple.
  */
-function rp_cm_get_product_variants( int $product_id ): array {
+function rp_cm_get_product_variants( int $product_id, ?array $children_ids = null ): array {
 
     $product = wc_get_product( $product_id );
     if ( ! $product || ! $product->is_type( 'variable' ) ) {
         return [];
     }
 
+    $child_ids = $children_ids ?? $product->get_children();
+
+    // Cache warm-up: senza, ogni wc_get_product() sotto paga 2 query
+    // (post row + meta). Una tantum qui = 2-3 query per l'intero set.
+    if ( $children_ids === null && function_exists( 'gh_prime_product_caches' ) ) {
+        gh_prime_product_caches( $child_ids );
+    }
+
     $variants = [];
-    foreach ( $product->get_children() as $var_id ) {
+    foreach ( $child_ids as $var_id ) {
         $v = wc_get_product( $var_id );
         if ( $v ) $variants[] = $v;
     }
 
     return $variants;
+}
+
+/**
+ * Scalda le cache varianti per un SET di prodotti padre.
+ *
+ * Una query per il discovery dei figli (replica ESATTAMENTE la query
+ * "all children" del data store WC: post_type product_variation, status
+ * publish|private, ordinamento menu_order ASC + ID ASC) piu il warm-up
+ * post/meta/term via gh_prime_product_caches. Il loop legacy pagava
+ * 1 query get_children per parent + 2 query di hydration per variante:
+ * 2.000 prodotti × 10 varianti ≈ 42.000 query → ~4.
+ *
+ * @param int[] $parent_ids ID dei prodotti padre (simple inclusi: mappa a []).
+ * @return array<int,int[]> [ parent_id => child_ids ] — da passare a
+ *                          rp_cm_get_product_variants come secondo argomento.
+ *
+ * Esempio:
+ *   $children = rp_cm_prime_variant_caches( wp_list_pluck( $products, 'id' ) );
+ *   foreach ( $products as $p ) {
+ *       $variants = rp_cm_get_product_variants( $p->get_id(), $children[ $p->get_id() ] ?? [] );
+ *   }
+ */
+function rp_cm_prime_variant_caches( array $parent_ids ): array {
+    global $wpdb;
+
+    $parent_ids = array_values( array_unique( array_filter( array_map( 'intval', $parent_ids ) ) ) );
+    if ( ! $parent_ids ) return [];
+
+    $map = array_fill_keys( $parent_ids, [] );
+
+    foreach ( array_chunk( $parent_ids, 1000 ) as $chunk ) {
+        $placeholders = implode( ',', array_fill( 0, count( $chunk ), '%d' ) );
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT ID, post_parent FROM {$wpdb->posts}
+             WHERE post_type = 'product_variation'
+               AND post_status IN ('publish','private')
+               AND post_parent IN ({$placeholders})
+             ORDER BY post_parent ASC, menu_order ASC, ID ASC",
+            $chunk
+        ) );
+        foreach ( (array) $rows as $row ) {
+            $map[ (int) $row->post_parent ][] = (int) $row->ID;
+        }
+    }
+
+    if ( function_exists( 'gh_prime_product_caches' ) ) {
+        $all_children = $map ? array_merge( ...array_values( $map ) ) : [];
+        gh_prime_product_caches( $all_children );
+    }
+
+    return $map;
 }
 
 /**

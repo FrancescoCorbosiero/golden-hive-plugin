@@ -82,13 +82,13 @@ function gh_history_install_tables(): void {
  * shape used by the diff engine — extending it (new fields) is safe; renaming
  * existing keys breaks diffs across the schema change boundary.
  */
-function gh_history_capture_product( WC_Product $product ): array {
+function gh_history_capture_product( WC_Product $product, ?array $children_ids = null ): array {
     $id = $product->get_id();
 
     // Variations (compact: only fields that meaningfully change day to day)
     $variations = [];
     if ( function_exists( 'rp_cm_get_product_variants' ) ) {
-        foreach ( rp_cm_get_product_variants( $id ) as $v ) {
+        foreach ( rp_cm_get_product_variants( $id, $children_ids ) as $v ) {
             $variations[] = [
                 'id'             => $v->get_id(),
                 'sku'            => (string) $v->get_sku(),
@@ -215,8 +215,15 @@ function gh_history_capture( string $trigger = 'manual' ): array {
     $count = 0;
     if ( function_exists( 'rp_cm_get_all_products' ) ) {
         $products = rp_cm_get_all_products( [] );
+
+        // Figli risolti + cache primed per l'intero catalogo in ~4 query
+        // (il capture giornaliero pagava ~2 query per variante).
+        $children_map = function_exists( 'rp_cm_prime_variant_caches' )
+            ? rp_cm_prime_variant_caches( array_map( static fn( WC_Product $p ): int => $p->get_id(), $products ) )
+            : [];
+
         foreach ( $products as $product ) {
-            $payload      = gh_history_capture_product( $product );
+            $payload      = gh_history_capture_product( $product, $children_map[ $product->get_id() ] ?? [] );
             $payload_json = wp_json_encode( $payload );
             $payload_gz   = function_exists( 'gzencode' )
                 ? gzencode( $payload_json, 6 )

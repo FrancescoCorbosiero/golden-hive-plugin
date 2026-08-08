@@ -29,6 +29,12 @@
         X-Frame-Options           "SAMEORIGIN"
         Referrer-Policy           "strict-origin-when-cross-origin"
         -Server
+        # No Content-Security-Policy is set today (feed images are
+        # sideloaded into the local media library, so the storefront
+        # serves them same-origin). If you ever add one and hotlink
+        # GoldenSneakers media directly, allow the apex AND any
+        # subdomain — GS already moved www → media.* once (Aug 2026):
+        #   img-src 'self' data: https://goldensneakers.net https://*.goldensneakers.net;
     }
 
     reverse_proxy wordpress:80 {

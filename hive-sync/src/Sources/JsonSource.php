@@ -231,10 +231,30 @@ final class JsonSource extends AbstractSource
             $items = $promoted;
         }
 
+        // Warning operativo: prodotti arrivati senza immagine utilizzabile
+        // (campo assente o URL rifiutato dal validatore host). Le immagini
+        // esistenti restano intatte, ma un numero alto segnala un nuovo
+        // cambio formato upstream — surfacciato nel run e nello Storico.
+        $warnings = [];
+        if ($flavor === self::FLAVOR_GS) {
+            $withoutImage = 0;
+            foreach ($items as $it) {
+                if ($it instanceof FeedItem && (string) ($it->data['_gs_image_url'] ?? '') === '') {
+                    $withoutImage++;
+                }
+            }
+            if ($withoutImage > 0) {
+                $warnings[] = sprintf(
+                    '%d prodotti GS senza immagine dal feed (campo mancante o URL rifiutato) — le immagini esistenti restano intatte.',
+                    $withoutImage
+                );
+            }
+        }
+
         return new FetchResult(
             items: $items,
             stats: [ 'flat_rows' => count($rawRows), 'products' => count($items) ],
-            warnings: [],
+            warnings: $warnings,
         );
     }
 
@@ -324,12 +344,23 @@ final class JsonSource extends AbstractSource
             $rawRows = $bundle['_raw_rows'];
             unset($bundle['_raw_rows']);
 
+            // URL immagine COMPLETO: join difensivo di image_full_url +
+            // image_name — prima image_name veniva scartato, quindi con
+            // payload split (base + nome file) l'URL era il solo base.
+            // Poi la validazione host: '' quando rifiutato — a valle ''
+            // significa "nessuna immagine dal feed" e non tocca mai
+            // immagini esistenti (COALESCE lato bridge).
+            $imageUrl = self::joinImageUrl($bundle['image_full_url'], $bundle['image_name']);
+            if ($imageUrl !== '' && ! self::isAllowedImageUrl($imageUrl)) {
+                $imageUrl = '';
+            }
+
             $bridgeProduct = [
                 'sku'        => $sku,
                 'name'       => $bundle['product_name'],
                 'brand'      => $bundle['brand_name'],
                 'model'      => '',
-                'image_url'  => $bundle['image_full_url'],
+                'image_url'  => $imageUrl,
                 'image_name' => $bundle['image_name'],
                 'sizes'      => $bundle['sizes'],
             ];
@@ -341,10 +372,13 @@ final class JsonSource extends AbstractSource
 
             // Surface the API-native field names back on top so the
             // mapping editor's "Anteprima sorgente" probe shows them.
+            // image_full_url porta l'URL GIA' joinato: e' anche il campo
+            // che DownloadMedia (SINGLE_URL_FIELDS) scarica — il base
+            // raw troncato scaricherebbe una pagina, non l'immagine.
             $woo['product_name']     = $bundle['product_name'];
             $woo['brand_name']       = $bundle['brand_name'];
             $woo['size_mapper_name'] = $bundle['size_mapper_name'];
-            $woo['image_full_url']   = $bundle['image_full_url'];
+            $woo['image_full_url']   = $imageUrl;
             $woo['image_name']       = $bundle['image_name'];
             $woo['summary_qty']      = (int) array_sum(array_column($bundle['sizes'], 'available_quantity'));
 
@@ -355,6 +389,62 @@ final class JsonSource extends AbstractSource
             );
         }
         return $items;
+    }
+
+    /**
+     * Compone l'URL immagine dai due campi del payload GS. Speculare a
+     * rp_rc_gs_join_image_url() in golden-hive — stessa semantica, così
+     * i due plugin producono lo stesso URL da qualunque forma upstream.
+     *
+     * Formato Aug 2026: image_full_url arriva GIÀ come URL file completo
+     * (https://media.goldensneakers.net/products/images/<sku>/raw/<hash>.png)
+     * con image_name che porta ancora il solo filename — la concatenazione
+     * cieca produceva ".../x.png/x.png" → 404. Supporta ENTRAMBI i formati:
+     *
+     *   URL completo + filename → il path termina già col nome → base
+     *   URL completo + ''        → base così com'è
+     *   cartella + filename      → join con esattamente uno slash
+     *   nome assoluto            → vince il nome
+     */
+    public static function joinImageUrl(string $base, string $name): string
+    {
+        $base = trim($base);
+        $name = trim($name);
+
+        if ($name === '') return $base;
+        if (preg_match('#^https?://#i', $name)) return $name;
+        if ($base === '') return $name;
+
+        if (str_ends_with($base, $name)) return $base;
+        $path = (string) (parse_url($base, PHP_URL_PATH) ?? '');
+        if ($path !== '' && str_ends_with($path, $name)) return $base;
+
+        return rtrim($base, '/') . '/' . ltrim($name, '/');
+    }
+
+    /**
+     * Host allowlist per le immagini GS, speculare a
+     * rp_rc_gs_is_allowed_image_url(): https obbligatorio, host =
+     * goldensneakers.net (apex) o QUALSIASI *.goldensneakers.net.
+     * Lookalike (evilgoldensneakers.net) e suffix-abuse
+     * (goldensneakers.net.evil.com) rifiutati dal boundary col punto.
+     */
+    public static function isAllowedImageUrl(string $url): bool
+    {
+        $allowed = false;
+
+        $parts = $url === '' ? false : parse_url($url);
+        if (is_array($parts)) {
+            $scheme  = strtolower((string) ($parts['scheme'] ?? ''));
+            $host    = strtolower((string) ($parts['host'] ?? ''));
+            $allowed = $scheme === 'https'
+                && ($host === 'goldensneakers.net' || str_ends_with($host, '.goldensneakers.net'));
+        }
+
+        if (function_exists('apply_filters')) {
+            $allowed = (bool) \apply_filters('gh_gs_image_url_allowed', $allowed, $url);
+        }
+        return $allowed;
     }
 
     /**

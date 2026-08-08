@@ -324,12 +324,18 @@ final class JsonSource extends AbstractSource
             $rawRows = $bundle['_raw_rows'];
             unset($bundle['_raw_rows']);
 
+            // URL immagine COMPLETO: join difensivo di image_full_url +
+            // image_name — prima image_name veniva scartato, quindi con
+            // payload split (base + nome file) l'URL era il solo base.
+            // Nessuna logica di host: qualunque (sotto)dominio passa.
+            $imageUrl = self::joinImageUrl($bundle['image_full_url'], $bundle['image_name']);
+
             $bridgeProduct = [
                 'sku'        => $sku,
                 'name'       => $bundle['product_name'],
                 'brand'      => $bundle['brand_name'],
                 'model'      => '',
-                'image_url'  => $bundle['image_full_url'],
+                'image_url'  => $imageUrl,
                 'image_name' => $bundle['image_name'],
                 'sizes'      => $bundle['sizes'],
             ];
@@ -341,10 +347,13 @@ final class JsonSource extends AbstractSource
 
             // Surface the API-native field names back on top so the
             // mapping editor's "Anteprima sorgente" probe shows them.
+            // image_full_url porta l'URL GIA' joinato: e' anche il campo
+            // che DownloadMedia (SINGLE_URL_FIELDS) scarica — il base
+            // raw troncato scaricherebbe una pagina, non l'immagine.
             $woo['product_name']     = $bundle['product_name'];
             $woo['brand_name']       = $bundle['brand_name'];
             $woo['size_mapper_name'] = $bundle['size_mapper_name'];
-            $woo['image_full_url']   = $bundle['image_full_url'];
+            $woo['image_full_url']   = $imageUrl;
             $woo['image_name']       = $bundle['image_name'];
             $woo['summary_qty']      = (int) array_sum(array_column($bundle['sizes'], 'available_quantity'));
 
@@ -355,6 +364,31 @@ final class JsonSource extends AbstractSource
             );
         }
         return $items;
+    }
+
+    /**
+     * Compone l'URL immagine dai due campi del payload GS. Speculare a
+     * rp_rc_gs_join_image_url() in golden-hive — stessa semantica, così
+     * i due plugin producono lo stesso URL da qualunque forma upstream:
+     *
+     *   base + nome     → concatenati (glue legacy, nessun separatore)
+     *   URL completo    → base così com'è (nome vuoto)
+     *   base ridondante → base che GIÀ termina col nome → base
+     *   nome assoluto   → vince il nome
+     *
+     * Nessun check di host/sottodominio: qualunque URL passa al
+     * downloader così com'è.
+     */
+    public static function joinImageUrl(string $base, string $name): string
+    {
+        $base = trim($base);
+        $name = trim($name);
+
+        if ($name === '') return $base;
+        if (preg_match('#^https?://#i', $name)) return $name;
+        if ($base !== '' && str_ends_with($base, $name)) return $base;
+
+        return $base . $name;
     }
 
     /**

@@ -98,6 +98,43 @@ function rp_rc_gs_fetch( array $config ): array|WP_Error {
 // ── Normalize ───────────────────────────────────────────────
 
 /**
+ * Compone l'URL immagine dai due campi del payload GS.
+ *
+ * Nessuna logica di host: qualsiasi dominio/sottodominio passa cosi
+ * com'e (GS ha spostato le media su media.goldensneakers.net e domani
+ * potrebbe spostarle ancora — il downloader accetta qualunque URL).
+ * L'unica intelligenza e sul JOIN, perche upstream ha cambiato forma
+ * piu volte e i due campi possono arrivare come:
+ *
+ *   base + nome    → "https://…/raw/" + "c67b5534.png"    → concatenati
+ *   URL completo   → "https://…/raw/c67b5534.png" + ""     → base cosi com'e
+ *   base ridondante→ base che GIA termina col nome + nome  → base (no doppione)
+ *   nome assoluto  → base qualsiasi + "https://…/img.png"  → vince il nome
+ *
+ * Il caso default resta la concatenazione byte-identica al legacy
+ * (nessun separatore inserito): solo le forme che PRIMA producevano un
+ * URL rotto cambiano esito.
+ *
+ * @param string $base image_full_url dal feed.
+ * @param string $name image_name dal feed.
+ * @return string URL finale ('' se entrambi vuoti).
+ *
+ * Esempio:
+ *   rp_rc_gs_join_image_url( 'https://media.goldensneakers.net/p/raw/', 'a.png' )
+ *   // => 'https://media.goldensneakers.net/p/raw/a.png'
+ */
+function rp_rc_gs_join_image_url( string $base, string $name ): string {
+    $base = trim( $base );
+    $name = trim( $name );
+
+    if ( $name === '' ) return $base;
+    if ( preg_match( '#^https?://#i', $name ) ) return $name;
+    if ( $base !== '' && str_ends_with( $base, $name ) ) return $base;
+
+    return $base . $name;
+}
+
+/**
  * Normalizza la risposta gerarchica (un oggetto per prodotto con sizes[]).
  *
  * @param array $data Risposta raw API.
@@ -111,7 +148,7 @@ function rp_rc_gs_normalize_hierarchical( array $data ): array {
         $sku        = $item['sku'] ?? '';
         $name       = $item['name'] ?? '';
         $brand      = $item['brand_name'] ?? '';
-        $image_url  = ( $item['image_full_url'] ?? '' ) . ( $item['image_name'] ?? '' );
+        $image_url  = rp_rc_gs_join_image_url( (string) ( $item['image_full_url'] ?? '' ), (string) ( $item['image_name'] ?? '' ) );
 
         $sizes = [];
         foreach ( $item['sizes'] ?? [] as $size ) {
@@ -155,7 +192,7 @@ function rp_rc_gs_normalize_flat( array $data ): array {
         if ( ! $sku ) continue;
 
         if ( ! isset( $grouped[ $sku ] ) ) {
-            $image_url = ( $row['image_full_url'] ?? '' ) . ( $row['image_name'] ?? '' );
+            $image_url = rp_rc_gs_join_image_url( (string) ( $row['image_full_url'] ?? '' ), (string) ( $row['image_name'] ?? '' ) );
             $brand     = $row['brand_name'] ?? '';
             $name      = $row['product_name'] ?? '';
 

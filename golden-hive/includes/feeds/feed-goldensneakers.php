@@ -100,20 +100,21 @@ function rp_rc_gs_fetch( array $config ): array|WP_Error {
 /**
  * Compone l'URL immagine dai due campi del payload GS.
  *
- * Nessuna logica di host: qualsiasi dominio/sottodominio passa cosi
- * com'e (GS ha spostato le media su media.goldensneakers.net e domani
- * potrebbe spostarle ancora — il downloader accetta qualunque URL).
- * L'unica intelligenza e sul JOIN, perche upstream ha cambiato forma
- * piu volte e i due campi possono arrivare come:
+ * Formato Aug 2026: image_full_url NON e piu una cartella base
+ * ("https://www.goldensneakers.net/images/SKU/main/") da concatenare a
+ * image_name — ora arriva GIA come URL file completo
+ * ("https://media.goldensneakers.net/products/images/2913_KJ8969/raw/c67b5534062a.png")
+ * mentre image_name porta ancora il solo filename. La concatenazione
+ * cieca produceva ".../x.png/x.png" → 404 su ogni prodotto. Supportiamo
+ * ENTRAMBI i formati:
  *
- *   base + nome    → "https://…/raw/" + "c67b5534.png"    → concatenati
- *   URL completo   → "https://…/raw/c67b5534.png" + ""     → base cosi com'e
- *   base ridondante→ base che GIA termina col nome + nome  → base (no doppione)
- *   nome assoluto  → base qualsiasi + "https://…/img.png"  → vince il nome
+ *   URL completo + filename → il PATH di base termina gia col nome → base
+ *   URL completo + ''        → base cosi com'e
+ *   cartella + filename      → join con esattamente uno slash
+ *   nome assoluto            → vince il nome
  *
- * Il caso default resta la concatenazione byte-identica al legacy
- * (nessun separatore inserito): solo le forme che PRIMA producevano un
- * URL rotto cambiano esito.
+ * Il check "termina col nome" e sul path (query-string tolerant) oltre
+ * che sull'URL intero.
  *
  * @param string $base image_full_url dal feed.
  * @param string $name image_name dal feed.
@@ -129,9 +130,63 @@ function rp_rc_gs_join_image_url( string $base, string $name ): string {
 
     if ( $name === '' ) return $base;
     if ( preg_match( '#^https?://#i', $name ) ) return $name;
-    if ( $base !== '' && str_ends_with( $base, $name ) ) return $base;
+    if ( $base === '' ) return $name;
 
-    return $base . $name;
+    if ( str_ends_with( $base, $name ) ) return $base;
+    $path = (string) ( parse_url( $base, PHP_URL_PATH ) ?? '' );
+    if ( $path !== '' && str_ends_with( $path, $name ) ) return $base;
+
+    return rtrim( $base, '/' ) . '/' . ltrim( $name, '/' );
+}
+
+/**
+ * True se un URL immagine e accettabile per il feed GS.
+ *
+ * Regole:
+ *  - schema https obbligatorio (http rifiutato);
+ *  - host = goldensneakers.net (apex) O QUALSIASI sottodominio
+ *    *.goldensneakers.net (media., cdn2., img-eu.static., ...);
+ *  - tutto il resto rifiutato — inclusi i lookalike
+ *    (evilgoldensneakers.net non matcha il boundary col punto) e i
+ *    suffix-abuse (goldensneakers.net.evil.com non TERMINA col dominio).
+ *
+ * GS ha gia spostato le media una volta (www → media.*): il match a
+ * sottodominio libero evita il prossimo fire-drill, il boundary rigido
+ * evita di scaricare da domini di terzi se il feed venisse manomesso.
+ * Estendibile via filter per host CDN futuri fuori dal dominio.
+ *
+ * @param string $url URL completo (output di rp_rc_gs_join_image_url).
+ * @return bool
+ *
+ * Esempio:
+ *   rp_rc_gs_is_allowed_image_url( 'https://media.goldensneakers.net/a.png' ) // true
+ *   rp_rc_gs_is_allowed_image_url( 'https://evilgoldensneakers.net/a.png' )  // false
+ */
+function rp_rc_gs_is_allowed_image_url( string $url ): bool {
+    $allowed = false;
+
+    $parts = $url === '' ? false : parse_url( $url );
+    if ( is_array( $parts ) ) {
+        $scheme = strtolower( (string) ( $parts['scheme'] ?? '' ) );
+        $host   = strtolower( (string) ( $parts['host'] ?? '' ) );
+        $allowed = $scheme === 'https'
+            && ( $host === 'goldensneakers.net' || str_ends_with( $host, '.goldensneakers.net' ) );
+    }
+
+    if ( function_exists( 'apply_filters' ) ) {
+        $allowed = (bool) apply_filters( 'gh_gs_image_url_allowed', $allowed, $url );
+    }
+    return $allowed;
+}
+
+/**
+ * URL immagine finale dal payload GS: join + validazione host.
+ * Ritorna '' quando l'URL e assente o rifiutato — a valle '' significa
+ * sempre "nessuna immagine dal feed" e NON tocca mai immagini esistenti.
+ */
+function rp_rc_gs_resolve_image_url( string $base, string $name ): string {
+    $url = rp_rc_gs_join_image_url( $base, $name );
+    return rp_rc_gs_is_allowed_image_url( $url ) ? $url : '';
 }
 
 /**
@@ -148,7 +203,7 @@ function rp_rc_gs_normalize_hierarchical( array $data ): array {
         $sku        = $item['sku'] ?? '';
         $name       = $item['name'] ?? '';
         $brand      = $item['brand_name'] ?? '';
-        $image_url  = rp_rc_gs_join_image_url( (string) ( $item['image_full_url'] ?? '' ), (string) ( $item['image_name'] ?? '' ) );
+        $image_url  = rp_rc_gs_resolve_image_url( (string) ( $item['image_full_url'] ?? '' ), (string) ( $item['image_name'] ?? '' ) );
 
         $sizes = [];
         foreach ( $item['sizes'] ?? [] as $size ) {
@@ -192,7 +247,7 @@ function rp_rc_gs_normalize_flat( array $data ): array {
         if ( ! $sku ) continue;
 
         if ( ! isset( $grouped[ $sku ] ) ) {
-            $image_url = rp_rc_gs_join_image_url( (string) ( $row['image_full_url'] ?? '' ), (string) ( $row['image_name'] ?? '' ) );
+            $image_url = rp_rc_gs_resolve_image_url( (string) ( $row['image_full_url'] ?? '' ), (string) ( $row['image_name'] ?? '' ) );
             $brand     = $row['brand_name'] ?? '';
             $name      = $row['product_name'] ?? '';
 
@@ -560,12 +615,27 @@ function rp_rc_gs_apply( array $diff, array $options = [] ): array {
     $recreated = count( array_filter( $results, fn( $r ) => $r['action'] === 'recreated' ) );
     $errors    = count( array_filter( $results, fn( $r ) => $r['action'] === 'error' ) );
 
+    // Prodotti arrivati dal feed SENZA immagine utilizzabile (campo
+    // assente o URL rifiutato dal validatore host). Un numero alto e il
+    // segnale precoce di un nuovo cambio formato upstream: le immagini
+    // esistenti restano intatte (COALESCE), ma va investigato.
+    $without_image = 0;
+    foreach ( [ 'new', 'update', 'unchanged' ] as $bucket ) {
+        foreach ( (array) ( $diff[ $bucket ] ?? [] ) as $p ) {
+            if ( (string) ( $p['_gs_image_url'] ?? '' ) === '' ) $without_image++;
+        }
+    }
+    if ( $without_image > 0 && defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+        error_log( sprintf( '[gh/gs] %d prodotti dal feed GS senza immagine (campo mancante o URL rifiutato).', $without_image ) );
+    }
+
     return [
         'summary' => [
-            'created'   => $created,
-            'updated'   => $updated,
-            'recreated' => $recreated,
-            'errors'    => $errors,
+            'created'       => $created,
+            'updated'       => $updated,
+            'recreated'     => $recreated,
+            'errors'        => $errors,
+            'without_image' => $without_image,
         ],
         'details' => $results,
     ];
@@ -646,6 +716,39 @@ function rp_rc_gs_create_product( array $data, bool $sideload = true ): array {
 }
 
 /**
+ * Decide cosa fare dell'immagine feed su un prodotto ESISTENTE.
+ * Semantica COALESCE(new, existing): un sync "cieco" non cancella MAI
+ * un'immagine nota; un'immagine nuova valida sovrascrive.
+ *
+ * Pure function — tutte le letture WP stanno nel chiamante — cosi la
+ * matrice decisionale e unit-testabile:
+ *
+ *   incoming ''            → skip   (feed senza immagine/URL rifiutato:
+ *                                    l'immagine esistente resta)
+ *   nessuna featured       → attach (heal: prodotti rimasti senza
+ *                                    immagine durante la finestra rotta)
+ *   media di altra source  → skip   (kicksdb/manual possiedono la slice
+ *                                    media: GS non la clobbera)
+ *   URL gia mappato alla   → skip   (stessa immagine: no-op, niente
+ *   featured corrente               ri-download)
+ *   altrimenti             → attach (immagine NUOVA dal feed → overwrite)
+ *
+ * @param string $incoming_url  URL immagine dal feed ('' = assente/rifiutato).
+ * @param int    $current_thumb ID featured image corrente (0 = nessuna).
+ * @param int    $mapped_att    Attachment gia mappato per l'URL (0 = non mappato).
+ * @param string $media_owner   Owner slice media da _gh_field_sources ('' = nessuno).
+ * @return string 'attach' | 'skip'
+ */
+function rp_rc_gs_image_update_action( string $incoming_url, int $current_thumb, int $mapped_att, string $media_owner ): string {
+
+    if ( $incoming_url === '' ) return 'skip';
+    if ( $current_thumb <= 0 ) return 'attach';
+    if ( $media_owner !== '' && $media_owner !== 'goldensneakers' ) return 'skip';
+    if ( $mapped_att > 0 && $mapped_att === $current_thumb ) return 'skip';
+    return 'attach';
+}
+
+/**
  * Aggiorna un prodotto WooCommerce esistente con dati GS.
  *
  * @param array $data Dati trasformati con _existing_id.
@@ -703,6 +806,34 @@ function rp_rc_gs_update_product( array $data ): array {
         if ( isset( $data['status'] ) ) {
             $product->set_status( $data['status'] );
             $product->save();
+        }
+
+        // Immagine — COALESCE(new, existing). Storicamente l'update NON
+        // toccava mai le immagini: i prodotti rimasti senza featured
+        // (es. la finestra Aug 2026 degli URL doppiati ".../x.png/x.png"
+        // → 404 al sideload) restavano rotti per sempre, perche il diff
+        // GS non flagga i cambi immagine. Ora un sync ripara i prodotti
+        // senza immagine e applica le immagini NUOVE, ma un feed senza
+        // immagine (o con URL rifiutato) non cancella MAI quella nota,
+        // e la slice media di altre source (kicksdb/manual) resta sua.
+        $gs_image = (string) ( $data['_gs_image_url'] ?? '' );
+        if ( $gs_image !== '' ) {
+            $current_thumb = (int) get_post_thumbnail_id( $product_id );
+            $mapped_att    = 0;
+            if ( function_exists( 'gh_preimport_get_map' ) ) {
+                $mapped_att = (int) ( gh_preimport_get_map()[ $gs_image ] ?? 0 );
+                if ( $mapped_att > 0 && ! wp_get_attachment_url( $mapped_att ) ) {
+                    $mapped_att = 0; // mappato ma cancellato → ri-scarica
+                }
+            }
+            $media_owner = '';
+            if ( function_exists( 'gh_conflict_get_field_sources' ) ) {
+                $fs          = gh_conflict_get_field_sources( $product_id );
+                $media_owner = (string) ( $fs['media'] ?? '' );
+            }
+            if ( rp_rc_gs_image_update_action( $gs_image, $current_thumb, $mapped_att, $media_owner ) === 'attach' ) {
+                rp_rc_gs_sideload_image( $product_id, $gs_image, $data['sku'] ?? '' );
+            }
         }
 
         // Aggiorna prezzo parent (simple)
@@ -1073,6 +1204,10 @@ function rp_rc_gs_assign_category( int $product_id, string $category ): void {
  */
 function rp_rc_gs_sideload_image( int $product_id, string $image_url, string $sku = '' ): void {
     if ( ! $image_url ) return;
+    // NOTA: nessun host-check qui. La allowlist GS vive nel normalize
+    // del FEED (rp_rc_gs_resolve_image_url): questo writer e condiviso
+    // col path KicksDB-enrichment che sideloada legittimamente da host
+    // StockX via lo stesso bridge (_gs_image_url + flavor GS).
     gh_parallel_sideload_to_product( $product_id, [ $image_url ], $sku, [
         'first_is_featured' => true,
         'rest_is_gallery'   => false,

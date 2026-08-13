@@ -448,6 +448,58 @@ final class JsonSource extends AbstractSource
     }
 
     /**
+     * Image URLs this item wants attached, in attach order (first =
+     * featured). Mirrors the field precedence DownloadMedia actually
+     * downloads from, plus `_gs_image_url` — the GS-native field that
+     * carries the already-joined, already-allowlisted URL.
+     *
+     * Overriding this is load-bearing twice over. Without it the
+     * AbstractSource default returns [] for EVERY JsonSource item,
+     * which meant:
+     *   1. the `media_only` run mode ("Solo media") was a silent no-op
+     *      on the whole GS feed — it counted every product under
+     *      items_without_images and pre-staged nothing;
+     *   2. MediaHealer had no way to tell a product the feed can
+     *      repair from one it can't, so missing-image healing could
+     *      never be made self-terminating.
+     *
+     * Note the URLs here are already host-validated: the GS transform
+     * stores '' when isAllowedImageUrl() rejects, so a rejected URL
+     * naturally reads as "the feed has no image for this item".
+     *
+     * @return string[]
+     */
+    public function imageUrls(FeedItem $item): array
+    {
+        $data = $item->data;
+        $out  = [];
+
+        // Featured — first non-empty wins, same precedence as
+        // DownloadMedia::SINGLE_URL_FIELDS with the GS field appended.
+        foreach (['featured_image', 'image', 'image_full_url', '_gs_image_url'] as $field) {
+            $v = $data[$field] ?? '';
+            if (is_string($v) && $v !== '') {
+                $out[] = $v;
+                break;
+            }
+        }
+
+        // Gallery — same field list DownloadMedia::GALLERY_FIELDS reads.
+        foreach (['gallery', 'gallery_urls', 'images', 'gallery_full_urls'] as $field) {
+            if (empty($data[$field]) || ! is_array($data[$field])) continue;
+            foreach ($data[$field] as $u) {
+                if (is_string($u) && $u !== '') $out[] = $u;
+            }
+        }
+
+        $out = array_filter(
+            $out,
+            static fn(string $u): bool => (bool) preg_match('#^https?://#i', $u),
+        );
+        return array_values(array_unique($out));
+    }
+
+    /**
      * Port of golden-hive's rp_rc_gs_transform_to_woo. Produces the
      * exact (type / attributes / variations) shape the legacy GS
      * bridge expects. Without this the bridge silently creates simple

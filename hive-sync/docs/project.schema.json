@@ -128,7 +128,7 @@
         "enabled":       { "type": "boolean" },
         "options": {
           "type": "object",
-          "description": "Per-job knobs. Common keys:\n  - mapping_slug:  pick a saved Mapping (resolved at dispatch)\n  - pipeline_slug: pick a saved Pipeline\n  - buckets: subset of ['new','update','updateStock'] — KEY perf control\n  - limit: cap the run (test-fetch on big feeds)\n  - category_filter: restrict the source fetch to a category subset",
+          "description": "Per-job knobs. Common keys:\n  - mapping_slug:  pick a saved Mapping (resolved at dispatch)\n  - pipeline_slug: pick a saved Pipeline\n  - buckets: subset of ['new','update','updateStock'] — KEY perf control\n  - limit: cap the run (test-fetch on big feeds)\n  - category_filter: restrict the source fetch to a category subset\n  - heal_media: re-queue products that exist in Woo WITHOUT a featured image but for which the feed has a usable URL, so the import pipeline re-attaches it. The bucket diff never compares media, so such a product reads as 'unchanged' forever and no ordinary re-sync can repair it. Non-destructive (normal update path, variations untouched) and self-terminating (an item is only re-queued while it is both broken AND repairable), so it is safe to leave enabled on a cron job. Healed items run even when `buckets` excludes 'update', and are processed first.",
           "additionalProperties": true
         }
       }

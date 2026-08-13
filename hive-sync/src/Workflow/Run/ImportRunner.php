@@ -182,6 +182,19 @@ final class ImportRunner
         // unchanged e' processato solo dai run force_recreate).
         $forceRecreate = ! empty( $options['force_recreate'] );
 
+        // `options.heal_media` — media-aware re-bucketing. Products that
+        // exist in Woo without a usable featured image get pulled from
+        // `unchanged` / `updateStock` into `update`, so the full pipeline
+        // (media.download + the bridge's "no featured → attach" branch)
+        // runs against exactly them. See MediaHealer for why an ordinary
+        // re-sync can never repair a missing image on its own.
+        //
+        // Redundant under force_recreate, which already drags every
+        // existing item through materialize — skip it there so we don't
+        // pay the lookup for a queue that's about to be rebuilt anyway.
+        $healMedia   = ! empty( $options['heal_media'] ) && ! $forceRecreate;
+        $healedMedia = 0;
+
         // Una cache scritta da un run non-force porta unchanged strippato;
         // se il resume chiede force_recreate la coda force deve includere
         // anche quegli item → la cache non basta, si ri-diffa da zero.
@@ -192,11 +205,21 @@ final class ImportRunner
             $startIndex = 0;
         }
 
+        // Stesso ragionamento per heal_media: la cache porta il diff GIA'
+        // ri-bucketizzato, quindi una entry scritta da un run senza heal
+        // non contiene gli item da riparare (sono rimasti in unchanged,
+        // che viene strippato). Riparti dal diff.
+        if ( $healMedia && $cached !== null && empty( $cached['heal_media'] ) ) {
+            $cached     = null;
+            $startIndex = 0;
+        }
+
         if ( $cached !== null ) {
             $fetchWarnings  = $cached['warnings'];
             $fetchedCount   = $cached['fetched_count'];
             $diff           = $cached['diff'];
             $unchangedCount = (int) $cached['unchanged_count'];
+            $healedMedia    = (int) ( $cached['healed_media'] ?? 0 );
         } else {
             try {
                 $fetch = $source->fetch( new FetchRequest( $config, $options ), $ctx );
@@ -224,6 +247,24 @@ final class ImportRunner
             $diff           = $source->diff( $items, $ctx );
             $fetchWarnings  = $fetch->warnings;
             $fetchedCount   = count( $items );
+
+            // Heal BEFORE the counts + the cache write: the re-bucketed
+            // diff is what this run processes and what resumed ticks must
+            // hydrate, so `unchanged` here is already the post-heal
+            // bucket. Doing it once per run (not per tick) keeps the
+            // lookup off the hot path.
+            if ( $healMedia ) {
+                $healResult  = MediaHealer::forSource( $diff, $source );
+                $diff        = $healResult['diff'];
+                $healedMedia = $healResult['healed'];
+                if ( $healedMedia > 0 ) {
+                    $fetchWarnings[] = sprintf(
+                        '%d prodotti senza immagine di copertina sono stati rimessi in coda per la riparazione.',
+                        $healedMedia
+                    );
+                }
+            }
+
             $unchangedCount = count( $diff->unchanged );
             // Cache a raw-stripped copy. FeedItem.raw is audit-only and
             // never reaches materialize (it reads ->data), but on a 10k
@@ -241,7 +282,12 @@ final class ImportRunner
                 $fetchWarnings,
                 $fetchedCount,
                 self::cacheableDiff( $diff, $forceRecreate ),
-                $unchangedCount
+                $unchangedCount,
+                // Marks the entry as heal-aware so a later resume can tell
+                // "already re-bucketed" from "written by a run that never
+                // looked at media" — the latter has the broken items still
+                // sitting in the (stripped) unchanged bucket.
+                [ 'heal_media' => $healMedia, 'healed_media' => $healedMedia ]
             );
         }
 
@@ -269,6 +315,15 @@ final class ImportRunner
             'pre_blocked'   => 0,
             'post_blocked'  => 0,
         ];
+
+        // How many items the media heal dragged back into `update`. A
+        // diff-level metric, not a per-tick counter: it's already folded
+        // into summary.update above, and it's reported so the operator
+        // can see the repair actually found work (and, on a dry run,
+        // exactly how much work there is).
+        if ( $healMedia ) {
+            $summary['healed_media'] = $healedMedia;
+        }
 
         // Surface why the classifier sent things to updateFull. Only
         // attached when there's data (cache hits on resumed ticks have
@@ -329,11 +384,41 @@ final class ImportRunner
             }
             $summary['force_recreate'] = count( $forceQueue );
         } else {
+            // Split the healed items back out of `update` — they get
+            // their own placement rules below. No-op when the heal is
+            // off: $regularUpdate is then the whole bucket, untouched.
+            $healedItems   = [];
+            $regularUpdate = $diff->update;
+            if ( $healMedia && $healedMedia > 0 ) {
+                $healedItems   = [];
+                $regularUpdate = [];
+                foreach ( $diff->update as $item ) {
+                    if ( ! empty( $item->data[ MediaHealer::MARKER ] ) ) {
+                        $healedItems[] = $item;
+                    } else {
+                        $regularUpdate[] = $item;
+                    }
+                }
+            }
+
+            // Repairs go FIRST, and go regardless of `buckets`. First,
+            // because the operator explicitly asked for them: a capped
+            // run ("Max prodotti") must spend its budget on the repair
+            // rather than on routine stock patches, and a long run
+            // reports it early instead of last. Regardless of `buckets`,
+            // because a bucket-restricted job (the "refresh stocks"
+            // shape, buckets=['updateStock']) would otherwise filter
+            // every healed item straight back out — making the repair a
+            // silent no-op, the exact failure heal_media exists to end.
+            // That job's deliberate scope is still respected for
+            // everything else: only the healed items get the exemption.
+            foreach ( $healedItems as $item ) $process[] = [ 'update', $item ];
+
             if ( in_array( 'updateStock', $allowedBuckets, true ) ) {
                 foreach ( $diff->updateStock as $item ) $process[] = [ 'updateStock', $item ];
             }
             if ( in_array( 'update', $allowedBuckets, true ) ) {
-                foreach ( $diff->update as $item ) $process[] = [ 'update', $item ];
+                foreach ( $regularUpdate as $item ) $process[] = [ 'update', $item ];
             }
             if ( in_array( 'new', $allowedBuckets, true ) ) {
                 foreach ( $diff->new as $item ) $process[] = [ 'new', $item ];

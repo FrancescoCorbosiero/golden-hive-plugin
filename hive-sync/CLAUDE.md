@@ -82,6 +82,7 @@ hive-sync/
 │   │   ├── CsvSource.php             URL or local-file CSV w/ category_filter.
 │   │   ├── StockOnlyClassifier.php   Splits update bucket → updateFull/updateStock.
 │   │   ├── AttributeMerger.php       Promotes mapped pa_* keys into $data['attributes'].
+│   │   ├── MissingMediaLookup.php    Batch "which pids have no usable featured image?".
 │   │   └── MarkupResolver.php        Per-rule markup evaluation (used by both sources).
 │   ├── Operations/
 │   │   ├── Status/SetStatus.php
@@ -105,6 +106,8 @@ hive-sync/
 │   └── Workflow/
 │       ├── Run/ImportRunner.php            ★ Orchestratore con buckets[new/update/updateStock]
 │       │                                     + fast-stock-patch path + cooperative deadline.
+│       ├── Run/MediaHealer.php             Ri-bucketizza in `update` i prodotti senza
+│       │                                     featured image (options.heal_media).
 │       ├── Schedule/CronExpr.php           Parser 5-field cron, no shortcuts.
 │       ├── Schedule/JobRunner.php          Dispatcher tick. Resolves mapping_slug → config.
 │       ├── Mapping/PathResolver.php        Dot-path traversal ('sizes.size_eu').
@@ -166,6 +169,13 @@ Il `Diff` ha 4 buckets:
 `StockOnlyClassifier::split()` decide tra `update` e `updateStock`
 confrontando ogni campo non-stock incoming vs il prodotto Woo
 esistente. Se TUTTI i campi non-stock combaciano → `updateStock`.
+
+> ⚠ **Il confronto NON guarda i media.** Un prodotto rimasto senza
+> immagine (sideload fallito, URL upstream rotto, attachment
+> cancellato) combacia col feed su tutto ciò che il diff ispeziona e
+> resta in `unchanged` per sempre — nessuna sync lo ripara. È per
+> questo che esiste `options.heal_media`, che lo rimette in `update`.
+> Vedi "Lessons learned / Il diff è cieco sui media".
 
 Un import "rinfresca tutto" tipico su un catalog di 5K prodotti:
 - ~20 `new` → pipeline completa, ~2-4s ciascuno
@@ -758,6 +768,59 @@ col vecchio comportamento).
 > **Non** ri-collegare SF al classifier generico per "uniformità". SF
 > è fuori dallo scope generico by design — è una categoria a parte,
 > come lo è GS.
+
+### Il diff è cieco sui media — serve `heal_media`
+
+**Sintomo:** durante una finestra in cui il feed mandava URL immagine
+rotti, alcuni prodotti sono stati creati **senza immagine**. Da lì in
+poi nessuna sync li ripara e dall'UI sembra impossibile ri-popolarli.
+
+**Causa — tre strati che si sommano:**
+
+1. `StockOnlyClassifier::split()` confronta name / description /
+   status / prezzo / stock. **Mai i media.** `CsvSource::sfProductNeedsUpdate()`
+   confronta solo prezzo + stock. Un prodotto senza immagine combacia
+   col feed su *tutto quello che il diff guarda* → finisce in
+   `unchanged`, per sempre.
+2. Gli item in `updateStock` passano dal `fastStockPatch`, che **non
+   chiama mai materialize** → il bridge non gira nemmeno per loro.
+3. La logica di heal **esiste già** (`rp_rc_gs_image_update_action`:
+   "nessuna featured → attach"), ma vive dentro
+   `rp_rc_gs_update_product`, raggiungibile solo dal bucket `update`.
+
+Risultato: la riparazione è scritta e testata ma **irraggiungibile**
+da una sync normale. L'unica via era `force_recreate`, che però è
+all-or-nothing su tutto il feed e **ricrea tutte le varianti** (gli
+ID cambiano) — riscrivere 5k prodotti per riparare 30 immagini.
+
+**Soluzione:** `options.heal_media` (`MediaHealer` + `MissingMediaLookup`).
+Una query batch trova i prodotti senza featured image usabile
+(meta assente / 0 / attachment cancellato) e li sposta da
+`unchanged` / `updateStock` a `update` — solo quelli. Percorso di
+update normale: varianti e ID intatti.
+
+**Due invarianti da non rompere:**
+
+- **Guard anti-lavoro-perpetuo:** un item viene ri-accodato SOLO se
+  `Source::imageUrls()` restituisce almeno un URL usabile. Senza
+  questo, i prodotti per cui l'upstream non ha proprio un'immagine
+  rientrerebbero nel pool a ogni run all'infinito — l'heal non può
+  riuscire, quindi non convergerebbe mai. Con il guard l'operazione
+  si esaurisce da sola ed è **safe da lasciare accesa su un cron job**.
+- **`Source::imageUrls()` deve essere implementata dalla source.**
+  Il default di `AbstractSource` è `[]`: finché `JsonSource` non l'ha
+  overridata, oltre a bloccare l'heal rendeva la modalità **"Solo
+  media" un no-op silenzioso su tutto il feed GS** (contava ogni
+  prodotto in `items_without_images` e non pre-scaricava nulla).
+
+Gli item riparati portano il marker `MediaHealer::MARKER`, girano
+**per primi** nella coda (così un run con "Max prodotti" spende il
+budget sulla riparazione) e girano **anche se `buckets` esclude
+`update`** — altrimenti un job `buckets: ['updateStock']` con l'heal
+acceso li filtrerebbe via, ri-creando esattamente il no-op silenzioso
+che l'opzione esiste per eliminare. Coperto da
+`tests/Unit/Workflow/Run/MediaHealerTest.php` e
+`tests/Unit/Sources/JsonSourceImageUrlsTest.php`.
 
 ---
 

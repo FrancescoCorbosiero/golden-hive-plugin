@@ -57,7 +57,7 @@ final class RunCache
      * or any deserialization failure (treats corruption as cache miss,
      * NOT as fatal — the caller falls through to a fresh fetch+diff).
      *
-     * @return array{warnings: array<int,string>, fetched_count: int, diff: Diff, unchanged_count: int}|null
+     * @return array{warnings: array<int,string>, fetched_count: int, diff: Diff, unchanged_count: int, heal_media?: bool, healed_media?: int}|null
      */
     public static function get( int $runId ): ?array
     {
@@ -91,12 +91,16 @@ final class RunCache
     }
 
     /**
-     * @param array<int, string> $warnings
-     * @param int                $unchangedCount Conteggio del bucket unchanged
-     *                                           PRIMA dello strip (il Diff
-     *                                           cachato lo porta vuoto).
+     * @param array<int, string>   $warnings
+     * @param int                  $unchangedCount Conteggio del bucket unchanged
+     *                                             PRIMA dello strip (il Diff
+     *                                             cachato lo porta vuoto).
+     * @param array<string, mixed> $extra          Flag per-run che il resume deve
+     *                                             ritrovare (es. heal_media). Non
+     *                                             puo' sovrascrivere le chiavi
+     *                                             canoniche.
      */
-    public static function set( int $runId, array $warnings, int $fetchedCount, Diff $diff, int $unchangedCount = 0 ): void
+    public static function set( int $runId, array $warnings, int $fetchedCount, Diff $diff, int $unchangedCount = 0, array $extra = [] ): void
     {
         if ( $runId <= 0 ) return;
         $payload = [
@@ -104,7 +108,7 @@ final class RunCache
             'fetched_count'   => $fetchedCount,
             'diff'            => $diff,
             'unchanged_count' => $unchangedCount,
-        ];
+        ] + $extra;
         $serialized = serialize( $payload );
         $compressed = @gzcompress( $serialized, 6 );
         if ( $compressed === false ) return; // defensive: fall back to no-cache mode

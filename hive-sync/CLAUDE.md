@@ -108,6 +108,8 @@ hive-sync/
 │       │                                     + fast-stock-patch path + cooperative deadline.
 │       ├── Run/MediaHealer.php             Ri-bucketizza in `update` i prodotti senza
 │       │                                     featured image (options.heal_media).
+│       ├── Run/SkuFilter.php               Restringe il run a una lista di SKU
+│       │                                     (options.skus) + promote a `update`.
 │       ├── Schedule/CronExpr.php           Parser 5-field cron, no shortcuts.
 │       ├── Schedule/JobRunner.php          Dispatcher tick. Resolves mapping_slug → config.
 │       ├── Mapping/PathResolver.php        Dot-path traversal ('sizes.size_eu').
@@ -821,6 +823,42 @@ acceso li filtrerebbe via, ri-creando esattamente il no-op silenzioso
 che l'opzione esiste per eliminare. Coperto da
 `tests/Unit/Workflow/Run/MediaHealerTest.php` e
 `tests/Unit/Sources/JsonSourceImageUrlsTest.php`.
+
+### `options.skus` — il ri-importa mirato (ex force re-import)
+
+`heal_media` è automatico ("ripara ciò che è rotto"). Quando invece
+l'operatore sa **quali** SKU rifare, `options.skus` restringe l'intero
+run a quella lista — il sostituto scoped di
+`gh_reimport_run( $feed_type, $skus, ... )`.
+
+`SkuFilter` (parse → filterItems → promote):
+
+| Fase | Cosa fa | Perché |
+|---|---|---|
+| `parse` | Accetta array o stringa separata da newline/virgola/`;`/spazio. Dedup case-insensitive, conserva la grafia originale. | Gli operatori incollano da un foglio di calcolo, il separatore è quello che capita. |
+| `filterItems` | Filtra i FeedItem **PRIMA del diff**. | Il feed è un endpoint bulk (il download avviene comunque, come nel vecchio `gh_reimport_fetch`), ma diffare 10k righe per tenerne 12 è puro spreco: lookup batch + intero passaggio del classifier. |
+| `promote` | Sposta tutto ciò che esiste già (`unchanged` + `updateStock`) in `update`. | **Non opzionale.** Su un catalogo assestato uno SKU nominato è quasi sempre `unchanged` (skippato) o `updateStock` (fast-patch, che non chiama mai materialize). Senza promote l'operatore chiede un ri-import e non succede nulla — di nuovo il no-op silenzioso. |
+
+Due invarianti:
+
+- **`buckets` viene ignorato** quando `skus` è valorizzato: la selezione
+  *è* la restrizione, e onorare `buckets` scarterebbe l'intera selezione
+  (finisce tutta in `update`).
+- **Gli SKU non trovati nel feed vengono elencati**, non solo contati
+  (`summary.sku_missing_list`). "10 su 12 importati" è inutile se non
+  sai quali due mancano — ed è tipicamente un typo o un delisting
+  upstream, cioè proprio l'informazione che serve.
+
+`skus` + `force_recreate` = l'equivalente esatto del vecchio force
+re-import, ma scoped: wipe varianti + riscrittura da feed **solo** per
+quegli SKU. A differenza del vecchio, l'ID del prodotto non cambia
+(il vecchio faceva `rp_delete_product` + create, portandosi via i
+riferimenti negli ordini storici).
+
+`skus` + `heal_media` è ridondante: `promote` svuota già i bucket da
+cui l'healer pesca, quindi l'heal viene soppresso (niente lookup
+garantito vuoto, niente `healed_media: 0` fuorviante nel report).
+Coperto da `tests/Unit/Workflow/Run/SkuFilterTest.php`.
 
 ---
 

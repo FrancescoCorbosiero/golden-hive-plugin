@@ -90,6 +90,7 @@ return array(
     'HiveSync\\Workflow\\Run\\ImportRunner' => $baseDir . '/src/Workflow/Run/ImportRunner.php',
     'HiveSync\\Workflow\\Run\\MediaHealer' => $baseDir . '/src/Workflow/Run/MediaHealer.php',
     'HiveSync\\Workflow\\Run\\RunCache' => $baseDir . '/src/Workflow/Run/RunCache.php',
+    'HiveSync\\Workflow\\Run\\SkuFilter' => $baseDir . '/src/Workflow/Run/SkuFilter.php',
     'HiveSync\\Workflow\\Schedule\\CronExpr' => $baseDir . '/src/Workflow/Schedule/CronExpr.php',
     'HiveSync\\Workflow\\Schedule\\JobRunner' => $baseDir . '/src/Workflow/Schedule/JobRunner.php',
     'HiveSync\\Workflow\\Seed\\Defaults' => $baseDir . '/src/Workflow/Seed/Defaults.php',

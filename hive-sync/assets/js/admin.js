@@ -2766,12 +2766,17 @@
         const forceRecreate = forceRecreateEl ? !!forceRecreateEl.checked : false;
         const healMediaEl = $('[data-field="run-heal-media"]');
         const healMedia = healMediaEl ? !!healMediaEl.checked : false;
+        const skusEl = $('[data-field="run-skus"]');
+        const skus = skusEl ? String(skusEl.value || '').trim() : '';
         const options = {};
         if (mapping)        options.mapping = mapping.config;
         if (pipelineSlug)   options.pipeline_slug = pipelineSlug;
         if (limit > 0)      options.limit = limit;
         if (mode && mode !== 'full') options.mode = mode;
         if (forceRecreate)  options.force_recreate = true;
+        // Sent raw — the server parses newline / comma / semicolon / space
+        // separated lists (operators paste straight out of a spreadsheet).
+        if (skus)           options.skus = skus;
         // Non-destructive, so no confirm gate: it only re-queues products
         // that are visibly broken (no featured image) and that the feed
         // can actually repair, through the ordinary update path.
@@ -2783,9 +2788,19 @@
         // user already confirmed for this run; resuming doesn't re-ask).
         if (forceRecreate && ! dryRun) {
             const limitLabel = limit > 0 ? ' Limite: ' + limit + '.' : '';
+            // The blast radius depends on whether a SKU selection is
+            // active. Saying "OGNI prodotto del feed" when the operator
+            // narrowed the run to 12 SKUs would either scare them off a
+            // safe action or teach them to dismiss the dialog unread.
+            const skuCount = skus
+                ? skus.split(/[\r\n,;\t ]+/).filter(Boolean).length
+                : 0;
+            const scope = skuCount > 0
+                ? 'Per i ' + skuCount + ' SKU selezionati'
+                : 'Per OGNI prodotto esistente nel feed corrente';
             const ok = confirm(
                 'Forza ricreazione attiva.\n\n' +
-                'Per OGNI prodotto esistente nel feed corrente verranno cancellate' +
+                scope + ' verranno cancellate' +
                 ' tutte le varianti, i termini pa_* e il meta _product_attributes,' +
                 ' poi tutto sarà riscritto dal feed come fosse un primo import.\n\n' +
                 'L\'ID del prodotto viene preservato (gli ordini storici restano' +
@@ -2901,6 +2916,13 @@
                         // folded into `update`, so summing it across
                         // ticks would double-report the repair.
                         healed_media:   tickSummary.healed_media   || 0,
+                        // Selection accounting — diff-level like the two
+                        // above. The missing list is carried verbatim so
+                        // the report can name the SKUs that didn't land.
+                        sku_requested:    tickSummary.sku_requested    || 0,
+                        sku_matched:      tickSummary.sku_matched      || 0,
+                        sku_missing:      tickSummary.sku_missing      || 0,
+                        sku_missing_list: tickSummary.sku_missing_list || [],
                     };
                 }
                 RESULT_KEYS.forEach(k => {
@@ -3034,7 +3056,31 @@
         const inFlight = Math.max(0, processingPool - accounted);
         const reconcileBad = (status === 'done' && inFlight > 0) ? 'is-bad' : '';
 
+        // Selection block — only when the run was narrowed to a SKU
+        // list. Missing SKUs get named, not just counted: "10 of 12
+        // imported" is useless if you can't tell WHICH two didn't.
+        const missingList = Array.isArray(s.sku_missing_list) ? s.sku_missing_list : [];
+        const selection = (s.sku_requested || 0) > 0
+            ? '<div class="hsync-summary-section">'
+            +   '<div class="hsync-summary-label">Selezione SKU</div>'
+            +   '<div class="hsync-summary">'
+            +     stat('Richiesti', s.sku_requested)
+            +     stat('Trovati nel feed', s.sku_matched,
+                       (s.sku_matched || 0) > 0 ? 'is-good' : 'is-bad')
+            +     stat('Non trovati', s.sku_missing,
+                       (s.sku_missing || 0) > 0 ? 'is-bad' : 'is-dim')
+            +   '</div>'
+            +   (missingList.length
+                    ? '<div class="hsync-warning">Non presenti nel feed: '
+                      + missingList.map(esc).join(', ')
+                      + ((s.sku_missing || 0) > missingList.length ? ', …' : '')
+                      + '</div>'
+                    : '')
+            + '</div>'
+            : '';
+
         const summary = ''
+            + selection
             + '<div class="hsync-summary-section">'
             +   '<div class="hsync-summary-label">Source diff</div>'
             +   '<div class="hsync-summary">'

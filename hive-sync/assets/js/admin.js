@@ -2764,12 +2764,18 @@
         const mode = modeEl ? String(modeEl.value || 'full') : 'full';
         const forceRecreateEl = $('[data-field="run-force-recreate"]');
         const forceRecreate = forceRecreateEl ? !!forceRecreateEl.checked : false;
+        const healMediaEl = $('[data-field="run-heal-media"]');
+        const healMedia = healMediaEl ? !!healMediaEl.checked : false;
         const options = {};
         if (mapping)        options.mapping = mapping.config;
         if (pipelineSlug)   options.pipeline_slug = pipelineSlug;
         if (limit > 0)      options.limit = limit;
         if (mode && mode !== 'full') options.mode = mode;
         if (forceRecreate)  options.force_recreate = true;
+        // Non-destructive, so no confirm gate: it only re-queues products
+        // that are visibly broken (no featured image) and that the feed
+        // can actually repair, through the ordinary update path.
+        if (healMedia)      options.heal_media = true;
 
         // Force-recreate is destructive on the variation set — confirm
         // before kicking off a non-dry run. Skip the prompt in dry-run
@@ -2890,6 +2896,11 @@
                         // item looking like "extra accounted" instead
                         // of accounted-against-pool.
                         force_recreate: tickSummary.force_recreate || 0,
+                        // Diff-level like force_recreate, NOT a per-tick
+                        // result counter: the healed items are already
+                        // folded into `update`, so summing it across
+                        // ticks would double-report the repair.
+                        healed_media:   tickSummary.healed_media   || 0,
                     };
                 }
                 RESULT_KEYS.forEach(k => {
@@ -3033,6 +3044,9 @@
             +     stat('Update (stock)',  s.update_stock,
                                           (s.update_stock || 0) > 0 ? 'is-good' : 'is-dim')
             +     stat('Unchanged',       s.unchanged, 'is-dim')
+            +     ((s.healed_media || 0) > 0
+                    ? stat('Media da riparare', s.healed_media, 'is-good')
+                    : '')
             +   '</div>'
             + '</div>'
             + '<div class="hsync-summary-section">'

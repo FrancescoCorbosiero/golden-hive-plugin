@@ -100,6 +100,8 @@ hive-sync/
 │   │   ├── UsageIndex.php                  Reverse map attachment → [{pid,role}], 10m cache.
 │   │   ├── Browser.php                     Paginated query w/ filters + Safe Cleanup preview.
 │   │   ├── Cleaner.php                     Bulk delete con whitelist + log FIFO 500.
+│   │   ├── MissingImages.php               Scan catalog-wide dei prodotti senza copertina
+│   │   │                                     + scelta del job per la riparazione.
 │   │   └── Library.php                     set featured / gallery + reverse "used by".
 │   ├── Tools/
 │   │   └── NuclearCleanup.php              SQL-direct cleanup (products, media, tax, transients, orphans).
@@ -488,7 +490,7 @@ Numerati 1-6 per il workflow primario, poi 4 utility:
 | 4 | 🎯 Regole | `rules` | Scoped operations su prodotti esistenti |
 | 5 | ▶ Importa | `run` | Esecuzione ad-hoc con dry-run |
 | 6 | ⏱ Automatizza | `jobs` | Schedule cron + Action Scheduler health |
-| — | 🖼 Media | `media` | Browser + Safe Cleanup orfani |
+| — | 🖼 Media | `media` | Browser + Safe Cleanup orfani + **Prodotti senza immagine** (scan + ripara) |
 | — | ⬇ Esporta | `exports` | Inventario CSV/JSON + catalog by taxonomy |
 | — | 📜 Storico | `runs` | Audit log delle ultime esecuzioni |
 | — | ⚠ Strumenti | `tools` | Nuclear Cleanup (manage_options gate) |
@@ -859,6 +861,53 @@ riferimenti negli ordini storici).
 cui l'healer pesca, quindi l'heal viene soppresso (niente lookup
 garantito vuoto, niente `healed_media: 0` fuorviante nel report).
 Coperto da `tests/Unit/Workflow/Run/SkuFilterTest.php`.
+
+### Il punto d'ingresso sta nel tab Media, non in Importa
+
+`heal_media` come checkbox nel tab Importa è corretto ma nel posto
+sbagliato: l'operatore si accorge del problema **guardando le
+immagini**, e da lì per ripararle doveva cambiare tab, ricordarsi
+sorgente + config + mappatura + flusso, e spuntare la casella giusta.
+
+Il tab Media ha quindi una card **"Prodotti senza immagine"** con due
+passi deliberatamente separati:
+
+1. **Analizza** (`MissingImages::scan`) — read-only e **senza feed**.
+   Rispondere a "quanto è grave?" non deve richiedere di scaricare un
+   feed da svariati MB né di scrivere nulla. Ritorna totale + istogramma
+   per sorgente + un campione.
+2. **Ripara** — risolve un **job di import esistente** nella quadrupla
+   (source, config, mapping, pipeline) che già contiene, e restituisce
+   quei parametri al client, che li passa al **normale tick-loop** con
+   `heal_media` forzato.
+
+Tre decisioni non ovvie:
+
+- **Il repair riusa un job invece di far ri-scegliere l'operatore.** Un
+  job porta già la quadrupla giusta e resta allineato quando la si
+  modifica. Farla ri-scegliere significa poter scegliere *diversamente*
+  dall'import vero, e riscrivere i prodotti con il mapping sbagliato.
+  `pickDefaultJob()` sceglie da solo quando c'è un solo import job (o
+  un solo abilitato), altrimenti l'UI chiede — **non indovina mai** fra
+  due feed vivi: sceglierne uno a caso significherebbe riparare i
+  prodotti con le immagini di un altro fornitore.
+- **L'AJAX ritorna parametri, non esegue l'import.** Una riparazione
+  catalog-wide è lunga quanto un import (multi-tick, deadline
+  cooperativa): eseguirla dentro una singola chiamata AJAX brucerebbe
+  il budget di richiesta su qualsiasi catalogo reale. Passando i
+  parametri al loop esistente si ereditano resume, progresso, fatal
+  guard e la riga in Storico — tutte cose che già funzionano.
+- **L'istogramma per sorgente è il triage, non decorazione.** Un
+  prodotto senza `_gh_import_source` è stato creato a mano: **nessun
+  import lo riparerà mai**. Dire "47 rotti" senza lo split creerebbe
+  l'aspettativa sbagliata sulla riparazione.
+
+> ⚠ La join di provenienza usa una **derived table** con `GROUP BY
+> post_id`. Una `LEFT JOIN postmeta ON meta_key IN ('_gh_import_source',
+> '_feed_source')` matcha ENTRAMBE le chiavi quando ci sono, duplicando
+> la riga del prodotto: stesso prodotto due volte nella tabella campione
+> e — se le due chiavi divergono — contato sotto due sorgenti diverse,
+> con l'istogramma che somma a più del totale che gli sta accanto.
 
 ---
 

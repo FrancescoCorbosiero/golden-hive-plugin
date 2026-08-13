@@ -57,6 +57,7 @@ return array(
     'HiveSync\\Media\\Browser' => $baseDir . '/src/Media/Browser.php',
     'HiveSync\\Media\\Cleaner' => $baseDir . '/src/Media/Cleaner.php',
     'HiveSync\\Media\\Library' => $baseDir . '/src/Media/Library.php',
+    'HiveSync\\Media\\MissingImages' => $baseDir . '/src/Media/MissingImages.php',
     'HiveSync\\Media\\UsageIndex' => $baseDir . '/src/Media/UsageIndex.php',
     'HiveSync\\Media\\Whitelist' => $baseDir . '/src/Media/Whitelist.php',
     'HiveSync\\Operations\\Enrichment\\EnrichWithKicksDb' => $baseDir . '/src/Operations/Enrichment/EnrichWithKicksDb.php',

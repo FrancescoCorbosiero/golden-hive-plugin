@@ -72,6 +72,7 @@ class ComposerStaticInit8ec97cf8e32aa119124e2c238cc20b92
         'HiveSync\\Media\\Browser' => __DIR__ . '/../..' . '/src/Media/Browser.php',
         'HiveSync\\Media\\Cleaner' => __DIR__ . '/../..' . '/src/Media/Cleaner.php',
         'HiveSync\\Media\\Library' => __DIR__ . '/../..' . '/src/Media/Library.php',
+        'HiveSync\\Media\\MissingImages' => __DIR__ . '/../..' . '/src/Media/MissingImages.php',
         'HiveSync\\Media\\UsageIndex' => __DIR__ . '/../..' . '/src/Media/UsageIndex.php',
         'HiveSync\\Media\\Whitelist' => __DIR__ . '/../..' . '/src/Media/Whitelist.php',
         'HiveSync\\Operations\\Enrichment\\EnrichWithKicksDb' => __DIR__ . '/../..' . '/src/Operations/Enrichment/EnrichWithKicksDb.php',

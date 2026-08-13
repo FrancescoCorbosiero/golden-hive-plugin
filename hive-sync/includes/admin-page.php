@@ -258,6 +258,25 @@ function hsync_render_admin_page(): void {
                 <button class="button button-primary" data-action="media-cleanup-preview">Pulizia sicura…</button>
             </div>
             <div data-region="media-cleanup-output"></div>
+
+            <div class="hsync-source-card" data-region="media-missing-card">
+                <h3>🖼 Prodotti senza immagine</h3>
+                <p class="hsync-muted">
+                    Trova i prodotti che nel catalogo appaiono senza foto — immagine
+                    mai scaricata, URL del feed rotto, o allegato cancellato dalla
+                    libreria — e ri-scaricale dal feed.
+                    <br>
+                    <strong>L'analisi non tocca nulla</strong>: legge soltanto. La
+                    riparazione parte solo quando la lanci tu, e usa la stessa
+                    configurazione del tuo import (sorgente, mappatura, flusso), così
+                    non può scrivere in modo diverso dalla sincronizzazione normale.
+                </p>
+                <div class="hsync-actions">
+                    <button class="button button-primary" data-action="media-missing-scan">Analizza catalogo</button>
+                </div>
+                <div data-region="media-missing-output"></div>
+            </div>
+
             <div data-region="media-list"><p class="hsync-loading">Caricamento…</p></div>
             <div class="hsync-media-pager" data-region="media-pager"></div>
         </section>

@@ -864,6 +864,121 @@ add_action( 'wp_ajax_hsync_ajax_media_deletion_log', function () {
     wp_send_json_success( [ 'log' => \HiveSync\Media\Cleaner::getLog( $limit ) ] );
 } );
 
+// ─── Products without a cover image: scan + repair ───────────────
+//
+// The Media tab is where the operator NOTICES products rendering
+// without a photo, so it's where the repair belongs. Two steps,
+// deliberately separate:
+//
+//   scan   — read-only, feed-free, instant. Answers "how many, which
+//            ones, and where did they come from" without downloading
+//            anything or writing a byte.
+//   repair — resolves a configured import job into the source +
+//            config + mapping + pipeline quadruple it already carries,
+//            then hands those back to the client so it can drive the
+//            ORDINARY run loop with heal_media forced on. Nothing new
+//            executes here: same ImportRunner, same cursor/resume,
+//            same run report in Storico.
+//
+// Why repair returns parameters instead of running the import itself:
+// a catalog-wide repair is exactly as long as an import (multi-tick,
+// cooperative deadline). Running it inside one AJAX call would blow
+// the request budget on any real catalog. Handing the parameters to
+// the existing tick loop keeps resumability, progress and the fatal
+// guard — all of which already work.
+
+add_action( 'wp_ajax_hsync_ajax_media_missing_scan', function () {
+    hsync_ajax_guard();
+    @set_time_limit( 120 );
+
+    $sample = isset( $_POST['sample'] ) ? (int) wp_unslash( $_POST['sample'] ) : 50;
+    $result = \HiveSync\Media\MissingImages::scan( $sample );
+
+    // Ship the import jobs alongside so the UI can render the picker
+    // (and pre-select the obvious one) without a second roundtrip.
+    $jobs    = ( new \HiveSync\Core\Repo\JobRepository() )->all();
+    $imports = \HiveSync\Media\MissingImages::importJobs( $jobs );
+    $default = \HiveSync\Media\MissingImages::pickDefaultJob( $jobs );
+
+    $slim = [];
+    foreach ( $imports as $job ) {
+        $slim[] = [
+            'id'      => (int) ( $job['id'] ?? 0 ),
+            'ref'     => (string) ( $job['runnable_ref'] ?? '' ),
+            'enabled' => ! empty( $job['enabled'] ),
+        ];
+    }
+
+    wp_send_json_success( $result + [
+        'jobs'           => $slim,
+        'default_job_id' => $default ? (int) ( $default['id'] ?? 0 ) : 0,
+    ] );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_media_missing_repair_params', function () {
+    hsync_ajax_guard();
+
+    $jobId = (int) hsync_post_text( 'job_id' );
+    if ( $jobId <= 0 ) {
+        wp_send_json_error( [ 'message' => 'job_id richiesto.' ] );
+    }
+
+    $job = ( new \HiveSync\Core\Repo\JobRepository() )->find( $jobId );
+    if ( ! $job ) {
+        wp_send_json_error( [ 'message' => "Job #{$jobId} non trovato." ] );
+    }
+    if ( (string) ( $job['runnable_type'] ?? '' ) !== 'source.import' ) {
+        wp_send_json_error( [ 'message' => 'Il job selezionato non è un import.' ] );
+    }
+
+    // runnable_ref is '<source_id>/<config_slug>' — the same split the
+    // JobRunner does at dispatch.
+    $ref = (string) ( $job['runnable_ref'] ?? '' );
+    if ( ! str_contains( $ref, '/' ) ) {
+        wp_send_json_error( [ 'message' => "runnable_ref malformato: '{$ref}'." ] );
+    }
+    [ $sourceId, $configSlug ] = explode( '/', $ref, 2 );
+
+    $jobConfig = (array) ( $job['config'] ?? [] );
+    $options   = (array) ( $jobConfig['options'] ?? [] );
+
+    // Fail loudly on a job pointing at a deleted config: running with an
+    // empty config would report a clean "done / 0 repaired" that is
+    // indistinguishable from "nothing was broken".
+    $stored = ( new \HiveSync\Core\Repo\SourceConfigRepository() )->find( (string) $configSlug );
+    if ( ! $stored ) {
+        wp_send_json_error( [ 'message' => "Configurazione '{$configSlug}' non trovata (il job punta a una config cancellata)." ] );
+    }
+
+    // Resolve mapping_slug → the mapping config, exactly as JobRunner
+    // does, so the repair writes with the same field mapping the real
+    // import uses.
+    if ( empty( $options['mapping'] ) && ! empty( $options['mapping_slug'] ) ) {
+        $mapping = ( new \HiveSync\Core\Repo\MappingRepository() )->find( (string) $options['mapping_slug'] );
+        if ( $mapping ) {
+            $options['mapping'] = (array) $mapping['config'];
+        }
+    }
+
+    // Force the repair shape on top of the job's own options:
+    //  - heal_media: the whole point.
+    //  - mode=full:  a data_only/media_only job would download but never
+    //                attach, leaving the products just as imageless.
+    //  - buckets:    cleared. A stock-only job would otherwise filter
+    //                the healed items straight back out.
+    //  - limit:      cleared. A job's test cap must not silently leave
+    //                part of the damage unrepaired.
+    $options['heal_media'] = true;
+    $options['mode']       = 'full';
+    unset( $options['buckets'], $options['limit'], $options['skus'], $options['force_recreate'] );
+
+    wp_send_json_success( [
+        'source_id'   => (string) $sourceId,
+        'config_slug' => (string) $configSlug,
+        'options'     => $options,
+    ] );
+} );
+
 // ─── Mapping probe ───────────────────────────────────────────────
 //
 // Fetches a single representative row from a source (using either an

@@ -192,7 +192,23 @@ final class ImportRunner
         // Redundant under force_recreate, which already drags every
         // existing item through materialize — skip it there so we don't
         // pay the lookup for a queue that's about to be rebuilt anyway.
-        $healMedia   = ! empty( $options['heal_media'] ) && ! $forceRecreate;
+        // `options.skus` — restrict the whole run to an explicit list.
+        // The scoped replacement for the legacy force re-import: paste
+        // the SKUs you want redone, they take the full pipeline, and
+        // nothing else in the catalog is touched. See SkuFilter for why
+        // matched items are promoted out of unchanged/updateStock.
+        $skuList      = SkuFilter::parse( $options['skus'] ?? null );
+        $skuSignature = SkuFilter::signature( $skuList );
+        $skuMatched   = 0;
+        $skuMissing   = [];
+
+        // Redundant under force_recreate (which already drags every
+        // existing item through materialize) and under a SKU selection
+        // (whose promote() empties the very buckets the healer reads
+        // from). Suppressing it in both cases avoids paying for a
+        // guaranteed-empty lookup AND avoids reporting a misleading
+        // "healed_media: 0" when the repair is in fact already covered.
+        $healMedia   = ! empty( $options['heal_media'] ) && ! $forceRecreate && ! $skuList;
         $healedMedia = 0;
 
         // Una cache scritta da un run non-force porta unchanged strippato;
@@ -214,12 +230,22 @@ final class ImportRunner
             $startIndex = 0;
         }
 
+        // Idem per la selezione SKU: il diff cachato e' GIA' filtrato su
+        // una lista specifica, quindi un'entry scritta per una selezione
+        // diversa (o per nessuna selezione) descrive un'altra coda.
+        if ( $cached !== null && (string) ( $cached['sku_signature'] ?? '' ) !== $skuSignature ) {
+            $cached     = null;
+            $startIndex = 0;
+        }
+
         if ( $cached !== null ) {
             $fetchWarnings  = $cached['warnings'];
             $fetchedCount   = $cached['fetched_count'];
             $diff           = $cached['diff'];
             $unchangedCount = (int) $cached['unchanged_count'];
             $healedMedia    = (int) ( $cached['healed_media'] ?? 0 );
+            $skuMatched     = (int) ( $cached['sku_matched'] ?? 0 );
+            $skuMissing     = (array) ( $cached['sku_missing'] ?? [] );
         } else {
             try {
                 $fetch = $source->fetch( new FetchRequest( $config, $options ), $ctx );
@@ -243,10 +269,48 @@ final class ImportRunner
                 $this->runs->finish( $runId, 'failed', [ 'error' => $e->getMessage() ] );
                 return [ 'status' => 'failed', 'run_id' => $runId, 'error' => $e->getMessage() ];
             }
-            $items          = $fetch->items;
-            $diff           = $source->diff( $items, $ctx );
-            $fetchWarnings  = $fetch->warnings;
-            $fetchedCount   = count( $items );
+            $items         = $fetch->items;
+            $fetchWarnings = $fetch->warnings;
+            // Honest count: what the upstream actually returned, BEFORE
+            // any SKU narrowing. The operator needs to be able to tell
+            // "the feed shrank" from "my selection is small".
+            $fetchedCount  = count( $items );
+
+            // Narrow to the requested SKUs BEFORE diff — the feed is a
+            // bulk endpoint so the download happens either way, but
+            // diffing 10k rows to keep 12 is pure waste (batched id
+            // lookups + the whole classifier pass).
+            if ( $skuList ) {
+                $picked        = SkuFilter::filterItems( $items, $skuList );
+                $items         = $picked['items'];
+                $skuMatched    = count( $picked['matched'] );
+                $skuMissing    = $picked['missing'];
+
+                if ( $skuMissing ) {
+                    // Never silent: a typo'd or delisted SKU is exactly
+                    // the one the operator most needs to hear about.
+                    $shown = array_slice( $skuMissing, 0, 50 );
+                    $fetchWarnings[] = sprintf(
+                        '%d SKU richiesti non sono presenti nel feed: %s%s',
+                        count( $skuMissing ),
+                        implode( ', ', $shown ),
+                        count( $skuMissing ) > count( $shown ) ? ', …' : ''
+                    );
+                }
+                if ( ! $items ) {
+                    $fetchWarnings[] = 'Nessuno degli SKU richiesti è stato trovato nel feed — niente da importare.';
+                }
+            }
+
+            $diff = $source->diff( $items, $ctx );
+
+            // An explicitly-named SKU always takes the full pipeline:
+            // left in unchanged/updateStock it would be skipped or
+            // fast-patched, and the operator would watch a re-import do
+            // nothing. See SkuFilter::promote.
+            if ( $skuList ) {
+                $diff = SkuFilter::promote( $diff );
+            }
 
             // Heal BEFORE the counts + the cache write: the re-bucketed
             // diff is what this run processes and what resumed ticks must
@@ -286,8 +350,16 @@ final class ImportRunner
                 // Marks the entry as heal-aware so a later resume can tell
                 // "already re-bucketed" from "written by a run that never
                 // looked at media" — the latter has the broken items still
-                // sitting in the (stripped) unchanged bucket.
-                [ 'heal_media' => $healMedia, 'healed_media' => $healedMedia ]
+                // sitting in the (stripped) unchanged bucket. sku_signature
+                // does the same job for the SKU selection: the cached diff
+                // is already narrowed, so it only fits the same selection.
+                [
+                    'heal_media'    => $healMedia,
+                    'healed_media'  => $healedMedia,
+                    'sku_signature' => $skuSignature,
+                    'sku_matched'   => $skuMatched,
+                    'sku_missing'   => $skuMissing,
+                ]
             );
         }
 
@@ -325,6 +397,19 @@ final class ImportRunner
             $summary['healed_media'] = $healedMedia;
         }
 
+        // Selection accounting. `sku_missing` travels as a list (capped
+        // for transport) rather than a bare count so the UI can name the
+        // SKUs that weren't found — the operator needs to know WHICH of
+        // the ones they pasted didn't land.
+        if ( $skuList ) {
+            $summary['sku_requested'] = count( $skuList );
+            $summary['sku_matched']   = $skuMatched;
+            $summary['sku_missing']   = count( $skuMissing );
+            if ( $skuMissing ) {
+                $summary['sku_missing_list'] = array_slice( $skuMissing, 0, 100 );
+            }
+        }
+
         // Surface why the classifier sent things to updateFull. Only
         // attached when there's data (cache hits on resumed ticks have
         // an empty snapshot because split() didn't run this tick) so
@@ -341,6 +426,16 @@ final class ImportRunner
         // keep working. Canonical bucket names: 'new', 'update',
         // 'updateStock'. The fast-patch path runs ONLY on 'updateStock'.
         $allowedBuckets = self::normalizeBuckets( $options['buckets'] ?? null );
+
+        // An explicit SKU selection IS the restriction — `buckets` is a
+        // perf control for full-feed runs and means nothing for a
+        // hand-picked list. Worse, honouring it here would silently drop
+        // the whole selection: promote() puts every matched existing item
+        // in `update`, so a job carrying buckets=['updateStock'] would
+        // filter out exactly the SKUs the operator asked for.
+        if ( $skuList ) {
+            $allowedBuckets = [ 'new', 'update', 'updateStock' ];
+        }
 
         // `options.force_recreate` is the operator's escape hatch when
         // the idempotent re-sync didn't converge: every existing SKU is

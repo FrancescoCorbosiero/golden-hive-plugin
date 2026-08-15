@@ -37,6 +37,43 @@ namespace HiveSync\Sources;
 final class MissingMediaLookup
 {
     /**
+     * The two LEFT JOINs the "is it broken" predicate needs, for a
+     * posts row aliased $alias.
+     *
+     * Exposed (rather than inlined) so the catalog-wide scan behind the
+     * Media tab's repair button shares ONE definition with the per-run
+     * lookup. If the two drifted, the scan would promise to repair a
+     * set the runner then declines to touch — or worse, report success
+     * while leaving products broken.
+     */
+    public static function joinSql(string $alias = 'p'): string
+    {
+        global $wpdb;
+        return "
+            LEFT JOIN {$wpdb->postmeta} pm
+                   ON pm.post_id = {$alias}.ID
+                  AND pm.meta_key = '_thumbnail_id'
+            LEFT JOIN {$wpdb->posts} att
+                   ON att.ID = CAST(pm.meta_value AS UNSIGNED)
+                  AND att.post_type = 'attachment'
+        ";
+    }
+
+    /**
+     * The predicate itself. Pairs with joinSql(); see the class docblock
+     * for what each clause catches.
+     */
+    public static function whereSql(): string
+    {
+        return "(
+                pm.meta_value IS NULL
+             OR pm.meta_value = ''
+             OR CAST(pm.meta_value AS UNSIGNED) = 0
+             OR att.ID IS NULL
+        )";
+    }
+
+    /**
      * @param int[] $productIds
      * @return int[] the subset of $productIds with no usable featured image
      */
@@ -62,19 +99,9 @@ final class MissingMediaLookup
             $sql = "
                 SELECT p.ID AS pid
                 FROM {$wpdb->posts} p
-                LEFT JOIN {$wpdb->postmeta} pm
-                       ON pm.post_id = p.ID
-                      AND pm.meta_key = '_thumbnail_id'
-                LEFT JOIN {$wpdb->posts} att
-                       ON att.ID = CAST(pm.meta_value AS UNSIGNED)
-                      AND att.post_type = 'attachment'
+                " . self::joinSql('p') . "
                 WHERE p.ID IN ($placeholders)
-                  AND (
-                        pm.meta_value IS NULL
-                     OR pm.meta_value = ''
-                     OR CAST(pm.meta_value AS UNSIGNED) = 0
-                     OR att.ID IS NULL
-                  )
+                  AND " . self::whereSql() . "
             ";
             $rows = $wpdb->get_col($wpdb->prepare($sql, $chunk));
             if (! is_array($rows)) continue;

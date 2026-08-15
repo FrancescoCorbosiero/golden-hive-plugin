@@ -100,6 +100,8 @@ hive-sync/
 │   │   ├── UsageIndex.php                  Reverse map attachment → [{pid,role}], 10m cache.
 │   │   ├── Browser.php                     Paginated query w/ filters + Safe Cleanup preview.
 │   │   ├── Cleaner.php                     Bulk delete con whitelist + log FIFO 500.
+│   │   ├── MissingImages.php               Scan catalog-wide dei prodotti senza copertina
+│   │   │                                     + scelta del job per la riparazione.
 │   │   └── Library.php                     set featured / gallery + reverse "used by".
 │   ├── Tools/
 │   │   └── NuclearCleanup.php              SQL-direct cleanup (products, media, tax, transients, orphans).
@@ -108,6 +110,8 @@ hive-sync/
 │       │                                     + fast-stock-patch path + cooperative deadline.
 │       ├── Run/MediaHealer.php             Ri-bucketizza in `update` i prodotti senza
 │       │                                     featured image (options.heal_media).
+│       ├── Run/SkuFilter.php               Restringe il run a una lista di SKU
+│       │                                     (options.skus) + promote a `update`.
 │       ├── Schedule/CronExpr.php           Parser 5-field cron, no shortcuts.
 │       ├── Schedule/JobRunner.php          Dispatcher tick. Resolves mapping_slug → config.
 │       ├── Mapping/PathResolver.php        Dot-path traversal ('sizes.size_eu').
@@ -486,7 +490,7 @@ Numerati 1-6 per il workflow primario, poi 4 utility:
 | 4 | 🎯 Regole | `rules` | Scoped operations su prodotti esistenti |
 | 5 | ▶ Importa | `run` | Esecuzione ad-hoc con dry-run |
 | 6 | ⏱ Automatizza | `jobs` | Schedule cron + Action Scheduler health |
-| — | 🖼 Media | `media` | Browser + Safe Cleanup orfani |
+| — | 🖼 Media | `media` | Browser + Safe Cleanup orfani + **Prodotti senza immagine** (scan + ripara) |
 | — | ⬇ Esporta | `exports` | Inventario CSV/JSON + catalog by taxonomy |
 | — | 📜 Storico | `runs` | Audit log delle ultime esecuzioni |
 | — | ⚠ Strumenti | `tools` | Nuclear Cleanup (manage_options gate) |
@@ -821,6 +825,89 @@ acceso li filtrerebbe via, ri-creando esattamente il no-op silenzioso
 che l'opzione esiste per eliminare. Coperto da
 `tests/Unit/Workflow/Run/MediaHealerTest.php` e
 `tests/Unit/Sources/JsonSourceImageUrlsTest.php`.
+
+### `options.skus` — il ri-importa mirato (ex force re-import)
+
+`heal_media` è automatico ("ripara ciò che è rotto"). Quando invece
+l'operatore sa **quali** SKU rifare, `options.skus` restringe l'intero
+run a quella lista — il sostituto scoped di
+`gh_reimport_run( $feed_type, $skus, ... )`.
+
+`SkuFilter` (parse → filterItems → promote):
+
+| Fase | Cosa fa | Perché |
+|---|---|---|
+| `parse` | Accetta array o stringa separata da newline/virgola/`;`/spazio. Dedup case-insensitive, conserva la grafia originale. | Gli operatori incollano da un foglio di calcolo, il separatore è quello che capita. |
+| `filterItems` | Filtra i FeedItem **PRIMA del diff**. | Il feed è un endpoint bulk (il download avviene comunque, come nel vecchio `gh_reimport_fetch`), ma diffare 10k righe per tenerne 12 è puro spreco: lookup batch + intero passaggio del classifier. |
+| `promote` | Sposta tutto ciò che esiste già (`unchanged` + `updateStock`) in `update`. | **Non opzionale.** Su un catalogo assestato uno SKU nominato è quasi sempre `unchanged` (skippato) o `updateStock` (fast-patch, che non chiama mai materialize). Senza promote l'operatore chiede un ri-import e non succede nulla — di nuovo il no-op silenzioso. |
+
+Due invarianti:
+
+- **`buckets` viene ignorato** quando `skus` è valorizzato: la selezione
+  *è* la restrizione, e onorare `buckets` scarterebbe l'intera selezione
+  (finisce tutta in `update`).
+- **Gli SKU non trovati nel feed vengono elencati**, non solo contati
+  (`summary.sku_missing_list`). "10 su 12 importati" è inutile se non
+  sai quali due mancano — ed è tipicamente un typo o un delisting
+  upstream, cioè proprio l'informazione che serve.
+
+`skus` + `force_recreate` = l'equivalente esatto del vecchio force
+re-import, ma scoped: wipe varianti + riscrittura da feed **solo** per
+quegli SKU. A differenza del vecchio, l'ID del prodotto non cambia
+(il vecchio faceva `rp_delete_product` + create, portandosi via i
+riferimenti negli ordini storici).
+
+`skus` + `heal_media` è ridondante: `promote` svuota già i bucket da
+cui l'healer pesca, quindi l'heal viene soppresso (niente lookup
+garantito vuoto, niente `healed_media: 0` fuorviante nel report).
+Coperto da `tests/Unit/Workflow/Run/SkuFilterTest.php`.
+
+### Il punto d'ingresso sta nel tab Media, non in Importa
+
+`heal_media` come checkbox nel tab Importa è corretto ma nel posto
+sbagliato: l'operatore si accorge del problema **guardando le
+immagini**, e da lì per ripararle doveva cambiare tab, ricordarsi
+sorgente + config + mappatura + flusso, e spuntare la casella giusta.
+
+Il tab Media ha quindi una card **"Prodotti senza immagine"** con due
+passi deliberatamente separati:
+
+1. **Analizza** (`MissingImages::scan`) — read-only e **senza feed**.
+   Rispondere a "quanto è grave?" non deve richiedere di scaricare un
+   feed da svariati MB né di scrivere nulla. Ritorna totale + istogramma
+   per sorgente + un campione.
+2. **Ripara** — risolve un **job di import esistente** nella quadrupla
+   (source, config, mapping, pipeline) che già contiene, e restituisce
+   quei parametri al client, che li passa al **normale tick-loop** con
+   `heal_media` forzato.
+
+Tre decisioni non ovvie:
+
+- **Il repair riusa un job invece di far ri-scegliere l'operatore.** Un
+  job porta già la quadrupla giusta e resta allineato quando la si
+  modifica. Farla ri-scegliere significa poter scegliere *diversamente*
+  dall'import vero, e riscrivere i prodotti con il mapping sbagliato.
+  `pickDefaultJob()` sceglie da solo quando c'è un solo import job (o
+  un solo abilitato), altrimenti l'UI chiede — **non indovina mai** fra
+  due feed vivi: sceglierne uno a caso significherebbe riparare i
+  prodotti con le immagini di un altro fornitore.
+- **L'AJAX ritorna parametri, non esegue l'import.** Una riparazione
+  catalog-wide è lunga quanto un import (multi-tick, deadline
+  cooperativa): eseguirla dentro una singola chiamata AJAX brucerebbe
+  il budget di richiesta su qualsiasi catalogo reale. Passando i
+  parametri al loop esistente si ereditano resume, progresso, fatal
+  guard e la riga in Storico — tutte cose che già funzionano.
+- **L'istogramma per sorgente è il triage, non decorazione.** Un
+  prodotto senza `_gh_import_source` è stato creato a mano: **nessun
+  import lo riparerà mai**. Dire "47 rotti" senza lo split creerebbe
+  l'aspettativa sbagliata sulla riparazione.
+
+> ⚠ La join di provenienza usa una **derived table** con `GROUP BY
+> post_id`. Una `LEFT JOIN postmeta ON meta_key IN ('_gh_import_source',
+> '_feed_source')` matcha ENTRAMBE le chiavi quando ci sono, duplicando
+> la riga del prodotto: stesso prodotto due volte nella tabella campione
+> e — se le due chiavi divergono — contato sotto due sorgenti diverse,
+> con l'istogramma che somma a più del totale che gli sta accanto.
 
 ---
 

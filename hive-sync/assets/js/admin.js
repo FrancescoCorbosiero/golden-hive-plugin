@@ -2747,6 +2747,9 @@
      * at a spinner for the full duration.
      */
     HSync.runNow = async function () {
+        // Claim the output region — a Media-tab repair may have pointed
+        // it elsewhere, and this run must render in the Importa tab.
+        HSync.runOutputSel = '[data-region="run-output"]';
         const sourceId = $('[data-field="run-source"]').value;
         if (!sourceId) { alert('Scegli una sorgente.'); return; }
         const formEl = $('[data-context="run"]');
@@ -2766,12 +2769,17 @@
         const forceRecreate = forceRecreateEl ? !!forceRecreateEl.checked : false;
         const healMediaEl = $('[data-field="run-heal-media"]');
         const healMedia = healMediaEl ? !!healMediaEl.checked : false;
+        const skusEl = $('[data-field="run-skus"]');
+        const skus = skusEl ? String(skusEl.value || '').trim() : '';
         const options = {};
         if (mapping)        options.mapping = mapping.config;
         if (pipelineSlug)   options.pipeline_slug = pipelineSlug;
         if (limit > 0)      options.limit = limit;
         if (mode && mode !== 'full') options.mode = mode;
         if (forceRecreate)  options.force_recreate = true;
+        // Sent raw — the server parses newline / comma / semicolon / space
+        // separated lists (operators paste straight out of a spreadsheet).
+        if (skus)           options.skus = skus;
         // Non-destructive, so no confirm gate: it only re-queues products
         // that are visibly broken (no featured image) and that the feed
         // can actually repair, through the ordinary update path.
@@ -2783,9 +2791,19 @@
         // user already confirmed for this run; resuming doesn't re-ask).
         if (forceRecreate && ! dryRun) {
             const limitLabel = limit > 0 ? ' Limite: ' + limit + '.' : '';
+            // The blast radius depends on whether a SKU selection is
+            // active. Saying "OGNI prodotto del feed" when the operator
+            // narrowed the run to 12 SKUs would either scare them off a
+            // safe action or teach them to dismiss the dialog unread.
+            const skuCount = skus
+                ? skus.split(/[\r\n,;\t ]+/).filter(Boolean).length
+                : 0;
+            const scope = skuCount > 0
+                ? 'Per i ' + skuCount + ' SKU selezionati'
+                : 'Per OGNI prodotto esistente nel feed corrente';
             const ok = confirm(
                 'Forza ricreazione attiva.\n\n' +
-                'Per OGNI prodotto esistente nel feed corrente verranno cancellate' +
+                scope + ' verranno cancellate' +
                 ' tutte le varianti, i termini pa_* e il meta _product_attributes,' +
                 ' poi tutto sarà riscritto dal feed come fosse un primo import.\n\n' +
                 'L\'ID del prodotto viene preservato (gli ordini storici restano' +
@@ -2804,8 +2822,18 @@
      * re-enter the loop with a preserved cursor instead of restarting
      * from scratch on a 15k-product import.
      */
+    /**
+     * Where the tick loop renders. Defaults to the Importa tab; the
+     * Media tab's repair points it at its own region so the operator
+     * watches progress where they started, instead of being teleported
+     * to another tab mid-action. Whoever STARTS a run sets this, so a
+     * run abandoned half-way can never leave the next one writing into
+     * a hidden panel.
+     */
+    HSync.runOutputSel = '[data-region="run-output"]';
+
     HSync.runImportTicked = async function (sourceId, configSlug, config, options, dryRun, startCursor, maxTicksOpt) {
-        const out = $('[data-region="run-output"]');
+        const out = $(HSync.runOutputSel);
         if (! startCursor) {
             out.innerHTML = '<p class="hsync-loading">Tick 1: starting…</p>';
         }
@@ -2901,6 +2929,13 @@
                         // folded into `update`, so summing it across
                         // ticks would double-report the repair.
                         healed_media:   tickSummary.healed_media   || 0,
+                        // Selection accounting — diff-level like the two
+                        // above. The missing list is carried verbatim so
+                        // the report can name the SKUs that didn't land.
+                        sku_requested:    tickSummary.sku_requested    || 0,
+                        sku_matched:      tickSummary.sku_matched      || 0,
+                        sku_missing:      tickSummary.sku_missing      || 0,
+                        sku_missing_list: tickSummary.sku_missing_list || [],
                     };
                 }
                 RESULT_KEYS.forEach(k => {
@@ -2973,7 +3008,7 @@
     HSync.resumeFailedRun = async function () {
         const r = HSync.lastFailedRun;
         if (! r || ! r.cursor) return;
-        const out = $('[data-region="run-output"]');
+        const out = $(HSync.runOutputSel);
         out.insertAdjacentHTML('beforeend',
             '<div class="hsync-loading">Ripresa da tick ' + r.tick + '…</div>');
         // Re-enter the tick loop with the saved cursor as the starting
@@ -2983,7 +3018,7 @@
     };
 
     HSync.renderRunResult = function (data) {
-        const out = $('[data-region="run-output"]');
+        const out = $(HSync.runOutputSel);
         const s   = data.summary || {};
         const p   = data.progress || {};
         const stat = (label, num, kind) =>
@@ -3034,7 +3069,31 @@
         const inFlight = Math.max(0, processingPool - accounted);
         const reconcileBad = (status === 'done' && inFlight > 0) ? 'is-bad' : '';
 
+        // Selection block — only when the run was narrowed to a SKU
+        // list. Missing SKUs get named, not just counted: "10 of 12
+        // imported" is useless if you can't tell WHICH two didn't.
+        const missingList = Array.isArray(s.sku_missing_list) ? s.sku_missing_list : [];
+        const selection = (s.sku_requested || 0) > 0
+            ? '<div class="hsync-summary-section">'
+            +   '<div class="hsync-summary-label">Selezione SKU</div>'
+            +   '<div class="hsync-summary">'
+            +     stat('Richiesti', s.sku_requested)
+            +     stat('Trovati nel feed', s.sku_matched,
+                       (s.sku_matched || 0) > 0 ? 'is-good' : 'is-bad')
+            +     stat('Non trovati', s.sku_missing,
+                       (s.sku_missing || 0) > 0 ? 'is-bad' : 'is-dim')
+            +   '</div>'
+            +   (missingList.length
+                    ? '<div class="hsync-warning">Non presenti nel feed: '
+                      + missingList.map(esc).join(', ')
+                      + ((s.sku_missing || 0) > missingList.length ? ', …' : '')
+                      + '</div>'
+                    : '')
+            + '</div>'
+            : '';
+
         const summary = ''
+            + selection
             + '<div class="hsync-summary-section">'
             +   '<div class="hsync-summary-label">Source diff</div>'
             +   '<div class="hsync-summary">'
@@ -3441,6 +3500,8 @@
         if (t.matches('[data-action="media-page"]'))               return HSync.loadMedia(parseInt(t.dataset.page, 10));
         if (t.matches('[data-action="media-whitelist-toggle"]'))   return HSync.toggleMediaWhitelist(parseInt(t.dataset.id, 10));
         if (t.matches('[data-action="media-delete-one"]'))         return HSync.deleteMediaOne(parseInt(t.dataset.id, 10));
+        if (t.matches('[data-action="media-missing-scan"]'))       return HSync.scanMissingImages();
+        if (t.matches('[data-action="media-missing-repair"]'))     return HSync.repairMissingImages();
     });
 
     document.addEventListener('change', function (e) {
@@ -3678,6 +3739,148 @@
         } catch (e) {
             out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
         }
+    };
+
+    /**
+     * Read-only scan: how many products render without a cover image,
+     * which ones, and where they came from. No feed, no writes — the
+     * operator gets a number before committing to anything.
+     */
+    HSync.scanMissingImages = async function () {
+        const out = $('[data-region="media-missing-output"]');
+        out.innerHTML = '<p class="hsync-loading">Analisi del catalogo…</p>';
+        try {
+            const data = await HSync.ajax('media_missing_scan', { sample: 50 });
+            HSync.missingImagesJobs = data.jobs || [];
+
+            if (!data.total) {
+                out.innerHTML = '<div class="hsync-summary" style="grid-template-columns:1fr;">'
+                    + '<div class="hsync-stat is-good"><div class="hsync-stat-num">0</div>'
+                    + '<div class="hsync-stat-label">Tutti i prodotti hanno una copertina</div></div></div>';
+                return;
+            }
+
+            // Provenance histogram. This is the triage: a product with
+            // no import source was made by hand and NO feed run will
+            // ever repair it, so saying "47 broken" without the split
+            // would set the wrong expectation for the repair.
+            const bySource = data.by_source || {};
+            const sourceRows = Object.keys(bySource).map(k =>
+                '<tr><td>' + esc(k) + '</td><td>' + bySource[k] + '</td></tr>'
+            ).join('');
+
+            const sampleRows = (data.sample || []).map(p =>
+                '<tr>'
+                + '<td>' + (p.edit_url
+                    ? '<a href="' + esc(p.edit_url) + '" target="_blank">#' + p.id + '</a>'
+                    : '#' + p.id) + '</td>'
+                + '<td>' + esc(p.sku || '—') + '</td>'
+                + '<td>' + esc(p.name || '—') + '</td>'
+                + '<td>' + esc(p.source || '(nessuna)') + '</td>'
+                + '<td>' + esc(p.status || '') + '</td>'
+                + '</tr>'
+            ).join('');
+
+            // The repair needs a feed. Reuse a configured import job so
+            // it writes with the SAME source + mapping + pipeline as the
+            // real sync, instead of asking the operator to re-pick and
+            // risk a different combination.
+            const jobs = HSync.missingImagesJobs;
+            let repairUi;
+            if (!jobs.length) {
+                repairUi = '<div class="hsync-warning">'
+                    + 'Nessun job di import configurato: la riparazione ha bisogno di una '
+                    + 'sorgente per sapere da dove ri-scaricare le immagini. Creane uno nel '
+                    + 'tab <strong>Automatizza</strong>, poi torna qui.'
+                    + '</div>';
+            } else {
+                const opts = jobs.map(j =>
+                    '<option value="' + j.id + '"' + (j.id === data.default_job_id ? ' selected' : '') + '>'
+                    + esc(j.ref) + (j.enabled ? '' : ' (disattivo)') + '</option>'
+                ).join('');
+                repairUi = '<div class="hsync-actions">'
+                    + '<label>Usa la configurazione di '
+                    + '<select data-field="media-missing-job">' + opts + '</select>'
+                    + '</label>'
+                    + '<button class="button button-primary" data-action="media-missing-repair">'
+                    + 'Ripara dal feed</button>'
+                    + '</div>'
+                    + '<p class="hsync-muted">'
+                    + 'Vengono ri-scaricate solo le immagini dei prodotti elencati sopra che '
+                    + 'esistono nel feed scelto e per cui il feed ha un URL valido. Prezzi, '
+                    + 'stock, varianti e modifiche manuali non vengono toccati.'
+                    + '</p>';
+            }
+
+            out.innerHTML = ''
+                + '<div class="hsync-summary" style="grid-template-columns:repeat(2,1fr);">'
+                +   '<div class="hsync-stat is-bad"><div class="hsync-stat-num">' + data.total + '</div>'
+                +     '<div class="hsync-stat-label">Prodotti senza copertina</div></div>'
+                +   '<div class="hsync-stat"><div class="hsync-stat-num">' + Object.keys(bySource).length + '</div>'
+                +     '<div class="hsync-stat-label">Sorgenti coinvolte</div></div>'
+                + '</div>'
+                + (sourceRows
+                    ? '<table class="hsync-table"><thead><tr><th>Sorgente</th><th>Prodotti</th></tr></thead>'
+                      + '<tbody>' + sourceRows + '</tbody></table>'
+                    : '')
+                + '<details><summary>Primi ' + (data.sample || []).length + ' prodotti'
+                +   (data.sample_capped ? ' (di ' + data.total + ')' : '') + '</summary>'
+                +   '<table class="hsync-table"><thead><tr>'
+                +     '<th>ID</th><th>SKU</th><th>Nome</th><th>Sorgente</th><th>Stato</th>'
+                +   '</tr></thead><tbody>' + sampleRows + '</tbody></table>'
+                + '</details>'
+                + repairUi;
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+        }
+    };
+
+    /**
+     * Resolve the chosen job into run parameters, then drive the
+     * ORDINARY import tick loop with heal_media forced on. Nothing
+     * bespoke executes: same ImportRunner, same cursor/resume, same
+     * entry in Storico — so a repair that dies half-way resumes like
+     * any other run.
+     */
+    HSync.repairMissingImages = async function () {
+        const sel = $('[data-field="media-missing-job"]');
+        const jobId = sel ? parseInt(sel.value, 10) : 0;
+        if (!jobId) { alert('Scegli una configurazione di import.'); return; }
+
+        const out = $('[data-region="media-missing-output"]');
+        if (!confirm(
+            'Riparazione immagini.\n\n' +
+            'Per i prodotti senza copertina presenti nel feed verranno ri-scaricate ' +
+            'le immagini e riagganciate al prodotto.\n\n' +
+            'Prezzi, stock, varianti e ID prodotto non vengono toccati. ' +
+            'I prodotti che il feed non conosce restano invariati.\n\n' +
+            'Procedere?'
+        )) return;
+
+        let params;
+        try {
+            params = await HSync.ajax('media_missing_repair_params', { job_id: jobId });
+        } catch (e) {
+            out.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
+            return;
+        }
+
+        // Render the run report inside THIS card — the operator started
+        // here and shouldn't be thrown into another tab to watch it.
+        // Deliberately NOT restored afterwards: a failed tick leaves a
+        // "Riprendi da qui" button in this card, and resumeRun must
+        // render where that button lives. runNow() re-claims the
+        // selector when the operator next starts a run from Importa.
+        HSync.runOutputSel = '[data-region="media-missing-output"]';
+        await HSync.runImportTicked(
+            params.source_id,
+            params.config_slug,
+            {},                 // config comes from the saved slug
+            params.options,
+            false,              // not a dry run: the scan was the preview
+            null,
+            0,                  // uncapped ticks — a repair must run to completion
+        );
     };
 
     HSync.confirmMediaCleanup = async function (idsJson) {

@@ -258,6 +258,25 @@ function hsync_render_admin_page(): void {
                 <button class="button button-primary" data-action="media-cleanup-preview">Pulizia sicura…</button>
             </div>
             <div data-region="media-cleanup-output"></div>
+
+            <div class="hsync-source-card" data-region="media-missing-card">
+                <h3>🖼 Prodotti senza immagine</h3>
+                <p class="hsync-muted">
+                    Trova i prodotti che nel catalogo appaiono senza foto — immagine
+                    mai scaricata, URL del feed rotto, o allegato cancellato dalla
+                    libreria — e ri-scaricale dal feed.
+                    <br>
+                    <strong>L'analisi non tocca nulla</strong>: legge soltanto. La
+                    riparazione parte solo quando la lanci tu, e usa la stessa
+                    configurazione del tuo import (sorgente, mappatura, flusso), così
+                    non può scrivere in modo diverso dalla sincronizzazione normale.
+                </p>
+                <div class="hsync-actions">
+                    <button class="button button-primary" data-action="media-missing-scan">Analizza catalogo</button>
+                </div>
+                <div data-region="media-missing-output"></div>
+            </div>
+
             <div data-region="media-list"><p class="hsync-loading">Caricamento…</p></div>
             <div class="hsync-media-pager" data-region="media-pager"></div>
         </section>
@@ -312,6 +331,16 @@ function hsync_render_admin_page(): void {
                 </label>
                 <label>Flusso d'import (opzionale)
                     <select data-field="run-pipeline"><option value="">— solo scarica e salva —</option></select>
+                </label>
+                <label>SKU specifici (opzionale)
+                    <textarea data-field="run-skus" rows="3" placeholder="Lascia vuoto per tutto il feed. Altrimenti incolla gli SKU — uno per riga, oppure separati da virgola o spazio."></textarea>
+                    <small class="hsync-muted">
+                        Limita l'esecuzione a questi SKU. Vengono <strong>sempre</strong>
+                        re-importati con la pipeline completa, anche se il confronto col
+                        feed li considera invariati — è questo che rende l'operazione un
+                        vero "ri-importa". Gli SKU non trovati nel feed vengono elencati
+                        nel report. Il resto del catalogo non viene toccato.
+                    </small>
                 </label>
                 <div data-region="run-config-fields"></div>
                 <div class="hsync-actions">

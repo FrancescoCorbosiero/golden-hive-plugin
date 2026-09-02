@@ -40,6 +40,13 @@ final class JsonSource extends AbstractSource
     public const FLAVOR_GENERIC = 'generic';
     public const FLAVOR_GS      = 'goldensneakers';
 
+    /**
+     * Origine di fallback per gli URL immagine relativi del feed GS.
+     * Usata solo quando la config della source non porta un URL API da
+     * cui derivare l'host (probe/anteprima, config legacy).
+     */
+    public const GS_IMAGE_ORIGIN = 'https://www.goldensneakers.net';
+
     public function id(): string { return self::ID; }
     public function label(): string { return 'JSON — Feed da URL (Bearer / Cookie auth)'; }
 
@@ -190,7 +197,7 @@ final class JsonSource extends AbstractSource
         $markupRules       = MarkupResolver::normalize($cfg['markup_rules'] ?? []);
 
         $items = $flavor === self::FLAVOR_GS
-            ? self::aggregateFlatRows($rawRows, $importStatus, $markupRules, $markupFallbackPct)
+            ? self::aggregateFlatRows($rawRows, $importStatus, $markupRules, $markupFallbackPct, $url)
             : self::wrapRows($rawRows, $importStatus, $markupRules, $markupFallbackPct);
 
         // Apply the user's mapping (if any) AFTER fetch. OVERLAY
@@ -305,7 +312,7 @@ final class JsonSource extends AbstractSource
      * @param array<int, array<string, mixed>> $rows
      * @return FeedItem[]
      */
-    private static function aggregateFlatRows(array $rows, string $importStatus = 'publish', array $markupRules = [], float $markupFallbackPct = 0.0): array
+    private static function aggregateFlatRows(array $rows, string $importStatus = 'publish', array $markupRules = [], float $markupFallbackPct = 0.0, string $feedUrl = ''): array
     {
         $bySku = [];
         foreach ($rows as $r) {
@@ -347,13 +354,12 @@ final class JsonSource extends AbstractSource
             // URL immagine COMPLETO: join difensivo di image_full_url +
             // image_name — prima image_name veniva scartato, quindi con
             // payload split (base + nome file) l'URL era il solo base.
-            // Poi la validazione host: '' quando rifiutato — a valle ''
+            // Poi l'absolutize, perché una parte del feed spedisce path
+            // relativi ('/images/<sku>/main/') senza origine. Infine la
+            // validazione host: '' quando rifiutato — a valle ''
             // significa "nessuna immagine dal feed" e non tocca mai
             // immagini esistenti (COALESCE lato bridge).
-            $imageUrl = self::joinImageUrl($bundle['image_full_url'], $bundle['image_name']);
-            if ($imageUrl !== '' && ! self::isAllowedImageUrl($imageUrl)) {
-                $imageUrl = '';
-            }
+            $imageUrl = self::resolveImageUrl($bundle['image_full_url'], $bundle['image_name'], $feedUrl);
 
             $bridgeProduct = [
                 'sku'        => $sku,
@@ -445,6 +451,95 @@ final class JsonSource extends AbstractSource
             $allowed = (bool) \apply_filters('gh_gs_image_url_allowed', $allowed, $url);
         }
         return $allowed;
+    }
+
+    /**
+     * Rende assoluto un URL immagine che il feed ha spedito come path
+     * relativo — lo step centrale della resolve chain GS
+     * (join → absolutize → allowlist, vedi resolveImageUrl()).
+     *
+     * Il feed GS non è coerente: sullo STESSO payload convivono
+     *
+     *   "image_full_url": "https://media.goldensneakers.net/products/images/1520_JI2626/raw/b086c2487cf4.png"
+     *   "image_full_url": "/images/IH6001/main/"
+     *
+     * — la seconda forma è il vecchio formato cartella a cui è stata
+     * tolta l'origine. Senza host l'allowlist la rifiutava (giustamente:
+     * non è https, non ha host) e il prodotto finiva sotto
+     * "senza immagine dal feed". Il provider non lo sistemerà, quindi
+     * ricostruiamo noi la parte mancante.
+     *
+     *   //host/path      → https://host/path (protocol-relative)
+     *   /images/x/y.png  → <origine>/images/x/y.png
+     *   images/x/y.png   → <origine>/images/x/y.png
+     *   http(s)://...    → invariato
+     *   altro schema     → invariato (l'allowlist lo rifiuta a valle)
+     *
+     * L'origine è quella dell'URL API configurato (il feed serve le
+     * proprie media dal proprio host), con fallback su GS_IMAGE_ORIGIN.
+     * Sempre https: l'allowlist rifiuta http, e GS serve entrambi.
+     *
+     * Un nome NUDO senza directory ('foto.png') NON viene reso assoluto:
+     * non c'è modo di sapere in quale cartella viva, e inventare
+     * "<origine>/foto.png" farebbe scaricare una pagina 404 al posto
+     * dell'immagine. Meglio '' → "nessuna immagine dal feed", che non
+     * tocca mai le immagini esistenti.
+     *
+     * @param string $url     URL o path dal feed.
+     * @param string $feedUrl URL API della source, per derivare l'origine.
+     */
+    public static function absolutizeImageUrl(string $url, string $feedUrl = ''): string
+    {
+        $url = trim($url);
+        if ($url === '') return '';
+        if (preg_match('#^https?://#i', $url)) return $url;
+        if (str_starts_with($url, '//')) return 'https:' . $url;
+        // Qualsiasi altro schema esplicito (data:, ftp:, javascript:)
+        // non è un path da completare: passa oltre e l'allowlist lo
+        // rifiuta.
+        if (preg_match('#^[a-z][a-z0-9+.\-]*:#i', $url)) return $url;
+        if (! str_contains($url, '/')) return $url;
+
+        return self::imageOriginFor($feedUrl) . '/' . ltrim($url, '/');
+    }
+
+    /**
+     * Origine (schema + host + porta) da cui completare i path relativi
+     * del feed. L'host dell'URL API se c'è, altrimenti il default GS.
+     *
+     * Filtrabile: se un domani GS servisse le media legacy da un host
+     * diverso da quello dell'API, si corregge senza toccare il codice.
+     */
+    private static function imageOriginFor(string $feedUrl): string
+    {
+        $parts = $feedUrl === '' ? false : parse_url(trim($feedUrl));
+        $host  = is_array($parts) ? strtolower((string) ($parts['host'] ?? '')) : '';
+        $port  = is_array($parts) ? (int) ($parts['port'] ?? 0) : 0;
+
+        $origin = $host === ''
+            ? self::GS_IMAGE_ORIGIN
+            : 'https://' . $host . ($port > 0 && $port !== 443 ? ':' . $port : '');
+
+        if (function_exists('apply_filters')) {
+            $origin = (string) \apply_filters('hive_sync/source/json/image_origin', $origin, $feedUrl);
+        }
+        return rtrim($origin, '/');
+    }
+
+    /**
+     * URL immagine finale dal payload GS: join + absolutize +
+     * validazione host. Speculare a rp_rc_gs_resolve_image_url() in
+     * golden-hive, con in più lo step absolutize (hive-sync conosce
+     * l'URL della source e può quindi ricostruire l'origine mancante).
+     *
+     * Ritorna '' quando l'URL è assente o rifiutato — a valle ''
+     * significa sempre "nessuna immagine dal feed" e NON tocca mai le
+     * immagini esistenti (COALESCE lato bridge).
+     */
+    public static function resolveImageUrl(string $base, string $name, string $feedUrl = ''): string
+    {
+        $url = self::absolutizeImageUrl(self::joinImageUrl($base, $name), $feedUrl);
+        return self::isAllowedImageUrl($url) ? $url : '';
     }
 
     /**

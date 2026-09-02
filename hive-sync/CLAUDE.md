@@ -862,6 +862,47 @@ cui l'healer pesca, quindi l'heal viene soppresso (niente lookup
 garantito vuoto, niente `healed_media: 0` fuorviante nel report).
 Coperto da `tests/Unit/Workflow/Run/SkuFilterTest.php`.
 
+### Il feed GS mescola URL assoluti e path relativi
+
+**Sintomo:** una parte dei prodotti arriva senza immagine, mentre altri
+nella STESSA risposta la prendono senza problemi.
+
+**Causa:** `image_full_url` non ha un formato unico. Convivono
+
+```
+"image_full_url": "https://media.goldensneakers.net/products/images/1520_JI2626/raw/b086c2487cf4.png"
+"image_full_url": "/images/IH6001/main/"
+```
+
+La seconda è il vecchio formato cartella (da joinare con `image_name`)
+a cui è stata tolta l'origine. Senza schema né host l'allowlist la
+rifiutava — correttamente, ma il risultato era `''` = "nessuna immagine
+dal feed" e il prodotto restava senza foto per sempre (il diff è cieco
+sui media, vedi sopra).
+
+**Soluzione:** `JsonSource::resolveImageUrl()` = join → **absolutize** →
+allowlist. L'absolutize completa i path relativi con l'origine dell'URL
+API configurato (`https://www.goldensneakers.net` come fallback,
+filtrabile via `hive_sync/source/json/image_origin`). Sempre `https`,
+perché l'allowlist esige https.
+
+Due paletti deliberati:
+
+- **l'allowlist resta l'ultimo step**, dopo l'absolutize: un feed
+  ospitato su un host di terze parti non può far scaricare immagini da
+  quell'host tramite un path relativo;
+- **un nome nudo senza directory (`foto.png`) NON viene completato**:
+  non si sa in che cartella viva e `<origine>/foto.png` farebbe
+  sideloadare una pagina 404 come immagine prodotto. Meglio `''`, che
+  non tocca mai l'immagine esistente.
+
+Coperto da `tests/Unit/Sources/GsImageUrlTest.php`.
+
+> Il provider non normalizzerà il formato: la resolve chain deve
+> continuare ad accettare **tutte** le forme viste finora (URL file
+> completo, cartella assoluta + filename, cartella relativa + filename,
+> protocol-relative).
+
 ### Il punto d'ingresso sta nel tab Media, non in Importa
 
 `heal_media` come checkbox nel tab Importa è corretto ma nel posto

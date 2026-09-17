@@ -157,12 +157,13 @@ views/*.php, admin-page.php        → "UI" (zero logica business)
 | | Navigazione | Gestione WP nav menus + auto-populate di un item da un set di termini |
 | MEDIA | Media Library | Browser unificato con filtri, bulk ops, Safe Cleanup |
 | | Whitelist | Protezione immagini, inline add form |
-| IMPORT | GS Feed | Golden Sneakers feed (con UI Salva credenziali con redazione token) |
+| FEED *(nascosta)* | GS Feed | Golden Sneakers feed (con UI Salva credenziali con redazione token) |
 | | SF Feed | StockFirmati CSV feed (URL salvabile) |
 | | CSV Feed | Generic CSV feed via config-engine |
 | | KicksDB | Lookup/enrichment service + Discover search browser. 6 sub-section: Discover, Lookup, Refresh Pricing, Field Mapping, Provenance, Conflict Rules, Settings |
-| | Bulk JSON | Import prodotti da JSON |
-| | Roundtrip | Export/import snapshot |
+| CATALOGO | Import JSON | Import prodotti da file .json (ex "Bulk JSON"). Modi: crea / crea-o-aggiorna (SKU) / sincronizza. Preview + apply, o Background come job CDN-proof |
+| | Roundtrip | Export snapshot filtrato &rarr; edit &rarr; re-import dello stesso envelope JSON |
+| | Catalog History | Snapshot + diff del catalogo (monitoring) |
 | TOOLS | HTTP Client | Test API generiche |
 
 > **Rimossi**: Overview (lenta), Catalog (JSON senza azioni), Browse (ricerca
@@ -170,17 +171,27 @@ views/*.php, admin-page.php        → "UI" (zero logica business)
 > (assorbito come shortcut in Media Library). La logica PHP sottostante
 > (exporter, scanner) resta disponibile per Jobs/altri moduli.
 
-> **Nascosti (non rimossi) — sezione IMPORT**: i tab GS Feed / SF Feed /
-> CSV Feed / KicksDB / Bulk JSON / Roundtrip non compaiono più nella
-> sidebar: la sincronizzazione è gestita da strumenti esterni (Hive Sync,
-> CLI). È SOLO UI-hiding in `admin-page.php`: tutto il PHP resta caricato
-> e funzionante — AJAX handler, bridge hive-sync (`rp_rc_gs_*`/`gh_sf_*`),
-> REST `gh/v1`, job kinds del runner, cron scheduler — perché altri
-> plugin/tool chiamano questo codice. I pannelli restano nel DOM e i
-> deep-link (`#/gsfeed`, `#/roundtrip`, …) funzionano come scorciatoia.
-> Catalog History resta visibile (sezione CATALOGO): è monitoring, non
-> import. Ri-mostrare tutto: `define( 'GH_SHOW_IMPORT_UI', true )` in
-> wp-config.php oppure `add_filter( 'gh_import_ui_visible', '__return_true' )`.
+> **Nascosti (non rimossi) — sezione FEED**: i tab GS Feed / SF Feed /
+> CSV Feed / KicksDB non compaiono nella sidebar. **Feed e sincronizzazione
+> sono scope di Hive Sync, non di Hive Commerce**: è lì che si configurano
+> sorgenti, mapping e job ricorrenti. È SOLO UI-hiding in `admin-page.php`:
+> tutto il PHP resta caricato e funzionante — AJAX handler, bridge hive-sync
+> (`rp_rc_gs_*`/`gh_sf_*`), REST `gh/v1`, job kinds del runner, cron
+> scheduler — perché altri plugin/tool chiamano questo codice. I pannelli
+> restano nel DOM e i deep-link (`#/gsfeed`, `#/csvfeed`, …) funzionano come
+> scorciatoia d'emergenza. Ri-mostrare la sezione:
+> `define( 'GH_SHOW_FEED_UI', true )` in wp-config.php oppure
+> `add_filter( 'gh_feed_ui_visible', '__return_true' )`.
+>
+> Il nome storico `GH_SHOW_IMPORT_UI` / `gh_import_ui_visible` (di quando il
+> flag copriva feed **e** tool JSON insieme) è deprecato ma ancora onorato.
+
+> **Sempre visibili — sezione CATALOGO**: Import JSON, Roundtrip e Catalog
+> History NON sono feed e restano nella sidebar. Lavorano su un file che
+> carichi tu, senza sorgente remota né scheduling: sono strumenti di catalogo
+> di Hive Commerce, non pipeline di sync. Nota: `Bulk JSON` è stato
+> rietichettato `Import JSON` — il panel id (`panel-bulkimport`), il deep-link
+> `#/bulkimport` e gli action AJAX (`rp_cm_ajax_bulk_*`) sono invariati.
 
 ---
 

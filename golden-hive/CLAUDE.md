@@ -165,11 +165,13 @@ browser dalla cache, rivalidando per versione.
 - **`gh-core.js` è indivisibile**: `js.php` + `js2.php` erano due metà di una
   sola IIFE (`const GH = (function(){` … `})();`), nessuna delle due
   sintatticamente valida da sola. Stanno in un unico file.
-- **L'ordine di caricamento è load-bearing**: `gh-operations`, `gh-media` e
-  `gh-jobs` wrappano `GH.switchTab` a catena, quindi ogni handle dichiara il
-  precedente come dipendenza per forzare la sequenza esatta. Se un domani la
-  catena di monkey-patch sparisce, le dipendenze possono collassare tutte su
-  `gh-core`.
+- **I moduli dipendono solo da `gh-core`**: l'ordine di caricamento non è più
+  load-bearing. Prima lo era — `gh-operations`, `gh-media` e `gh-jobs`
+  wrappavano `GH.switchTab` a catena — ma ora si registrano via
+  `GH.onTabChange()` (vedi sotto) e caricarli in ordine inverso non produce
+  errori. WordPress li stampa comunque nell'ordine di enqueue; nessuno ci fa
+  affidamento. Un modulo che in futuro avesse bisogno di un altro a load time
+  deve dichiararlo come dipendenza esplicita, non contare sulla posizione.
 - **Niente `defer`/`async`**: il core registra un handler `DOMContentLoaded`
   per l'hash routing, che verrebbe perso se lo script girasse dopo l'evento.
 
@@ -622,6 +624,25 @@ GH.wireDirtyInputs(containerId)  // idempotente: aggancia markDirty a ogni input
 
 `switchTab` consulta `isDirty()` e mostra `GH.confirm(...)`.
 `window.beforeunload` warna su refresh/chiusura scheda se dirty.
+
+### Reagire all'apertura di un tab
+
+```javascript
+GH.onTabChange((tab, el) => { if (tab === 'jobs') jobsReload(); })
+```
+
+Registra un listener invece di wrappare `GH.switchTab`. Il wrapping era il
+pattern precedente e aveva tre difetti: il comportamento dipendeva
+dall'ordine di caricamento degli script; chi teneva un riferimento a una
+definizione precedente saltava silenziosamente tutti gli hook successivi; e
+un hook che lanciava rompeva la catena per tutti gli altri. I listener sono
+indipendenti, girano in ordine di registrazione, e un throw viene isolato
+(`console.error`) senza fermare gli altri.
+
+`switchTab` ritorna `true` se il tab è cambiato davvero, `false` se l'utente
+ha annullato al prompt "modifiche non salvate" — e in quel caso **non** fa
+partire i listener (ricaricare i dati di un tab su cui hai scelto di NON
+andare non è mai stato l'intento).
 
 ### Keyboard shortcuts + hash router
 

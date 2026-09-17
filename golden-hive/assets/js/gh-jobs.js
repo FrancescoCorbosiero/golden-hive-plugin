@@ -697,7 +697,8 @@
     GH.jobsSetFilter   = jobsSetFilter;
 
     // auto-load when the jobs tab is activated
-    const origSwitch = GH.switchTab;
-    GH.switchTab = function(tab, el) { origSwitch(tab, el); if (tab === 'jobs') jobsReload(); };
+    GH.onTabChange(function(tab){
+        if (tab === 'jobs') jobsReload();
+    });
 
 })();

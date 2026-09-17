@@ -206,8 +206,25 @@ const GH = (function() {
         if (location.hash !== h) history.replaceState(null, '', h);
     }
 
+    // ── Tab-change listeners ───────────────────────────────────────
+    // Modules register a callback here to react to a tab opening (lazy
+    // load, refresh, ...). They used to do it by wrapping GH.switchTab
+    // around the previous definition, which had three problems: the
+    // behaviour depended on script load order; any caller holding a
+    // reference to an earlier definition silently skipped every later
+    // hook; and one throwing hook broke the whole chain for everyone.
+    // A flat list has none of those properties.
+    const _tabListeners = [];
+    function onTabChange(fn){
+        if (typeof fn === 'function') _tabListeners.push(fn);
+    }
+
+    // Returns true when the tab actually changed, false when the user
+    // cancelled at the unsaved-changes prompt. Listeners fire only on a
+    // real switch — reloading the target tab's data after the user chose
+    // to STAY on the current one was never intended.
     function switchTab(name,el){
-        if (_dirty && !confirm('Hai modifiche non salvate. Cambiare tab senza salvare?')) return;
+        if (_dirty && !confirm('Hai modifiche non salvate. Cambiare tab senza salvare?')) return false;
         _dirty = false;
         clearShortcuts();
         document.querySelectorAll('#gh .tab-item').forEach(t=>t.classList.remove('active'));
@@ -216,6 +233,12 @@ const GH = (function() {
         const p = document.getElementById('panel-'+name);
         if (p) p.classList.add('active');
         updateHash(name);
+        for (const fn of _tabListeners) {
+            // One bad listener must not stop the others from running.
+            try { fn(name, el); }
+            catch (e) { console.error('[GH] tab-change listener failed:', e); }
+        }
+        return true;
     }
 
     // ── Copy JSON utility ──────────────────────────────────────────
@@ -1974,5 +1997,5 @@ const GH = (function() {
         await dispatchReimport('sf', cfg, skus, overwriteMedia, 'sf-reimport-status');
     }
 
-    return{ajax,ajaxWithToast,toast,esc,emptyState,statusChip,confirm:ghConfirm,markDirty,clearDirty,isDirty,registerShortcuts,clearShortcuts,registerDeepOpener,updateHash,copyJSON,copyToClipboard,wireDirtyInputs,switchTab,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsLabelPreview,gsLabelApply,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,gsPriceModeChange,gsReimportDispatch,gsLoadSettings,gsSaveSettings,sfLoadSettings,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,sfMarkupModeChange,sfReimportDispatch,bulkPreview,bulkApply,bulkApplyBackground,bulkCancel,generateRoundtrip,exportSelectionAsFile,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvScheduleFeed,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog,nucPreview,nucExecute,feedCleanup};
+    return{ajax,ajaxWithToast,toast,esc,emptyState,statusChip,confirm:ghConfirm,markDirty,clearDirty,isDirty,registerShortcuts,clearShortcuts,registerDeepOpener,updateHash,copyJSON,copyToClipboard,wireDirtyInputs,switchTab,onTabChange,loadTaxonomy,taxSelect,taxToggle,taxCreateRoot,taxAdd,taxRename,taxDelete,loadWhitelist,whitelistAdd,wlCopyAll,wlToggleBulk,wlBulkExport,wlBulkImport,removeWL,addWL,gsFetch,gsApply,gsQuickPatch,gsCancel,gsLabelPreview,gsLabelApply,gsToggle,gsToggleAll,gsSelectAll,gsSelectNone,gsSelectByType,gsPriceModeChange,gsReimportDispatch,gsLoadSettings,gsSaveSettings,sfLoadSettings,sfFetch,sfPreimportMedia,sfPreimportStop,sfValidateMap,sfApply,sfQuickPatch,sfCancel,sfToggle,sfToggleAll,sfSelectAll,sfSelectNone,sfSelectByType,sfToggleSource,sfFilterList,sfSaveSettings,sfMarkupModeChange,sfReimportDispatch,bulkPreview,bulkApply,bulkApplyBackground,bulkCancel,generateRoundtrip,exportSelectionAsFile,importPreview,importApply,importCancel,copyJSON,downloadJSON,hcExecute,csvLoadFeeds,csvNewFeed,csvEditFeed,csvBackToList,csvToggleSource,csvToggleMapping,csvTestUrl,csvSaveFeed,csvDeleteFeed,csvPreview,csvRunFeed,csvRunFeedFromList,csvScheduleFeed,csvOnPresetChange,schedLoad,schedNewTask,schedEditTask,schedSaveTask,schedDeleteTask,schedToggle,schedRunNow,schedToggleFeedType,schedCancelEdit,schedLoadLog,schedClearLog,nucPreview,nucExecute,feedCleanup};
 })();

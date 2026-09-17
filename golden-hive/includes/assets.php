@@ -22,14 +22,19 @@ defined( 'ABSPATH' ) || exit;
 const GH_ADMIN_SCREEN = 'toplevel_page_hive-commerce';
 
 /**
- * JS modules, in load order.
+ * JS modules. Each extends the GH object that gh-core.js creates, so they
+ * all depend on gh-core and on nothing else.
  *
- * ORDER IS LOAD-BEARING, not cosmetic: gh-operations, gh-media and gh-jobs
- * each wrap GH.switchTab around the previous definition, so the chain's
- * order decides which wrappers run. Each handle therefore declares the
- * PREVIOUS one as its dependency, which is what forces WordPress to print
- * them in exactly this sequence. Keep the list in sync with the order the
- * <script> block used before the extraction.
+ * They used to need a strict linear order, because gh-operations, gh-media
+ * and gh-jobs each wrapped GH.switchTab around the previous definition.
+ * That chain is gone — they register through GH.onTabChange() now — and
+ * loading all fifteen in reverse against the core raises no error, so no
+ * module depends on another being present at load time.
+ *
+ * WordPress still prints them in the order enqueued below; nothing relies
+ * on it. A module that ever does need another one at load time must say so
+ * by declaring it as an explicit dependency, not by sitting later in this
+ * list.
  */
 function gh_admin_js_modules(): array {
     return [
@@ -101,8 +106,7 @@ add_action( 'admin_enqueue_scripts', function ( string $hook_suffix ): void {
         'nonce' => wp_create_nonce( 'gh_nonce' ),
     ] );
 
-    // ── Modules, strictly ordered via a linear dependency chain ──────
-    $previous = 'gh-core';
+    // ── Modules ──────────────────────────────────────────────────────
     foreach ( gh_admin_js_modules() as $module ) {
         $handle = 'gh-' . $module;
         $rel    = 'assets/js/' . $handle . '.js';
@@ -110,11 +114,9 @@ add_action( 'admin_enqueue_scripts', function ( string $hook_suffix ): void {
         wp_enqueue_script(
             $handle,
             $url . $rel,
-            [ $previous ],
+            [ 'gh-core' ],
             gh_asset_version( $rel ),
             true
         );
-
-        $previous = $handle;
     }
 } );

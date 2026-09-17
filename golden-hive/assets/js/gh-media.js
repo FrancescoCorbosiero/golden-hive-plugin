@@ -403,13 +403,11 @@
     }
 
     // ── AUTO-LOAD ON FIRST TAB OPEN ────────────────────────────────────────
-    const origSwitch = GH.switchTab;
-    GH.switchTab = function(name, el) {
-        origSwitch(name, el);
+    GH.onTabChange(function(name){
         if (name === 'media-library' && !mlState.loaded) {
             GH.mlQuery(true);
         }
-    };
+    });
 
     // Cross-module hand-off: imposta un attachment come featured image di un
     // prodotto. UX minimale: prompt per ID o SKU, auto-pick del primo match.

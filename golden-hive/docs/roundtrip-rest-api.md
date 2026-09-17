@@ -181,7 +181,8 @@ curl -s -u "$WP_USER:$WP_APP_PASS" \
 ## Bulk create/update endpoints (`/bulk/*`)
 
 > These wrap a **different module** than the roundtrip importer: the **bulk
-> creator** (`bulk-creator.php`), which is what the admin **"Bulk JSON"** tab
+> creator** (`bulk-creator.php`), which is what the admin **"Import JSON"** tab
+> (CATALOGO section; formerly labelled "Bulk JSON", panel id `bulkimport`)
 > and the **"Export JSON" → re-import** workflow use. Use these if you create
 > products or upsert by SKU; use `/roundtrip/*` for field-level diffing of
 > existing products.

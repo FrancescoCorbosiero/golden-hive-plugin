@@ -1,3 +1,4 @@
+/* Hive Commerce — settings module. Extends GH; loads after gh-core.js. */
 // ═══ UNIFIED FEED/SERVICE SETTINGS ═════════════════════════════════════════
 //
 // One canonical save/load module for KicksDB, GS Feed, SF Feed, and any

@@ -39,6 +39,11 @@
 golden-hive/
 ├── golden-hive.php              ← Entry point. Solo require_once.
 ├── CLAUDE.md                    ← Questo file.
+├── assets/                      ← CSS/JS SERVITI (enqueued, cacheabili). Sorgente unica.
+│   ├── css/gh-admin.css         ← Design system + .gh-card + .gh-status-* + color alpha tokens + @media mobile
+│   ├── css/gh-kicksdb.css       ← Stili del pannello KicksDB (griglia Discover)
+│   ├── js/gh-core.js            ← IIFE `const GH = (…)()`: ajax, ajaxWithToast, toast (sticky), confirm, emptyState, statusChip, markDirty/clearDirty/isDirty, registerShortcuts, registerDeepOpener, updateHash, copyJSON, copyToClipboard, wireDirtyInputs, switchTab (hash-aware)
+│   └── js/gh-*.js               ← moduli che estendono GH: operations, inline, smart, navigation, media, mapper, jobs, email, email-campaigns, email-transactional, kicksdb, history, workflow, termpicker, settings
 └── includes/
     ├── core/                    ← Foundation helpers riutilizzabili (prefix: gh_)
     │   ├── product-factory.php  ← gh_create_simple_product, gh_create_variable_product
@@ -121,12 +126,10 @@ golden-hive/
     │   └── transactional-ajax.php ← rp_em_ajax_trx_list/_save/_test_fire, rp_em_ajax_save_tracking (metabox)
     ├── tools/
     │   ├── nuclear-cleanup.php, ajax.php
-    ├── views/
-    │   ├── css.php              ← Design system + .gh-card + .gh-status-* unified + color alpha tokens + @media mobile
-    │   ├── panels*.php          ← panels, panels-operations, panels-navigation, panels-mapper, panels-jobs, panels-email, panels-kicksdb
-    │   ├── js.php + js2.php     ← GH module IIFE: ajax, ajaxWithToast, toast (sticky), confirm, emptyState, statusChip, markDirty/clearDirty/isDirty, registerShortcuts, registerDeepOpener, updateHash, copyJSON, copyToClipboard, wireDirtyInputs, switchTab (hash-aware)
-    │   └── js-*.php             ← js-operations, js-inline, js-smart, js-navigation, js-media, js-mapper, js-jobs, js-email, js-email-campaigns, js-email-transactional, js-kicksdb
-    └── admin-page.php           ← add_menu_page + sidebar a tab
+    ├── views/                   ← SOLO MARKUP. Niente <style>, niente <script>.
+    │   └── panels*.php          ← panels, panels-operations, panels-navigation, panels-mapper, panels-jobs, panels-email, panels-kicksdb, panels-history, panels-workflow
+    ├── assets.php               ← admin_enqueue_scripts: enqueue di assets/css + assets/js, versioning via filemtime, wp_localize_script('GHBoot')
+    └── admin-page.php           ← add_menu_page + sidebar a tab (solo markup)
 ```
 
 ---
@@ -142,6 +145,35 @@ email/contacts.php, mailer.php     → "Email" (contatti, campagne, wp_mail)
 */ajax.php                         → "Bridge" (sanitize → chiama funzione → json)
 views/*.php, admin-page.php        → "UI" (zero logica business)
 ```
+
+---
+
+## Asset Loading — `includes/assets.php`
+
+CSS e JS sono **file enqueued**, non più inline. Prima la pagina admin
+spediva ~726 KB ad **ogni** load (505 KB di JS + 80 KB di CSS stampati
+inline, non cacheabili); ora il markup pesa ~141 KB e il resto lo serve il
+browser dalla cache, rivalidando per versione.
+
+- **Sorgente unica**: `assets/css/*.css` e `assets/js/*.js`. I vecchi
+  `views/css.php`, `views/js*.php` sono stati rimossi — `views/` contiene
+  ormai solo markup. Non reintrodurre `<style>`/`<script>` inline nei panel.
+- **Versioning**: `filemtime()` per file, quindi un deploy invalida la cache
+  da solo, senza bump manuale di `GH_VERSION`.
+- **Bootstrap**: gli unici due valori che il JS prendeva da PHP (ajax url +
+  nonce) arrivano su `window.GHBoot` via `wp_localize_script()`.
+- **`gh-core.js` è indivisibile**: `js.php` + `js2.php` erano due metà di una
+  sola IIFE (`const GH = (function(){` … `})();`), nessuna delle due
+  sintatticamente valida da sola. Stanno in un unico file.
+- **I moduli dipendono solo da `gh-core`**: l'ordine di caricamento non è più
+  load-bearing. Prima lo era — `gh-operations`, `gh-media` e `gh-jobs`
+  wrappavano `GH.switchTab` a catena — ma ora si registrano via
+  `GH.onTabChange()` (vedi sotto) e caricarli in ordine inverso non produce
+  errori. WordPress li stampa comunque nell'ordine di enqueue; nessuno ci fa
+  affidamento. Un modulo che in futuro avesse bisogno di un altro a load time
+  deve dichiararlo come dipendenza esplicita, non contare sulla posizione.
+- **Niente `defer`/`async`**: il core registra un handler `DOMContentLoaded`
+  per l'hash routing, che verrebbe perso se lo script girasse dopo l'evento.
 
 ---
 
@@ -593,6 +625,25 @@ GH.wireDirtyInputs(containerId)  // idempotente: aggancia markDirty a ogni input
 `switchTab` consulta `isDirty()` e mostra `GH.confirm(...)`.
 `window.beforeunload` warna su refresh/chiusura scheda se dirty.
 
+### Reagire all'apertura di un tab
+
+```javascript
+GH.onTabChange((tab, el) => { if (tab === 'jobs') jobsReload(); })
+```
+
+Registra un listener invece di wrappare `GH.switchTab`. Il wrapping era il
+pattern precedente e aveva tre difetti: il comportamento dipendeva
+dall'ordine di caricamento degli script; chi teneva un riferimento a una
+definizione precedente saltava silenziosamente tutti gli hook successivi; e
+un hook che lanciava rompeva la catena per tutti gli altri. I listener sono
+indipendenti, girano in ordine di registrazione, e un throw viene isolato
+(`console.error`) senza fermare gli altri.
+
+`switchTab` ritorna `true` se il tab è cambiato davvero, `false` se l'utente
+ha annullato al prompt "modifiche non salvate" — e in quel caso **non** fa
+partire i listener (ricaricare i dati di un tab su cui hai scelto di NON
+andare non è mai stato l'intento).
+
 ### Keyboard shortcuts + hash router
 
 ```javascript
@@ -1013,6 +1064,17 @@ popola con i valori salvati (token redatto) appena l'utente entra nel tab.
 1. **Prefix corretto:** `gh_` per moduli nuovi (filter, bulk, jobs, mapper, core), prefix originale per moduli mergiati (rp_, rp_cm_, rp_em_, rp_mm_).
 2. **Nonce:** `gh_nonce` per tutti gli AJAX di golden-hive. `gh_ajax_guard()` accetta anche `rp_em_nonce` per coesistenza.
 3. **CSS scopato sotto `#gh`** — mai stili globali.
+3b. **Accessibilità — non regredire**: ogni controllo cliccabile è un
+   elemento nativo (`<button type="button">`, `<a>`), mai un `<div onclick>`:
+   i div non prendono focus, non rispondono a Invio/Spazio e non vengono
+   annunciati come controlli. La sidebar è un `<nav>` con heading `<h2>` per
+   sezione; il tab attivo porta `aria-current="page"` (gestito da
+   `switchTab`); le icone decorative sono `aria-hidden="true"`; il
+   contenitore dei toast è `role="status" aria-live="polite"`. Gli stati di
+   focus usano `:focus-visible` (non `:focus`, che lascerebbe l'anello anche
+   dopo un click col mouse). Testo solo per screen reader: `.gh-sr-only`.
+   I dialog (`GH.confirm`) fanno focus trap, `aria-labelledby`/`describedby`
+   e **restituiscono il focus** all'elemento che li ha aperti.
 4. **JS estende GH** — i moduli aggiuntivi (js-operations, js-email, ...) aggiungono metodi a `GH` dall'esterno e usano gli helper del Batch 1-2.
 5. **Desktop-first, mobile secondario** — il titolare usa lo strumento prevalentemente da desktop. Le regole base devono assumere una larghezza ampia (≥1024px) e sfruttarla (layout a 2 colonne, liste a tutta larghezza, toolbar orizzontali). Sotto `@media(max-width:768px)` i layout collassano in flex-column come fallback, ma non e la priorita visuale. Niente `max-width` arbitrarie sui container principali (`.content`, `.panel`, liste/editor) che impediscano di usare lo spazio orizzontale.
 6. **Double-load guard** obbligatoria su ogni file condiviso con plugin standalone.

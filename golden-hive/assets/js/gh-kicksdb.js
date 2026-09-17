@@ -1,3 +1,4 @@
+/* Hive Commerce — kicksdb module. Extends GH; loads after gh-core.js. */
 // ═══ KICKSDB ═══════════════════════════════════════════════════════════════
 
 (function(){

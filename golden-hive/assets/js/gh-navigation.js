@@ -1,3 +1,4 @@
+/* Hive Commerce — navigation module. Extends GH; loads after gh-core.js. */
 // ═══ TAXONOMY QUERY + NAVIGATION MANAGER ══════════════════════════════════
 //
 // Due moduli strettamente imparentati:

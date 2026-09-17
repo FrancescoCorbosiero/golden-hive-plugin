@@ -1,0 +1,103 @@
+/* Hive Commerce — KicksDB panel styles (Discover grid, cards). */
+#gh .kdb-d-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 10px;
+    padding: 10px;
+}
+#gh .kdb-d-card {
+    background: var(--bg2, #15161a);
+    border: 1px solid var(--brd, #26272c);
+    border-radius: 6px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform .12s ease, border-color .12s ease, background .12s ease;
+    display: flex;
+    flex-direction: column;
+}
+#gh .kdb-d-card:hover {
+    border-color: var(--acc, #6ca0ff);
+    transform: translateY(-1px);
+}
+#gh .kdb-d-card.is-selected {
+    border-color: var(--acc, #6ca0ff);
+    background: var(--acc-10, rgba(108,160,255,.10));
+    box-shadow: 0 0 0 1px var(--acc-30, rgba(108,160,255,.30));
+}
+#gh .kdb-d-card-img {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    background: var(--bg, #0c0d10);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+#gh .kdb-d-card-img img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+#gh .kdb-d-card-noimg {
+    font-size: 32px;
+    color: var(--dim, #6b6d73);
+}
+#gh .kdb-d-card-check {
+    position: absolute;
+    top: 6px; left: 6px;
+    width: 18px; height: 18px;
+    accent-color: var(--acc, #6ca0ff);
+    cursor: pointer;
+}
+#gh .kdb-d-card-badge {
+    position: absolute;
+    top: 6px; right: 6px;
+    font-size: 9px;
+}
+#gh .kdb-d-card-body {
+    padding: 8px 10px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    flex: 1;
+}
+#gh .kdb-d-card-title {
+    font-family: var(--sans, 'DM Sans', sans-serif);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.3;
+    color: var(--fg, #e8e9ec);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+#gh .kdb-d-card-meta {
+    font-family: var(--mono, 'JetBrains Mono', monospace);
+    font-size: 10px;
+    color: var(--dim, #6b6d73);
+}
+#gh .kdb-d-card-brand {
+    color: var(--acc, #6ca0ff);
+    font-weight: 500;
+}
+#gh .kdb-d-card-sku {
+    font-family: var(--mono, 'JetBrains Mono', monospace);
+    font-size: 10px;
+    color: var(--dim, #6b6d73);
+    margin-top: auto;
+}
+#gh .kdb-d-card-sku .dim { opacity: .7; }
+
+#gh .kdb-grid-wrap {
+    min-height: 200px;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+@media (max-width: 768px) {
+    #gh .kdb-d-grid {
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 8px;
+        padding: 8px;
+    }
+}

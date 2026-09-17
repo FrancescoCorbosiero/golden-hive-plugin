@@ -1,3 +1,4 @@
+/* Hive Commerce — email transactional module. Extends GH; loads after gh-core.js. */
 // ═══ EMAIL — TRANSACTIONAL (event → template bindings + test fire) ════════
 // IIFE che attacca a GH. Gestisce la tab "Transazionali".
 

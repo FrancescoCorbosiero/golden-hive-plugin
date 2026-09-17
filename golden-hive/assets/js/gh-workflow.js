@@ -1,13 +1,4 @@
-<?php
-/**
- * v2 Workflow tab — JS module.
- * Extends the GH IIFE (CONVENTIONS: external modules add methods to GH).
- *
- * Batch 5a: source picker + schema-driven config form.
- * Public surface: GH.workflowInit (called on tab open).
- */
-defined( 'ABSPATH' ) || exit;
-?>
+/* Hive Commerce — workflow module. Extends GH; loads after gh-core.js. */
 // ── v2 Workflow tab ───────────────────────────────────────────────
 (function () {
     const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => (

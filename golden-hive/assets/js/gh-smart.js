@@ -1,3 +1,4 @@
+/* Hive Commerce — smart module. Extends GH; loads after gh-core.js. */
 // ═══ SMART TAXONOMY ═══════════════════════════════════════════════════════
 //
 // Regole automatiche per popolare termini tassonomia. Stessa logica di Shopify

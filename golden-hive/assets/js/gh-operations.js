@@ -1,3 +1,4 @@
+/* Hive Commerce — operations module. Extends GH; loads after gh-core.js. */
 // ═══ FILTER & BULK OPERATIONS ═══════════════════════════════════════════════
 
 (function(){

@@ -1,3 +1,4 @@
+/* Hive Commerce — email campaigns module. Extends GH; loads after gh-core.js. */
 // ═══ EMAIL — Wizard campagne (6 step) ══════════════════════════════════════
 
 (function(){

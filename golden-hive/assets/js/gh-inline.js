@@ -1,3 +1,4 @@
+/* Hive Commerce — inline module. Extends GH; loads after gh-core.js. */
 // ═══ INLINE EDITOR ════════════════════════════════════════════════════════
 //
 // Focused single-product editor. Three sub-views:

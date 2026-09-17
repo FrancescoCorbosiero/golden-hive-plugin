@@ -1,3 +1,4 @@
+/* Hive Commerce — jobs module. Extends GH; loads after gh-core.js. */
 // ═══ JOBS ═══════════════════════════════════════════════════════════════════
 
 (function(){

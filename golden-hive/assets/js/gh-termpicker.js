@@ -1,3 +1,4 @@
+/* Hive Commerce — termpicker module. Extends GH; loads after gh-core.js. */
 // ═══ TERM PICKER — multi-select ricercabile (stile Shopify) ══════════════════
 //
 // Componente riusabile per selezionare termini (brand, categorie, tag) da

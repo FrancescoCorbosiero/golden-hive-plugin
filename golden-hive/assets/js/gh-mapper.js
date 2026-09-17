@@ -1,3 +1,4 @@
+/* Hive Commerce — mapper module. Extends GH; loads after gh-core.js. */
 // ═══ UI MAPPER ══════════════════════════════════════════════════════════════
 
 (function(){

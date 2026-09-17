@@ -18,9 +18,6 @@ add_action( 'admin_menu', function () {
 } );
 
 function gh_render_page(): void {
-    $nonce = wp_create_nonce( 'gh_nonce' );
-    $ajax  = admin_url( 'admin-ajax.php' );
-
     // Feed e sincronizzazione sono di competenza di HIVE SYNC, non di Hive
     // Commerce: i tab FEED (GS / SF / CSV / KicksDB) restano NASCOSTI.
     // È solo UI-hiding, non una rimozione: tutto il PHP resta caricato —
@@ -45,16 +42,8 @@ function gh_render_page(): void {
     // gh_feed_ui_visible (nome corrente) dica sempre l'ultima parola.
     $show_feed_ui = (bool) apply_filters( 'gh_import_ui_visible', $show_feed_ui );
     $show_feed_ui = (bool) apply_filters( 'gh_feed_ui_visible',   $show_feed_ui );
+    // Styles and scripts are enqueued in includes/assets.php.
     ?>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-
-<style>
-#wpfooter{display:none !important}
-#wpbody-content{padding-bottom:0 !important}
-html.wp-toolbar,body.wp-admin.toplevel_page_hive-commerce{background:#0c0d10}
-</style>
-<?php include GH_DIR . 'includes/views/css.php'; ?>
 
 <div id="gh">
     <div class="header">
@@ -137,24 +126,5 @@ html.wp-toolbar,body.wp-admin.toplevel_page_hive-commerce{background:#0c0d10}
     <div id="gh-toasts" class="toast-wrap"></div>
 </div>
 
-<script>
-<?php include GH_DIR . 'includes/views/js.php'; ?>
-<?php include GH_DIR . 'includes/views/js2.php'; ?>
-<?php include GH_DIR . 'includes/views/js-termpicker.php'; ?>
-<?php include GH_DIR . 'includes/views/js-settings.php'; ?>
-<?php include GH_DIR . 'includes/views/js-operations.php'; ?>
-<?php include GH_DIR . 'includes/views/js-inline.php'; ?>
-<?php include GH_DIR . 'includes/views/js-smart.php'; ?>
-<?php include GH_DIR . 'includes/views/js-navigation.php'; ?>
-<?php include GH_DIR . 'includes/views/js-media.php'; ?>
-<?php include GH_DIR . 'includes/views/js-mapper.php'; ?>
-<?php include GH_DIR . 'includes/views/js-jobs.php'; ?>
-<?php include GH_DIR . 'includes/views/js-email.php'; ?>
-<?php include GH_DIR . 'includes/views/js-email-campaigns.php'; ?>
-<?php include GH_DIR . 'includes/views/js-email-transactional.php'; ?>
-<?php include GH_DIR . 'includes/views/js-kicksdb.php'; ?>
-<?php include GH_DIR . 'includes/views/js-history.php'; ?>
-<?php include GH_DIR . 'includes/views/js-workflow.php'; ?>
-</script>
 <?php
 }

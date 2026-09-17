@@ -1,3 +1,4 @@
+/* Hive Commerce — media module. Extends GH; loads after gh-core.js. */
 // ═══ MEDIA LIBRARY ════════════════════════════════════════════════════════
 
 (function() {

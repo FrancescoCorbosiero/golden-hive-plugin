@@ -39,6 +39,11 @@
 golden-hive/
 ├── golden-hive.php              ← Entry point. Solo require_once.
 ├── CLAUDE.md                    ← Questo file.
+├── assets/                      ← CSS/JS SERVITI (enqueued, cacheabili). Sorgente unica.
+│   ├── css/gh-admin.css         ← Design system + .gh-card + .gh-status-* + color alpha tokens + @media mobile
+│   ├── css/gh-kicksdb.css       ← Stili del pannello KicksDB (griglia Discover)
+│   ├── js/gh-core.js            ← IIFE `const GH = (…)()`: ajax, ajaxWithToast, toast (sticky), confirm, emptyState, statusChip, markDirty/clearDirty/isDirty, registerShortcuts, registerDeepOpener, updateHash, copyJSON, copyToClipboard, wireDirtyInputs, switchTab (hash-aware)
+│   └── js/gh-*.js               ← moduli che estendono GH: operations, inline, smart, navigation, media, mapper, jobs, email, email-campaigns, email-transactional, kicksdb, history, workflow, termpicker, settings
 └── includes/
     ├── core/                    ← Foundation helpers riutilizzabili (prefix: gh_)
     │   ├── product-factory.php  ← gh_create_simple_product, gh_create_variable_product
@@ -121,12 +126,10 @@ golden-hive/
     │   └── transactional-ajax.php ← rp_em_ajax_trx_list/_save/_test_fire, rp_em_ajax_save_tracking (metabox)
     ├── tools/
     │   ├── nuclear-cleanup.php, ajax.php
-    ├── views/
-    │   ├── css.php              ← Design system + .gh-card + .gh-status-* unified + color alpha tokens + @media mobile
-    │   ├── panels*.php          ← panels, panels-operations, panels-navigation, panels-mapper, panels-jobs, panels-email, panels-kicksdb
-    │   ├── js.php + js2.php     ← GH module IIFE: ajax, ajaxWithToast, toast (sticky), confirm, emptyState, statusChip, markDirty/clearDirty/isDirty, registerShortcuts, registerDeepOpener, updateHash, copyJSON, copyToClipboard, wireDirtyInputs, switchTab (hash-aware)
-    │   └── js-*.php             ← js-operations, js-inline, js-smart, js-navigation, js-media, js-mapper, js-jobs, js-email, js-email-campaigns, js-email-transactional, js-kicksdb
-    └── admin-page.php           ← add_menu_page + sidebar a tab
+    ├── views/                   ← SOLO MARKUP. Niente <style>, niente <script>.
+    │   └── panels*.php          ← panels, panels-operations, panels-navigation, panels-mapper, panels-jobs, panels-email, panels-kicksdb, panels-history, panels-workflow
+    ├── assets.php               ← admin_enqueue_scripts: enqueue di assets/css + assets/js, versioning via filemtime, wp_localize_script('GHBoot')
+    └── admin-page.php           ← add_menu_page + sidebar a tab (solo markup)
 ```
 
 ---
@@ -142,6 +145,33 @@ email/contacts.php, mailer.php     → "Email" (contatti, campagne, wp_mail)
 */ajax.php                         → "Bridge" (sanitize → chiama funzione → json)
 views/*.php, admin-page.php        → "UI" (zero logica business)
 ```
+
+---
+
+## Asset Loading — `includes/assets.php`
+
+CSS e JS sono **file enqueued**, non più inline. Prima la pagina admin
+spediva ~726 KB ad **ogni** load (505 KB di JS + 80 KB di CSS stampati
+inline, non cacheabili); ora il markup pesa ~141 KB e il resto lo serve il
+browser dalla cache, rivalidando per versione.
+
+- **Sorgente unica**: `assets/css/*.css` e `assets/js/*.js`. I vecchi
+  `views/css.php`, `views/js*.php` sono stati rimossi — `views/` contiene
+  ormai solo markup. Non reintrodurre `<style>`/`<script>` inline nei panel.
+- **Versioning**: `filemtime()` per file, quindi un deploy invalida la cache
+  da solo, senza bump manuale di `GH_VERSION`.
+- **Bootstrap**: gli unici due valori che il JS prendeva da PHP (ajax url +
+  nonce) arrivano su `window.GHBoot` via `wp_localize_script()`.
+- **`gh-core.js` è indivisibile**: `js.php` + `js2.php` erano due metà di una
+  sola IIFE (`const GH = (function(){` … `})();`), nessuna delle due
+  sintatticamente valida da sola. Stanno in un unico file.
+- **L'ordine di caricamento è load-bearing**: `gh-operations`, `gh-media` e
+  `gh-jobs` wrappano `GH.switchTab` a catena, quindi ogni handle dichiara il
+  precedente come dipendenza per forzare la sequenza esatta. Se un domani la
+  catena di monkey-patch sparisce, le dipendenze possono collassare tutte su
+  `gh-core`.
+- **Niente `defer`/`async`**: il core registra un handler `DOMContentLoaded`
+  per l'hash routing, che verrebbe perso se lo script girasse dopo l'evento.
 
 ---
 

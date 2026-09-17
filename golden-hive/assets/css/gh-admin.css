@@ -1,4 +1,6 @@
-<style>
+/* Hive Commerce — admin design system. Rules scope under #gh per
+   CONVENTIONS.md; the few that touch WP chrome are safe because this
+   sheet only loads on the Hive Commerce screen. */
 #gh{all:initial}#gh *,#gh *::before,#gh *::after{box-sizing:border-box;margin:0;padding:0;font-family:'DM Sans',system-ui,sans-serif}
 /* Root: calc the exact remaining space after WP admin bar (32px desktop, 46px mobile).
    Negative margins cancel the padding WP Admin wraps around .wrap / #wpbody-content. */
@@ -962,4 +964,3 @@ body.gh-loading #gh #gh-progress{opacity:1}
     /* ── Stats bars: wrap invece di scorrere off-screen ───────────── */
     #gh .stats-bar{flex-wrap:wrap}
 }
-</style>

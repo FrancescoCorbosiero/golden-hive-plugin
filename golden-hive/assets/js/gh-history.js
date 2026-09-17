@@ -1,3 +1,4 @@
+/* Hive Commerce — history module. Extends GH; loads after gh-core.js. */
 // ═══ CATALOG HISTORY (DIFF VISUALIZATION) ═══════════════════════════════════
 
 (function(){

@@ -1,3 +1,4 @@
+/* Hive Commerce — email module. Extends GH; loads after gh-core.js. */
 // ═══ EMAIL — Brand + Templates + Contacts + Test + History + Seed ══════════
 // Wizard campagne in js-email-campaigns.php. IIFE che attacca a GH.
 

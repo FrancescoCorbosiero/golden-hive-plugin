@@ -192,6 +192,10 @@ require_once GH_DIR . 'includes/tools/ajax.php';
 require_once GH_DIR . 'includes/integrations/hive-sync-bridge.php';
 
 // Admin UI
+// Admin assets — enqueues assets/css + assets/js (extracted from the
+// views). Must load alongside admin-page.php, which renders the markup
+// those files style and drive.
+require_once GH_DIR . 'includes/assets.php';
 require_once GH_DIR . 'includes/admin-page.php';
 
 // v2 core bootstrap: wires SourceRegistry / OperationRegistry / CheckRegistry,

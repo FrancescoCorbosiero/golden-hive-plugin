@@ -9,6 +9,7 @@ const GH = (function() {
     const AJAX  = (window.GHBoot && window.GHBoot.ajax)  || '';
     const NONCE = (window.GHBoot && window.GHBoot.nonce) || '';
     let state = { roundtripData:null, importJSON:null, bulkJSON:null };
+    let _modalSeq = 0;   // unique ids for dialog aria-labelledby/describedby
     let taxTree=[], taxSelected=null, taxCollapsed={}, gsProducts=null, gsSelected=new Set(), gsDiffData=null;
 
     // ── Global ajax-in-flight progress bar ─────────────────────────
@@ -227,9 +228,12 @@ const GH = (function() {
         if (_dirty && !confirm('Hai modifiche non salvate. Cambiare tab senza salvare?')) return false;
         _dirty = false;
         clearShortcuts();
-        document.querySelectorAll('#gh .tab-item').forEach(t=>t.classList.remove('active'));
+        document.querySelectorAll('#gh .tab-item').forEach(t=>{
+            t.classList.remove('active');
+            t.removeAttribute('aria-current');
+        });
         document.querySelectorAll('#gh .panel').forEach(p=>p.classList.remove('active'));
-        if (el) el.classList.add('active');
+        if (el) { el.classList.add('active'); el.setAttribute('aria-current','page'); }
         const p = document.getElementById('panel-'+name);
         if (p) p.classList.add('active');
         updateHash(name);
@@ -272,26 +276,53 @@ const GH = (function() {
             const overlay = document.createElement('div');
             overlay.className = 'gh-modal-overlay';
             const bodyHtml = String(msg || '').replace(/\n/g, '<br>');
+            // Unique ids so the dialog can point at its own title/body:
+            // without them a screen reader announces "dialog" and nothing else.
+            const uid   = 'gh-modal-' + (++_modalSeq);
+            const titId = uid + '-title';
+            const bodId = uid + '-body';
             overlay.innerHTML =
-                '<div class="gh-modal" role="dialog" aria-modal="true">' +
-                    (title ? '<div class="gh-modal-title">' + esc(title) + '</div>' : '') +
-                    '<div class="gh-modal-body">' + bodyHtml + '</div>' +
+                '<div class="gh-modal" role="dialog" aria-modal="true"' +
+                     (title ? ' aria-labelledby="' + titId + '"' : '') +
+                     ' aria-describedby="' + bodId + '">' +
+                    (title ? '<div class="gh-modal-title" id="' + titId + '">' + esc(title) + '</div>' : '') +
+                    '<div class="gh-modal-body" id="' + bodId + '">' + bodyHtml + '</div>' +
                     '<div class="gh-modal-actions">' +
-                        '<button class="btn btn-ghost gh-modal-cancel">' + esc(cancelLabel) + '</button>' +
-                        '<button class="btn ' + (danger ? 'btn-danger' : 'btn-primary') + ' gh-modal-ok">' + esc(okLabel) + '</button>' +
+                        '<button type="button" class="btn btn-ghost gh-modal-cancel">' + esc(cancelLabel) + '</button>' +
+                        '<button type="button" class="btn ' + (danger ? 'btn-danger' : 'btn-primary') + ' gh-modal-ok">' + esc(okLabel) + '</button>' +
                     '</div>' +
                 '</div>';
             // Attacca dentro #gh per ereditare lo scope CSS.
             (document.getElementById('gh') || document.body).appendChild(overlay);
 
+            // Whatever had focus before the dialog opened gets it back on
+            // close — otherwise focus falls to <body> and a keyboard user
+            // restarts their Tab journey from the top of the page.
+            const returnFocusTo = document.activeElement;
+
             function cleanup(result) {
                 document.removeEventListener('keydown', keyHandler);
                 overlay.remove();
+                if (returnFocusTo && typeof returnFocusTo.focus === 'function') {
+                    returnFocusTo.focus();
+                }
                 resolve(result);
             }
             function keyHandler(e) {
-                if (e.key === 'Escape') { e.preventDefault(); cleanup(false); }
-                else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); cleanup(true); }
+                if (e.key === 'Escape') { e.preventDefault(); cleanup(false); return; }
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); cleanup(true); return; }
+                // Focus trap: aria-modal only tells assistive tech the rest of
+                // the page is inert, it does not stop Tab from walking out.
+                if (e.key === 'Tab') {
+                    const f = overlay.querySelectorAll('button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+                    if (!f.length) return;
+                    const first = f[0], last = f[f.length - 1];
+                    if (e.shiftKey && document.activeElement === first) {
+                        e.preventDefault(); last.focus();
+                    } else if (!e.shiftKey && document.activeElement === last) {
+                        e.preventDefault(); first.focus();
+                    }
+                }
             }
             overlay.querySelector('.gh-modal-ok').addEventListener('click', () => cleanup(true));
             overlay.querySelector('.gh-modal-cancel').addEventListener('click', () => cleanup(false));

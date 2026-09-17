@@ -1064,6 +1064,17 @@ popola con i valori salvati (token redatto) appena l'utente entra nel tab.
 1. **Prefix corretto:** `gh_` per moduli nuovi (filter, bulk, jobs, mapper, core), prefix originale per moduli mergiati (rp_, rp_cm_, rp_em_, rp_mm_).
 2. **Nonce:** `gh_nonce` per tutti gli AJAX di golden-hive. `gh_ajax_guard()` accetta anche `rp_em_nonce` per coesistenza.
 3. **CSS scopato sotto `#gh`** — mai stili globali.
+3b. **Accessibilità — non regredire**: ogni controllo cliccabile è un
+   elemento nativo (`<button type="button">`, `<a>`), mai un `<div onclick>`:
+   i div non prendono focus, non rispondono a Invio/Spazio e non vengono
+   annunciati come controlli. La sidebar è un `<nav>` con heading `<h2>` per
+   sezione; il tab attivo porta `aria-current="page"` (gestito da
+   `switchTab`); le icone decorative sono `aria-hidden="true"`; il
+   contenitore dei toast è `role="status" aria-live="polite"`. Gli stati di
+   focus usano `:focus-visible` (non `:focus`, che lascerebbe l'anello anche
+   dopo un click col mouse). Testo solo per screen reader: `.gh-sr-only`.
+   I dialog (`GH.confirm`) fanno focus trap, `aria-labelledby`/`describedby`
+   e **restituiscono il focus** all'elemento che li ha aperti.
 4. **JS estende GH** — i moduli aggiuntivi (js-operations, js-email, ...) aggiungono metodi a `GH` dall'esterno e usano gli helper del Batch 1-2.
 5. **Desktop-first, mobile secondario** — il titolare usa lo strumento prevalentemente da desktop. Le regole base devono assumere una larghezza ampia (≥1024px) e sfruttarla (layout a 2 colonne, liste a tutta larghezza, toolbar orizzontali). Sotto `@media(max-width:768px)` i layout collassano in flex-column come fallback, ma non e la priorita visuale. Niente `max-width` arbitrarie sui container principali (`.content`, `.panel`, liste/editor) che impediscano di usare lo spazio orizzontale.
 6. **Double-load guard** obbligatoria su ogni file condiviso con plugin standalone.

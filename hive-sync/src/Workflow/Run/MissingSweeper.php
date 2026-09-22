@@ -100,7 +100,8 @@ final class MissingSweeper
      *
      * @return array{
      *   retire: FeedItem[], restore: FeedItem[], owned: int,
-     *   aborted: bool, reason: string, ratio: float, would_retire: int
+     *   aborted: bool, reason: string, ratio: float, would_retire: int,
+     *   sample: string[]
      * }
      */
     public static function decide(
@@ -129,6 +130,7 @@ final class MissingSweeper
             'reason'       => '',
             'ratio'        => 0.0,
             'would_retire' => 0,
+            'sample'       => [],
         ];
 
         // Match case-insensitively: the fast-patch path already resolves
@@ -197,6 +199,14 @@ final class MissingSweeper
         // making a product visible again is safe under every failure mode
         // this guard is defending against, and withholding them would
         // strand products the feed is actively selling.
+        //
+        // The sample travels WITH the abort. A guard that says "565
+        // products would go" and won't say which ones leaves the
+        // operator no way to tell a truncated feed from a real backlog
+        // except by disabling the guard and finding out — which is the
+        // one thing it exists to prevent. Same reasoning as
+        // summary.sku_missing_list: a count you can't check is a count
+        // you can't act on.
         if (
             $maxRatio < 1
             && count( $owned ) >= self::MIN_CATALOG_FOR_RATIO
@@ -210,6 +220,7 @@ final class MissingSweeper
                 'reason'       => 'ratio_guard',
                 'ratio'        => $ratio,
                 'would_retire' => count( $retire ),
+                'sample'       => self::sample( $retire ),
             ];
         }
 
@@ -221,7 +232,25 @@ final class MissingSweeper
             'reason'       => '',
             'ratio'        => $ratio,
             'would_retire' => count( $retire ),
+            'sample'       => self::sample( $retire ),
         ];
+    }
+
+    /**
+     * First N SKUs of a decision, for the report. Capped for transport —
+     * the operator only needs enough to spot-check a handful against the
+     * supplier's site.
+     *
+     * @param FeedItem[] $items
+     * @return string[]
+     */
+    private static function sample( array $items, int $max = 60 ): array
+    {
+        $out = [];
+        foreach ( array_slice( $items, 0, $max ) as $item ) {
+            if ( $item instanceof FeedItem ) $out[] = $item->sku;
+        }
+        return $out;
     }
 
     /**
@@ -229,7 +258,7 @@ final class MissingSweeper
      *
      * @param string[]                 $feedSkus
      * @param array{max_ratio?: float} $opts
-     * @return array{retire: FeedItem[], restore: FeedItem[], owned: int, aborted: bool, reason: string, ratio: float, would_retire: int}
+     * @return array{retire: FeedItem[], restore: FeedItem[], owned: int, aborted: bool, reason: string, ratio: float, would_retire: int, sample: string[]}
      */
     public static function forProvenance(
         array $feedSkus,

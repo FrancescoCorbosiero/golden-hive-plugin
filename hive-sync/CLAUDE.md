@@ -942,8 +942,27 @@ può restituire meno del vero è un modo di spegnere un catalogo vivo:
 | `mode = media_only` | quel branch non scrive sui prodotti |
 | provenance vuota | la source non marca ciò che crea → non si può dimostrare la proprietà → non si tocca niente |
 
-**Nessun guard è silenzioso.** Ognuno emette un warning nel run. Una
-spazzata che si rifiuta di partire senza dirlo è indistinguibile dal
+**Nessun guard è silenzioso, e nemmeno cieco.** Ognuno emette un
+warning nel run, e il freno sul ratio porta con sé **il riscontro e un
+campione degli SKU** che avrebbe toccato (`summary.retire_sample`, più
+`retire_owned` / `retire_would` / `retire_matched` accanto a `fetched`).
+Senza, un guard che dice "565 prodotti su 1023" e non dice *quali* non
+lascia all'operatore nessun modo di distinguere un feed troncato da un
+arretrato vero se non disattivando il guard e scoprendolo — cioè
+l'unica cosa che il guard esiste per impedire. Stesso ragionamento di
+`sku_missing_list`: un numero che non puoi verificare è un numero su cui
+non puoi decidere. Il riscontro da leggere è
+`fetched` vs `retire_matched`: se tornano, il feed è integro e la
+sparizione è reale; se il feed porta molti più SKU di quanti ne
+combaciano, è un problema di corrispondenza degli SKU e oscurare farebbe
+danni.
+
+**`retire_max_ratio` ha un controllo nell'UI** (Importa → "Soglia di
+sicurezza", e nell'editor del job). Il warning diceva all'operatore di
+alzare una soglia che non esisteva come campo: un messaggio che chiede
+un'azione impossibile è peggio di nessun messaggio.
+
+Una spazzata che si rifiuta di partire senza dirlo è indistinguibile dal
 bug che è nata per risolvere — ed è esattamente così che l'operatore
 si ritrova a spiegare al cliente perché il prodotto è ancora lì.
 

@@ -381,6 +381,10 @@ function hsync_render_admin_page(): void {
                     <label class="hsync-dryrun" title="Spegne sul sito i prodotti che il feed ha smesso di elencare (SKU sparito dal catalogo del fornitore). Senza questa opzione restano pubblicati e acquistabili per sempre: il confronto col feed guarda solo gli SKU che il feed RESTITUISCE, quindi uno SKU tolto dal listino non finisce in nessun bucket e nessuna sync lo tocca più. Reversibile: se lo SKU torna nel feed il prodotto viene ripristinato allo stato precedente nello stesso run. Sicuro da lasciare attivo sui cron job — ha un freno che annulla la spazzata se il feed è vuoto o se sparisce più del 35% del catalogo in un colpo solo.">
                         <input type="checkbox" data-field="run-retire-missing" checked> Oscura prodotti spariti dal feed
                     </label>
+                    <label class="hsync-limit" title="Percentuale massima del catalogo di questa sorgente che può essere oscurata in un singolo run. Oltre la soglia la spazzata si annulla e ti dice quanti prodotti avrebbe toccato, elencandone un campione: serve a non farti spegnere mezzo negozio per un feed troncato o un token scaduto. Alza al 100% solo dopo aver verificato che la sparizione è reale — tipicamente al primo run, quando esce fuori tutto l'arretrato accumulato da prima che la spazzata esistesse. Sotto i 20 prodotti posseduti il freno non si applica.">
+                        Soglia di sicurezza
+                        <input type="number" data-field="run-retire-max-ratio" min="1" max="100" step="1" value="35" style="width:5em;">%
+                    </label>
                     <label class="hsync-limit" title="Cosa fare al prodotto che il feed non elenca più. 'Esaurito' lo lascia navigabile ma non acquistabile; 'Nascondi' lo toglie anche da shop e ricerca (il link diretto continua a funzionare); 'Bozza' lo toglie del tutto dal sito. Tutte e tre sono reversibili.">
                         Modo
                         <select data-field="run-retire-mode" style="max-width:15em;">

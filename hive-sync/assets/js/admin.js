@@ -1041,6 +1041,9 @@
         const buckets = Array.isArray(opts.buckets) && opts.buckets.length ? opts.buckets : ['new', 'update', 'updateStock'];
         const retire     = !!opts.retire_missing;
         const retireMode = ['hidden', 'outofstock', 'draft'].indexOf(opts.retire_mode) >= 0 ? opts.retire_mode : 'hidden';
+        const retireRatio = (parseFloat(opts.retire_max_ratio) > 0 && parseFloat(opts.retire_max_ratio) <= 1)
+            ? Math.round(parseFloat(opts.retire_max_ratio) * 100)
+            : 35;
         const bucketCheck = (id, label, hint) =>
             '<label class="hsync-job-bucket" style="display:inline-flex;gap:6px;align-items:center;font-weight:400;margin-right:14px;">'
             +   '<input type="checkbox" data-field="job-bucket" value="' + id + '"' + (buckets.indexOf(id) >= 0 ? ' checked' : '') + '>'
@@ -1064,7 +1067,13 @@
             +         '<option value="outofstock"' + (retireMode === 'outofstock' ? ' selected' : '') + '>Solo esaurito</option>'
             +         '<option value="draft"' + (retireMode === 'draft' ? ' selected' : '') + '>Metti in bozza + esaurito</option>'
             +       '</select>'
-            +       '<small class="hsync-muted">Quando il fornitore toglie uno SKU dal listino, il prodotto resta altrimenti pubblicato e acquistabile per sempre: il diff guarda solo gli SKU che il feed <em>restituisce</em>. Reversibile — se lo SKU torna nel feed il prodotto viene ripristinato nello stesso run. La spazzata si annulla da sola se il feed è vuoto o se sparisce oltre il 35% del catalogo in un colpo, e viene ignorata se il job ha un limite "Max prodotti".</small>'
+            +     '</label>'
+            +     '<label style="margin-top:6px;">Soglia di sicurezza (%)'
+            +       '<input type="number" min="1" max="100" step="1" data-field="job-retire-max-ratio" value="' + esc(String(retireRatio)) + '" style="max-width:8em;">'
+            +       '<small class="hsync-muted">Percentuale massima del catalogo della sorgente che può essere oscurata in un singolo run. Oltre la soglia la spazzata si annulla, dice quanti prodotti avrebbe toccato e ne elenca un campione. Default 35. Su un cron lasciala bassa: è ciò che impedisce a un feed troncato o a un token scaduto di spegnere mezzo negozio senza che nessuno guardi.</small>'
+            +     '</label>'
+            +     '<label style="margin-top:6px;">'
+            +       '<small class="hsync-muted">Quando il fornitore toglie uno SKU dal listino, il prodotto resta altrimenti pubblicato e acquistabile per sempre: il diff guarda solo gli SKU che il feed <em>restituisce</em>. Reversibile — se lo SKU torna nel feed il prodotto viene ripristinato nello stesso run. La spazzata si annulla da sola se il feed è vuoto o se supera la soglia qui sopra, e viene ignorata se il job ha un limite "Max prodotti" o un filtro di categoria (in quel caso il feed è solo una fetta del catalogo, e tutto il resto risulterebbe sparito). I ripristini girano comunque, su ogni sync.</small>'
             +     '</label>'
             +   '</div>'
             +   '<div class="hsync-job-buckets" style="margin-top:8px;">'
@@ -1118,9 +1127,13 @@
                 options.retire_missing = true;
                 const modeEl = $('[data-field="job-retire-mode"]');
                 options.retire_mode = modeEl ? modeEl.value : 'hidden';
+                const ratioEl = $('[data-field="job-retire-max-ratio"]');
+                const ratio = ratioEl ? Math.min(100, Math.max(1, parseInt(ratioEl.value, 10) || 35)) : 35;
+                options.retire_max_ratio = ratio / 100;
             } else {
                 delete options.retire_missing;
                 delete options.retire_mode;
+                delete options.retire_max_ratio;
             }
             const checkedBuckets = $$('[data-field="job-bucket"]:checked').map(cb => cb.value);
             const allBuckets     = ['new', 'update', 'updateStock'];
@@ -2800,6 +2813,13 @@
         const retireMissing = retireEl ? !!retireEl.checked : false;
         const retireModeEl = $('[data-field="run-retire-mode"]');
         const retireMode = retireModeEl ? String(retireModeEl.value || 'hidden') : 'hidden';
+        const retireRatioEl = $('[data-field="run-retire-max-ratio"]');
+        // Sent as a fraction — the field is a percentage because that is
+        // how the guard reports itself. Clamped to 1..100 so a stray 0
+        // can't read as "no limit" (the server re-clamps anyway).
+        const retireMaxRatio = retireRatioEl
+            ? Math.min(100, Math.max(1, parseInt(retireRatioEl.value, 10) || 35)) / 100
+            : 0.35;
         const options = {};
         if (mapping)        options.mapping = mapping.config;
         if (pipelineSlug)   options.pipeline_slug = pipelineSlug;
@@ -2820,8 +2840,9 @@
         // run is narrowed by `skus` or capped by `limit`, and says so in
         // the warnings rather than silently doing nothing.
         if (retireMissing) {
-            options.retire_missing = true;
-            options.retire_mode    = retireMode;
+            options.retire_missing  = true;
+            options.retire_mode     = retireMode;
+            options.retire_max_ratio = retireMaxRatio;
         }
 
         // Force-recreate is destructive on the variation set — confirm
@@ -3178,7 +3199,9 @@
               + (s.retire_aborted === 'feed_empty'
                     ? 'il feed non ha restituito nessuno SKU'
                     : s.retire_aborted === 'ratio_guard'
-                        ? 'oltre la soglia di sicurezza: ' + (s.retire_would || 0) + ' prodotti'
+                        ? 'oltre la soglia di sicurezza: ' + (s.retire_would || 0) + ' prodotti su '
+                          + (s.retire_owned || 0) + ', mentre il feed ne ha restituiti ' + (s.fetched || 0)
+                          + ' di cui ' + (s.retire_matched || 0) + ' combacianti'
                         : esc(s.retire_aborted))
               + '). Nessun prodotto è stato oscurato.</div>'
             : (s.retire_skipped
@@ -3199,6 +3222,12 @@
             +     stat('Ripristinati',         s.restored,   (s.restored   || 0) > 0 ? 'is-good' : 'is-dim')
             +   '</div>'
             +   sweepNote
+            +   (Array.isArray(s.retire_sample) && s.retire_sample.length
+                    ? '<div class="hsync-summary-foot">SKU interessati (campione): '
+                      + s.retire_sample.map(esc).join(', ')
+                      + (((s.missing || 0) + (s.retire_would || 0)) > s.retire_sample.length ? ', …' : '')
+                      + '</div>'
+                    : '')
             + '</div>'
             : '';
 

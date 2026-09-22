@@ -102,8 +102,24 @@ final class MissingSweeperTest extends TestCase
         $this->assertTrue( $r['aborted'] );
         $this->assertSame( 'ratio_guard', $r['reason'] );
         $this->assertSame( [], $r['retire'] );
-        // The count survives the abort so the warning can name it.
+        // The count AND the SKUs survive the abort. A guard that says
+        // "20 products would go" and won't say which ones leaves no way
+        // to tell a truncated feed from a real backlog except by
+        // disabling the guard and finding out.
         $this->assertSame( 20, $r['would_retire'] );
+        $this->assertCount( 20, $r['sample'] );
+        $this->assertContains( 'SKU-1', $r['sample'] );
+    }
+
+    public function testSampleIsCappedForTransport(): void
+    {
+        $owned = [];
+        for ( $i = 1; $i <= 300; $i++ ) $owned[ $i ] = [ 'sku' => 'SKU-' . $i ];
+
+        $r = MissingSweeper::decide( [ 'SKU-1' ], $this->owned( $owned ), 'hidden', [ 'max_ratio' => 1.0 ] );
+
+        $this->assertCount( 299, $r['retire'] );
+        $this->assertCount( 60, $r['sample'] );
     }
 
     public function testRatioGuardDoesNotApplyToSmallCatalogs(): void

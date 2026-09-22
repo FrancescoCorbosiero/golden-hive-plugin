@@ -458,16 +458,32 @@ final class ImportRunner
                     'reason'       => (string) $decision['reason'],
                     'ratio'        => (float) $decision['ratio'],
                     'would_retire' => (int) $decision['would_retire'],
+                    'sample'       => (array) ( $decision['sample'] ?? [] ),
                 ];
                 if ( $retireMissing && $sweep['reason'] === 'feed_empty' ) {
                     $fetchWarnings[] = 'Oscuramento prodotti mancanti ANNULLATO: il feed non ha restituito nessuno SKU. Un feed vuoto è quasi sempre un errore di rete o di autenticazione, non un catalogo azzerato.';
                 } elseif ( $retireMissing && $sweep['reason'] === 'ratio_guard' ) {
+                    // Spell out the reconciliation instead of just the
+                    // verdict. "565 su 1023" alone can't be acted on;
+                    // "il feed ne porta 460 e 458 combaciano" answers the
+                    // only question that matters — feed troncato, o
+                    // arretrato vero accumulato da quando il sito esiste?
+                    // Se i due numeri tornano, il feed è integro e i 565
+                    // sono reali. Se il feed ne porta molti più di quanti
+                    // ne combaciano, è un problema di match sugli SKU e
+                    // oscurare sarebbe un disastro.
+                    $matched = max( 0, $sweep['owned'] - $sweep['would_retire'] );
                     $fetchWarnings[] = sprintf(
-                        'Oscuramento prodotti mancanti ANNULLATO: %d prodotti su %d (%.1f%%) risultano spariti dal feed, oltre la soglia di sicurezza del %.0f%%. Probabile feed troncato. Controlla il feed e, se la sparizione è reale, rialza "Soglia di sicurezza" per questo run.',
+                        'Oscuramento prodotti mancanti ANNULLATO dal freno di sicurezza: %d prodotti su %d (%.1f%%) risultano spariti dal feed, oltre la soglia del %.0f%%. '
+                        . 'Riscontro: il feed ha restituito %d SKU, di cui %d combaciano con prodotti esistenti. '
+                        . 'Se questi due numeri tornano, il feed è integro e la sparizione è reale (arretrato accumulato da prima che la spazzata esistesse): controlla qualche SKU qui sotto sul sito del fornitore e, se confermi, alza "Soglia di sicurezza" al 100%% per un singolo run. '
+                        . 'Se invece il feed porta molti più SKU di quanti ne combaciano, è un problema di corrispondenza degli SKU e oscurare farebbe danni: NON alzare la soglia.',
                         $sweep['would_retire'],
                         $sweep['owned'],
                         $sweep['ratio'] * 100,
-                        $retireMaxRatio * 100
+                        $retireMaxRatio * 100,
+                        $fetchedCount,
+                        $matched
                     );
                 }
             }
@@ -571,6 +587,12 @@ final class ImportRunner
             if ( $retireMissing && ! empty( $sweep['aborted'] ) ) {
                 $summary['retire_aborted'] = (string) ( $sweep['reason'] ?? '' );
                 $summary['retire_would']   = (int) ( $sweep['would_retire'] ?? 0 );
+                $summary['retire_matched'] = max( 0, (int) ( $sweep['owned'] ?? 0 ) - (int) ( $sweep['would_retire'] ?? 0 ) );
+            }
+            // Named, not just counted — on a dry run too, where the whole
+            // point is to look before acting.
+            if ( ! empty( $sweep['sample'] ) ) {
+                $summary['retire_sample'] = array_slice( (array) $sweep['sample'], 0, 60 );
             }
         }
 

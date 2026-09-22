@@ -305,4 +305,68 @@ final class MissingSweeperTest extends TestCase
         $this->assertSame( [], $r['retire'] );
         $this->assertSame( 0, $r['owned'] );
     }
+
+    // ─── Restore-only: what keeps a retire from being one-way ────────
+
+    /**
+     * Turning `retire_missing` back OFF must not strand the products an
+     * earlier run hid.
+     *
+     * Without this pass the trap is silent and permanent: the SKU
+     * returns, the ordinary import re-stocks it and syncs post_status
+     * from the feed payload, and `catalog_visibility = hidden` is left
+     * behind because nothing in the feed path resets it. The product is
+     * live and in stock and invisible in the shop, and there is nothing
+     * in any report pointing at it.
+     */
+    public function testRestoreStillHappensWhenTheSweepIsOff(): void
+    {
+        $r = MissingSweeper::decide(
+            [ 'BACK' ],
+            $this->owned( [
+                10 => [ 'sku' => 'BACK', 'status' => 'draft', 'retired_since' => '2026-01-01 00:00:00', 'retired_mode' => 'draft' ],
+            ] ),
+            'hidden',
+            [],
+            false          // retire disabled
+        );
+
+        $this->assertSame( [ 'BACK' ], $this->skus( $r['restore'] ) );
+    }
+
+    public function testRestoreOnlyPassNeverRetires(): void
+    {
+        $r = MissingSweeper::decide(
+            [ 'STILL-HERE' ],
+            $this->owned( [
+                10 => [ 'sku' => 'STILL-HERE' ],
+                11 => [ 'sku' => 'GONE' ],
+                12 => [ 'sku' => 'ALSO-GONE', 'retired_since' => '2026-01-01 00:00:00', 'retired_mode' => 'outofstock' ],
+            ] ),
+            'hidden',
+            [],
+            false
+        );
+
+        $this->assertSame( [], $r['retire'] );
+        $this->assertSame( [], $r['restore'] );
+        $this->assertFalse( $r['aborted'] );
+    }
+
+    /**
+     * A mass-delisting that would trip the circuit breaker must not also
+     * withhold the restores — those are the products the feed is
+     * actively selling right now.
+     */
+    public function testRestoreOnlyPassIgnoresTheRatioGuard(): void
+    {
+        $owned = [];
+        for ( $i = 1; $i <= 30; $i++ ) $owned[ $i ] = [ 'sku' => 'SKU-' . $i ];
+        $owned[99] = [ 'sku' => 'BACK', 'retired_since' => '2026-01-01 00:00:00', 'retired_mode' => 'hidden' ];
+
+        $r = MissingSweeper::decide( [ 'BACK' ], $this->owned( $owned ), 'hidden', [], false );
+
+        $this->assertFalse( $r['aborted'] );
+        $this->assertSame( [ 'BACK' ], $this->skus( $r['restore'] ) );
+    }
 }

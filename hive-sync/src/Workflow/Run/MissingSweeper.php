@@ -92,6 +92,11 @@ final class MissingSweeper
      *                            Catalog side, from OwnedProductLookup.
      * @param string $mode        Retire mode currently configured.
      * @param array{max_ratio?: float} $opts
+     * @param bool   $retireEnabled false = restore-only pass. The sweep is
+     *                            switched off, but products it hid
+     *                            earlier must still come back when their
+     *                            SKU returns, or turning the option off
+     *                            strands them hidden forever.
      *
      * @return array{
      *   retire: FeedItem[], restore: FeedItem[], owned: int,
@@ -102,7 +107,8 @@ final class MissingSweeper
         array $feedSkus,
         array $owned,
         string $mode,
-        array $opts = []
+        array $opts = [],
+        bool $retireEnabled = true
     ): array {
         $mode     = self::normalizeMode( $mode );
         $maxRatio = isset( $opts['max_ratio'] ) ? (float) $opts['max_ratio'] : self::DEFAULT_MAX_RATIO;
@@ -168,7 +174,13 @@ final class MissingSweeper
                 continue;
             }
 
-            // Absent from the feed. Skip the ones already retired under
+            // Absent from the feed. Nothing to do when the sweep is
+            // off — this pass is then running for the restores alone.
+            if ( ! $retireEnabled ) {
+                continue;
+            }
+
+            // Skip the ones already retired under
             // the mode in force — that's the steady state, and it must
             // cost zero writes. A mode CHANGE re-queues them, so
             // switching "solo out of stock" → "nascondi" converges on
@@ -223,14 +235,18 @@ final class MissingSweeper
         array $feedSkus,
         string $provenanceKey,
         string $mode,
-        array $opts = []
+        array $opts = [],
+        bool $retireEnabled = true
     ): array {
-        return self::decide(
-            $feedSkus,
-            OwnedProductLookup::forProvenance( $provenanceKey ),
-            $mode,
-            $opts
-        );
+        // The restore-only pass asks a much narrower question ("which of
+        // the ones I hid are back?"), so it gets the narrow query. On a
+        // store that never enabled the sweep it returns nothing and the
+        // whole pass costs one indexed lookup.
+        $owned = $retireEnabled
+            ? OwnedProductLookup::forProvenance( $provenanceKey )
+            : OwnedProductLookup::retiredForProvenance( $provenanceKey );
+
+        return self::decide( $feedSkus, $owned, $mode, $opts, $retireEnabled );
     }
 
     /**

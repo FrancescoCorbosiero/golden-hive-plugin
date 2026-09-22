@@ -3159,10 +3159,20 @@
         // under the import counters is how it stays unnoticed.
         const sweepOn = (s.retire_mode || '') !== '';
         const sweepModeLabel = {
-            hidden:     'nascosto dal catalogo + esaurito',
-            outofstock: 'solo esaurito',
-            draft:      'in bozza + esaurito',
+            hidden:       'nascosto dal catalogo + esaurito',
+            outofstock:   'solo esaurito',
+            draft:        'in bozza + esaurito',
+            // The restore-only pass runs on every sync, so its block
+            // only appears when it actually brought something back.
+            restore_only: 'solo ripristini',
         }[s.retire_mode] || s.retire_mode;
+        const sweepBlocked = {
+            skus:            'il run è ristretto a una lista di SKU',
+            limit:           'è attivo un limite "Max prodotti"',
+            media_only:      'modalità Solo media',
+            category_filter: 'il job ha un filtro di categoria: vede solo una fetta del catalogo',
+            no_provenance:   'la sorgente non marca i prodotti che crea',
+        }[s.retire_skipped] || s.retire_skipped;
         const sweepNote = s.retire_aborted
             ? '<div class="hsync-warning">Spazzata ANNULLATA ('
               + (s.retire_aborted === 'feed_empty'
@@ -3172,16 +3182,18 @@
                         : esc(s.retire_aborted))
               + '). Nessun prodotto è stato oscurato.</div>'
             : (s.retire_skipped
-                ? '<div class="hsync-warning">Spazzata non eseguita: il run è ristretto ('
-                  + esc(s.retire_skipped) + ').</div>'
+                ? '<div class="hsync-warning">Spazzata non eseguita: ' + esc(sweepBlocked)
+                  + '. I ripristini vengono comunque applicati.</div>'
                 : '');
         const sweepBlock = sweepOn
             ? '<div class="hsync-summary-section">'
             +   '<div class="hsync-summary-label">Prodotti spariti dal feed — '
             +     esc(sweepModeLabel) + '</div>'
             +   '<div class="hsync-summary">'
-            +     stat('Del fornitore in Woo', s.retire_owned, 'is-dim')
-            +     stat('Spariti dal feed',     s.missing,    (s.missing    || 0) > 0 ? 'is-bad'  : 'is-dim')
+            +     (s.retire_mode === 'restore_only'
+                    ? ''
+                    : stat('Del fornitore in Woo', s.retire_owned, 'is-dim')
+                    + stat('Spariti dal feed', s.missing, (s.missing || 0) > 0 ? 'is-bad' : 'is-dim'))
             +     stat('Oscurati',             s.retired,    (s.retired    || 0) > 0 ? 'is-good' : 'is-dim')
             +     stat('Tornati nel feed',     s.restorable, (s.restorable || 0) > 0 ? 'is-good' : 'is-dim')
             +     stat('Ripristinati',         s.restored,   (s.restored   || 0) > 0 ? 'is-good' : 'is-dim')

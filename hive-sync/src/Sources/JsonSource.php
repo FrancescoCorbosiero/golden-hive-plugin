@@ -50,6 +50,20 @@ final class JsonSource extends AbstractSource
     public function id(): string { return self::ID; }
     public function label(): string { return 'JSON — Feed da URL (Bearer / Cookie auth)'; }
 
+    /**
+     * The GS bridge stamps `_gh_import_source = goldensneakers` on every
+     * product it creates (rp_rc_gs_create_product), so the sweep can
+     * prove ownership. The generic flavor materializes through
+     * hsync_upsert_product, which stamps nothing — no provenance, no
+     * sweep. Returning '' there is the honest answer, not a gap: a
+     * retire we cannot attribute is a retire we must not run.
+     */
+    public function provenanceKey(array $config): string
+    {
+        $flavor = (string) ($config['flavor'] ?? self::FLAVOR_GENERIC);
+        return $flavor === self::FLAVOR_GS ? 'goldensneakers' : '';
+    }
+
     public function capabilities(): SourceCapabilities
     {
         return new SourceCapabilities(

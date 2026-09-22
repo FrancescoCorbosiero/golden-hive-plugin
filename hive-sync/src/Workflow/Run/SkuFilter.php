@@ -155,6 +155,13 @@ final class SkuFilter
             update:      $update,
             unchanged:   [],
             updateStock: [],
+            // Carried through, not rebuilt: `missing` is not a feed
+            // bucket and a SKU selection has nothing to say about it.
+            // (The runner suppresses the sweep under `options.skus`
+            // anyway, so this is empty in practice — passing it keeps
+            // the rebuild total instead of quietly lossy if that
+            // ordering ever changes.)
+            missing:     $diff->missing,
         );
     }
 

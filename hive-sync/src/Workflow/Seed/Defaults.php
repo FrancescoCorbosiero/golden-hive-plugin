@@ -525,9 +525,27 @@ final class Defaults
     {
         // No `buckets` option → ImportRunner defaults to processing
         // all three (`new`, `update`, `updateStock`) every tick.
+        //
+        // `retire_missing` ships ON, unlike every other seeded default
+        // that touches existing products. Keeping a sync job that only
+        // ever ADDS and UPDATES is not a conservative default, it's a
+        // wrong one: the supplier delists a SKU and the product stays
+        // published and orderable forever, which is a sale the store
+        // can't fulfil. "Sync" means the catalog tracks the feed in
+        // both directions.
+        //
+        // What makes it safe to default on is that MissingSweeper is
+        // guarded rather than trusting: an empty feed aborts it, a mass
+        // delisting past 35% aborts it, a narrowed or capped run
+        // suppresses it, and every abort is reported as a run warning.
+        // And `hidden` is fully reversible — the pre-sweep status and
+        // visibility are snapshotted per product and replayed the
+        // moment the SKU comes back.
         $syncOptions = static fn( string $mapping ): array => [
-            'mapping_slug'  => $mapping,
-            'pipeline_slug' => 'import-default',
+            'mapping_slug'   => $mapping,
+            'pipeline_slug'  => 'import-default',
+            'retire_missing' => true,
+            'retire_mode'    => 'hidden',
         ];
 
         return [

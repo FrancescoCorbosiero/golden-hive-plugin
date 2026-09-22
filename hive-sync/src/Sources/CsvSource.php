@@ -38,6 +38,17 @@ final class CsvSource extends AbstractSource
         return 'CSV — Feed da URL o file (StockFirmati, ecc.)';
     }
 
+    /**
+     * Mirror of JsonSource::provenanceKey — gh_sf_create_product stamps
+     * `_gh_import_source = stockfirmati`; the generic CSV path stamps
+     * nothing and therefore opts out of the missing-product sweep.
+     */
+    public function provenanceKey(array $config): string
+    {
+        $flavor = (string) ($config['flavor'] ?? self::FLAVOR_GENERIC);
+        return $flavor === self::FLAVOR_SF ? 'stockfirmati' : '';
+    }
+
     public function capabilities(): SourceCapabilities
     {
         return new SourceCapabilities(

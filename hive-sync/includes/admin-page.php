@@ -378,6 +378,17 @@ function hsync_render_admin_page(): void {
                     <label class="hsync-dryrun" title="Rimette in coda i prodotti che in Woo non hanno immagine di copertina, ma per cui il feed ha un URL valido: solo quelli, con il normale percorso di update (varianti e ID intatti). Serve perché il confronto col feed guarda prezzi/stock/testi e NON le immagini, quindi un prodotto rimasto senza foto risulta 'invariato' per sempre e nessuna sync lo ripara. Sicuro da lasciare attivo anche sui cron job: si esaurisce da solo quando non c'è più niente da riparare.">
                         <input type="checkbox" data-field="run-heal-media"> Ripara immagini mancanti
                     </label>
+                    <label class="hsync-dryrun" title="Spegne sul sito i prodotti che il feed ha smesso di elencare (SKU sparito dal catalogo del fornitore). Senza questa opzione restano pubblicati e acquistabili per sempre: il confronto col feed guarda solo gli SKU che il feed RESTITUISCE, quindi uno SKU tolto dal listino non finisce in nessun bucket e nessuna sync lo tocca più. Reversibile: se lo SKU torna nel feed il prodotto viene ripristinato allo stato precedente nello stesso run. Sicuro da lasciare attivo sui cron job — ha un freno che annulla la spazzata se il feed è vuoto o se sparisce più del 35% del catalogo in un colpo solo.">
+                        <input type="checkbox" data-field="run-retire-missing"> Oscura prodotti spariti dal feed
+                    </label>
+                    <label class="hsync-limit" title="Cosa fare al prodotto che il feed non elenca più. 'Esaurito' lo lascia navigabile ma non acquistabile; 'Nascondi' lo toglie anche da shop e ricerca (il link diretto continua a funzionare); 'Bozza' lo toglie del tutto dal sito. Tutte e tre sono reversibili.">
+                        Modo
+                        <select data-field="run-retire-mode" style="max-width:15em;">
+                            <option value="hidden">Nascondi dal catalogo + esaurito</option>
+                            <option value="outofstock">Solo esaurito</option>
+                            <option value="draft">Metti in bozza + esaurito</option>
+                        </select>
+                    </label>
                     <label class="hsync-dryrun" title="Per OGNI prodotto già esistente in Woo: cancella varianti + termini pa_* + meta _product_attributes, poi riscrive tutto da feed come fosse un primo import. L'ID del prodotto (e quindi gli ordini storici) viene preservato; le varianti vengono ricreate da zero — gli ID delle varianti cambiano. Da usare quando una sync normale non converge sui dati corretti (es. attributo Taglia corrotto). UN colpo solo, non lasciare attivo sui cron job.">
                         <input type="checkbox" data-field="run-force-recreate"> Forza ricreazione
                     </label>

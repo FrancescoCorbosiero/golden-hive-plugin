@@ -130,4 +130,40 @@ final class RunCacheTest extends TestCase
     {
         $this->assertNull( RunCache::get( 4242 ) );
     }
+
+    /**
+     * The `missing` bucket must survive the round-trip.
+     *
+     * Resumed ticks rebuild the processing queue from the cached Diff and
+     * index into it POSITIONALLY. The sweep items sit at the head of that
+     * queue, so a cache that drops them hands tick 2 a queue shorter than
+     * the one tick 1's cursor was minted against: the retires are skipped
+     * and the run closes 'done' having hidden nothing — the original bug,
+     * reintroduced through the back door.
+     */
+    public function testMissingBucketSurvivesTheRoundTrip(): void
+    {
+        $diff = new Diff(
+            new:         [],
+            update:      [],
+            unchanged:   [],
+            updateStock: [],
+            missing:     [
+                new FeedItem( sku: 'GONE-1', data: [ '_existing_id' => 11, '_hsync_sweep_action' => 'retire' ] ),
+                new FeedItem( sku: 'BACK-1', data: [ '_existing_id' => 22, '_hsync_sweep_action' => 'restore' ] ),
+            ],
+        );
+
+        RunCache::set( 77, [], 0, $diff, 0, [ 'retire_missing' => true, 'retire_mode' => 'hidden' ] );
+        $got = RunCache::get( 77 );
+
+        $this->assertNotNull( $got );
+        $this->assertCount( 2, $got['diff']->missing );
+        $this->assertSame( 'GONE-1', $got['diff']->missing[0]->sku );
+        $this->assertSame( 22, $got['diff']->missing[1]->data['_existing_id'] );
+        // The flags the resume compares against to decide whether the
+        // cached queue still matches the options it was asked for.
+        $this->assertTrue( $got['retire_missing'] );
+        $this->assertSame( 'hidden', $got['retire_mode'] );
+    }
 }

@@ -22,6 +22,9 @@ use HiveSync\Core\Source\Source;
  *
  *   fetch (Source::fetch)
  *     → diff (Source::diff)
+ *     → sweep (MissingSweeper, opt-in) — the `missing` bucket: products
+ *       the feed stopped listing, retired; and previously-retired ones
+ *       it started listing again, restored
  *     → for each item in (new ∪ update):
  *         → pre-import checks (FeedItem-scoped)  — block-severity skips item
  *         → import-rule operations               — mutate the draft
@@ -211,6 +214,42 @@ final class ImportRunner
         $healMedia   = ! empty( $options['heal_media'] ) && ! $forceRecreate && ! $skuList;
         $healedMedia = 0;
 
+        // `options.retire_missing` — the sweep for products the feed
+        // STOPPED listing. Off unless asked for: it is the only option
+        // here that writes to products the current fetch says nothing
+        // about, so it must never arrive by accident.
+        //
+        // Three things switch it off even when asked, because each one
+        // means this run is looking at a PARTIAL feed and the sweep's
+        // whole premise ("absent from the feed" == "delisted") stops
+        // holding:
+        //
+        //   - options.skus   the run sees the SKUs the operator pasted.
+        //                    Everything else is "absent" by definition.
+        //   - options.limit  a capped test run. Retiring thousands of
+        //                    products off a "try 50 and see" is the
+        //                    opposite of what the cap is asking for.
+        //   - media_only     that branch writes no product fields at
+        //                    all; a sweep there would be the one thing
+        //                    a media pass changes.
+        //
+        // Each suppression emits a warning below rather than passing
+        // silently — an operator who ticked the box and saw nothing
+        // happen would reasonably conclude the feature is broken.
+        $retireRequested = ! empty( $options['retire_missing'] );
+        $retireMode      = MissingSweeper::normalizeMode( $options['retire_mode'] ?? null );
+        $retireMaxRatio  = isset( $options['retire_max_ratio'] )
+            ? (float) $options['retire_max_ratio']
+            : MissingSweeper::DEFAULT_MAX_RATIO;
+        $retireBlocked   = '';
+        if ( $retireRequested ) {
+            if ( $skuList )                 $retireBlocked = 'skus';
+            elseif ( (int) ( $options['limit'] ?? 0 ) > 0 ) $retireBlocked = 'limit';
+            elseif ( $mode === 'media_only' ) $retireBlocked = 'media_only';
+        }
+        $retireMissing = $retireRequested && $retireBlocked === '';
+        $sweep         = [ 'retire' => 0, 'restore' => 0, 'owned' => 0, 'aborted' => false, 'reason' => '', 'ratio' => 0.0, 'would_retire' => 0 ];
+
         // Una cache scritta da un run non-force porta unchanged strippato;
         // se il resume chiede force_recreate la coda force deve includere
         // anche quegli item → la cache non basta, si ri-diffa da zero.
@@ -238,6 +277,20 @@ final class ImportRunner
             $startIndex = 0;
         }
 
+        // E lo stesso per la spazzata: il bucket `missing` e' calcolato
+        // una volta sola (tick 1) e viaggia nella cache. Un'entry scritta
+        // da un run SENZA retire non lo contiene, quindi riprenderla
+        // significherebbe eseguire il resto del run e non spegnere mai
+        // nulla — il bug di partenza, ma stavolta con l'opzione accesa.
+        // Anche un cambio di modalita' invalida: la coda cachata porta
+        // gli item selezionati per la modalita' precedente.
+        if ( $cached !== null
+            && ( (bool) ( $cached['retire_missing'] ?? false ) !== $retireMissing
+              || (string) ( $cached['retire_mode'] ?? '' ) !== ( $retireMissing ? $retireMode : '' ) ) ) {
+            $cached     = null;
+            $startIndex = 0;
+        }
+
         if ( $cached !== null ) {
             $fetchWarnings  = $cached['warnings'];
             $fetchedCount   = $cached['fetched_count'];
@@ -246,6 +299,7 @@ final class ImportRunner
             $healedMedia    = (int) ( $cached['healed_media'] ?? 0 );
             $skuMatched     = (int) ( $cached['sku_matched'] ?? 0 );
             $skuMissing     = (array) ( $cached['sku_missing'] ?? [] );
+            $sweep          = (array) ( $cached['sweep'] ?? [] ) + $sweep;
         } else {
             try {
                 $fetch = $source->fetch( new FetchRequest( $config, $options ), $ctx );
@@ -275,6 +329,20 @@ final class ImportRunner
             // any SKU narrowing. The operator needs to be able to tell
             // "the feed shrank" from "my selection is small".
             $fetchedCount  = count( $items );
+
+            // Snapshot every SKU the upstream returned, BEFORE the SKU
+            // narrowing below. The sweep's question is "what did the
+            // COMPLETE feed stop listing?" — asking it against a
+            // narrowed list would call the other 9,988 products
+            // delisted. (Narrowing disables the sweep anyway; capturing
+            // here keeps the two facts independent instead of relying
+            // on that coupling holding forever.)
+            $allFeedSkus = [];
+            if ( $retireMissing ) {
+                foreach ( $items as $it ) {
+                    if ( $it instanceof FeedItem && $it->sku !== '' ) $allFeedSkus[] = $it->sku;
+                }
+            }
 
             // Narrow to the requested SKUs BEFORE diff — the feed is a
             // bulk endpoint so the download happens either way, but
@@ -329,6 +397,58 @@ final class ImportRunner
                 }
             }
 
+            // ─── Missing-product sweep ─────────────────────────
+            // Runs AFTER the heal so it folds into the same cached diff
+            // the resumed ticks hydrate, and once per run rather than
+            // once per tick — it costs one catalog-wide query.
+            if ( $retireMissing ) {
+                $provenance = $source->provenanceKey( $config );
+                if ( $provenance === '' ) {
+                    // The source can't prove which products are its own,
+                    // so there is no safe set to sweep. Loud, not silent:
+                    // this is a configuration answer ("that flavor writes
+                    // no provenance"), not a transient miss.
+                    $sweep['aborted'] = true;
+                    $sweep['reason']  = 'no_provenance';
+                    $fetchWarnings[]  = 'Oscuramento prodotti mancanti non eseguito: questa sorgente non marca i prodotti che crea, quindi non è possibile stabilire quali le appartengono.';
+                } else {
+                    $decision = MissingSweeper::forProvenance(
+                        $allFeedSkus,
+                        $provenance,
+                        $retireMode,
+                        [ 'max_ratio' => $retireMaxRatio ]
+                    );
+                    $diff  = MissingSweeper::apply( $diff, $decision );
+                    $sweep = [
+                        'retire'       => count( $decision['retire'] ),
+                        'restore'      => count( $decision['restore'] ),
+                        'owned'        => (int) $decision['owned'],
+                        'aborted'      => (bool) $decision['aborted'],
+                        'reason'       => (string) $decision['reason'],
+                        'ratio'        => (float) $decision['ratio'],
+                        'would_retire' => (int) $decision['would_retire'],
+                    ];
+                    if ( $sweep['reason'] === 'feed_empty' ) {
+                        $fetchWarnings[] = 'Oscuramento prodotti mancanti ANNULLATO: il feed non ha restituito nessuno SKU. Un feed vuoto è quasi sempre un errore di rete o di autenticazione, non un catalogo azzerato.';
+                    } elseif ( $sweep['reason'] === 'ratio_guard' ) {
+                        $fetchWarnings[] = sprintf(
+                            'Oscuramento prodotti mancanti ANNULLATO: %d prodotti su %d (%.1f%%) risultano spariti dal feed, oltre la soglia di sicurezza del %.0f%%. Probabile feed troncato. Controlla il feed e, se la sparizione è reale, rialza "Soglia di sicurezza" per questo run.',
+                            $sweep['would_retire'],
+                            $sweep['owned'],
+                            $sweep['ratio'] * 100,
+                            $retireMaxRatio * 100
+                        );
+                    }
+                }
+            } elseif ( $retireRequested ) {
+                $fetchWarnings[] = match ( $retireBlocked ) {
+                    'skus'       => 'Oscuramento prodotti mancanti ignorato: il run è ristretto a una lista di SKU, quindi il feed visto è parziale e "mancante" non vorrebbe dire niente.',
+                    'limit'      => 'Oscuramento prodotti mancanti ignorato: è attivo un limite "Max prodotti". Toglilo per eseguire la spazzata sull\'intero catalogo.',
+                    'media_only' => 'Oscuramento prodotti mancanti ignorato: la modalità "Solo media" non scrive sui prodotti.',
+                    default      => 'Oscuramento prodotti mancanti ignorato.',
+                };
+            }
+
             $unchangedCount = count( $diff->unchanged );
             // Cache a raw-stripped copy. FeedItem.raw is audit-only and
             // never reaches materialize (it reads ->data), but on a 10k
@@ -359,6 +479,13 @@ final class ImportRunner
                     'sku_signature' => $skuSignature,
                     'sku_matched'   => $skuMatched,
                     'sku_missing'   => $skuMissing,
+                    // The sweep is computed once, on tick 1. Resumed
+                    // ticks must find the same verdict — recomputing it
+                    // per tick would cost a catalog query each time and,
+                    // worse, shift the queue under a positional cursor.
+                    'retire_missing' => $retireMissing,
+                    'retire_mode'    => $retireMissing ? $retireMode : '',
+                    'sweep'          => $sweep,
                 ]
             );
         }
@@ -387,6 +514,24 @@ final class ImportRunner
             'pre_blocked'   => 0,
             'post_blocked'  => 0,
         ];
+
+        // Sweep accounting. `missing` is the diff-level count (how many
+        // products the feed stopped listing); `retired` / `restored` are
+        // per-tick counters the loop increments, so a multi-tick run
+        // sums them client-side exactly like created/updated.
+        if ( $retireRequested ) {
+            $summary['missing']        = (int) ( $sweep['retire'] ?? 0 );
+            $summary['restorable']     = (int) ( $sweep['restore'] ?? 0 );
+            $summary['retired']        = 0;
+            $summary['restored']       = 0;
+            $summary['retire_mode']    = $retireMode;
+            $summary['retire_owned']   = (int) ( $sweep['owned'] ?? 0 );
+            $summary['retire_skipped'] = $retireMissing ? '' : $retireBlocked;
+            if ( ! empty( $sweep['aborted'] ) ) {
+                $summary['retire_aborted'] = (string) ( $sweep['reason'] ?? '' );
+                $summary['retire_would']   = (int) ( $sweep['would_retire'] ?? 0 );
+            }
+        }
 
         // How many items the media heal dragged back into `update`. A
         // diff-level metric, not a per-tick counter: it's already folded
@@ -457,6 +602,17 @@ final class ImportRunner
         // operator gets quick feedback), then full updates, then
         // creations (heaviest, last in case the deadline trips).
         $process = [];
+
+        // The sweep goes FIRST, and goes regardless of `buckets` /
+        // `force_recreate` — same exemption the media heal gets, for the
+        // same reason. An operator who turned this on did so because
+        // delisted products are live on the storefront right now; making
+        // that wait behind a 10k-item import (or dropping it because the
+        // job is scoped to `updateStock`) reproduces the exact silence
+        // the option exists to end. MissingSweeper::apply already
+        // ordered restores ahead of retires.
+        foreach ( $diff->missing as $item ) $process[] = [ 'missing', $item ];
+
         if ( $forceRecreate ) {
             // Skip the fast-patch path entirely — recreate needs the
             // full bridge flow, the variation IDs are about to be
@@ -526,6 +682,8 @@ final class ImportRunner
         // unset) means no cap. Applied AFTER bucket filtering so the
         // user sees an honest count: with limit=50 + buckets=[new], you
         // get the first 50 NEW items, never 50 mixed.
+        // NB: a `limit` and the sweep are mutually exclusive by the guard
+        // above, so the slice below can never cut the sweep off halfway.
         $limit = (int) ( $options['limit'] ?? 0 );
         if ( $limit > 0 && count( $process ) > $limit ) {
             $process = array_slice( $process, 0, $limit );
@@ -649,6 +807,47 @@ final class ImportRunner
 
             [ $bucket, $item ] = $process[ $i ];
             $rowTrace = [ 'sku' => $item->sku, 'pid' => null, 'action' => 'skipped', 'error' => null, 'pre' => [], 'post' => [], 'bucket' => $bucket ];
+
+            // ─── Missing-product sweep path ────────────────────────
+            // Items the feed stopped listing (retire) and items it
+            // started listing again (restore). No pipeline, no
+            // materialize: there is no feed payload for these — the
+            // whole point is that the feed says nothing about them.
+            if ( $bucket === 'missing' ) {
+                $sweepAction = (string) ( $item->data[ MissingSweeper::ACTION ] ?? MissingSweeper::ACTION_RETIRE );
+                $pid         = (int) ( $item->data['_existing_id'] ?? 0 );
+                $rowTrace['pid'] = $pid ?: null;
+
+                if ( $ctx->dryRun ) {
+                    $rowTrace['action'] = $sweepAction . '_dry';
+                    if ( $sweepAction === MissingSweeper::ACTION_RESTORE ) {
+                        $summary['restored']++;
+                    } else {
+                        $summary['retired']++;
+                    }
+                    $rows[] = $rowTrace;
+                    continue;
+                }
+
+                $res = $sweepAction === MissingSweeper::ACTION_RESTORE
+                    ? ProductRetirer::restore( $pid )
+                    : ProductRetirer::retire( $pid, $retireMode );
+
+                if ( ! empty( $res['ok'] ) ) {
+                    $rowTrace['action'] = $sweepAction;
+                    if ( $sweepAction === MissingSweeper::ACTION_RESTORE ) {
+                        $summary['restored']++;
+                    } else {
+                        $summary['retired']++;
+                    }
+                } else {
+                    $rowTrace['action'] = 'failed';
+                    $rowTrace['error']  = (string) ( $res['error'] ?? 'retire_failed' );
+                    $summary['failed']++;
+                }
+                $rows[] = $rowTrace;
+                continue;
+            }
 
             // ─── Fast-stock-patch path ─────────────────────────────
             // Items in updateStock changed ONLY price/stock fields.
@@ -904,6 +1103,14 @@ final class ImportRunner
             update:      $strip( $diff->update ),
             unchanged:   $keepUnchanged ? $strip( $diff->unchanged ) : [],
             updateStock: $strip( $diff->updateStock ),
+            // Never stripped: the sweep is computed once (tick 1) from a
+            // catalog-wide query, the items are two scalars each, and the
+            // resumed ticks index into this bucket positionally. Dropping
+            // it the way `unchanged` is dropped would make every resume
+            // rebuild a SHORTER queue than the cursor was minted against
+            // — the retires would be skipped and the run would close
+            // 'done' having hidden nothing.
+            missing:     $strip( $diff->missing ),
         );
     }
 

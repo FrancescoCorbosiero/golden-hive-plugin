@@ -971,6 +971,12 @@ add_action( 'wp_ajax_hsync_ajax_media_missing_repair_params', function () {
     $options['heal_media'] = true;
     $options['mode']       = 'full';
     unset( $options['buckets'], $options['limit'], $options['skus'], $options['force_recreate'] );
+    // ...and NOT the sweep. The operator pressed "repair images"; hiding
+    // products is a different decision and must not ride along on it.
+    // The restore half still runs (it runs on every sync by design), so
+    // a product that came back while its images were broken is not left
+    // hidden by this pass either.
+    unset( $options['retire_missing'], $options['retire_mode'] );
 
     wp_send_json_success( [
         'source_id'   => (string) $sourceId,

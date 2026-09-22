@@ -938,6 +938,7 @@ può restituire meno del vero è un modo di spegnere un catalogo vivo:
 | ratio > `retire_max_ratio` (default 35%) | feed troncato a metà. Sotto 20 prodotti posseduti non si applica: il churn assoluto piccolo è normale |
 | `options.skus` | il run vede solo gli SKU incollati: tutto il resto sarebbe "assente" per definizione |
 | `options.limit` | è un run di prova. Oscurare migliaia di prodotti partendo da "provane 50" è l'opposto di ciò che il cap chiede |
+| `options.category_filter` | **il caso che il ratio guard NON copre.** Il job scarica una fetta del catalogo di proposito (la forma SF "un job per categoria"): tutto ciò che sta fuori dalla fetta risulta sparito, e due job con filtri diversi che condividono una provenance si oscurerebbero i prodotti a vicenda ad ogni tick. Una fetta che tiene il 70% del catalogo oscura il restante 30%, comodamente sotto soglia |
 | `mode = media_only` | quel branch non scrive sui prodotti |
 | provenance vuota | la source non marca ciò che crea → non si può dimostrare la proprietà → non si tocca niente |
 
@@ -950,7 +951,20 @@ si ritrova a spiegare al cliente perché il prodotto è ancora lì.
 prodotto, `ProductRetirer` snapshotta stato + visibilità in
 `_hsync_missing_prev`. Se lo SKU **ritorna** nel feed, lo stesso
 passaggio lo ripristina — *prima* che l'import lo ri-rifornisca, nello
-stesso run. Senza l'inverso, una rottura di stock di due giorni
+stesso run.
+
+> ⚠ **La metà dei ripristini gira SEMPRE**, anche quando la spazzata è
+> spenta e anche quando un guard l'ha bloccata (`MissingSweeper::decide`
+> con `$retireEnabled = false`, alimentata dalla query stretta
+> `OwnedProductLookup::retiredForProvenance`). Non è una versione
+> degradata: è ciò che impedisce a una retire di diventare una porta a
+> senso unico. Senza, spegnere l'opzione lascia una trappola silenziosa
+> e permanente — lo SKU torna, l'import lo ri-rifornisce e gli risincronizza
+> `post_status` dal payload del feed, ma `catalog_visibility = hidden`
+> resta lì perché niente nel percorso del feed lo tocca. Prodotto vivo,
+> in stock, invisibile nello shop, e nessun report che lo nomini.
+> Su un negozio che non ha mai acceso la spazzata la query ritorna zero
+> righe: costa una lookup indicizzata per run. Senza l'inverso, una rottura di stock di due giorni
 diventerebbe un prodotto morto per sempre, e l'operatore lo scoprirebbe
 mesi dopo. Le **quantità** delle varianti non sono snapshottate di
 proposito: le riscrive il feed corrente, e rimettere le giacenze di
@@ -958,12 +972,14 @@ settimane fa pubblicherebbe per qualche istante stock inesistente.
 
 **Tre invarianti da non rompere:**
 
-- **Gli item swept girano per primi e girano anche se `buckets` li
-  escluderebbe** — stessa esenzione degli item riparati da
+- **Gli item swept girano per primi, non vengono mai troncati da
+  `options.limit`, e girano anche se `buckets` li escluderebbe** — sono
+  tenuti in una coda separata (`$sweepQueue`) che viene concatenata DOPO
+  lo slice del limite. Stessa esenzione degli item riparati da
   `heal_media`, stessa ragione: chi accende l'opzione lo fa perché i
-  prodotti delistati sono live *adesso*, e farli aspettare dietro un
-  import da 10k item (o scartarli perché il job è scopato a
-  `updateStock`) ricrea il silenzio che l'opzione elimina.
+  prodotti delistati sono live *adesso*. Un run cappato a 50 che ne
+  oscura 800 e ne ripristina 40 direbbe di fare un test e starebbe
+  facendo una migrazione.
 - **Il bucket `missing` NON viene strippato dalla `RunCache`** (a
   differenza di `unchanged`). È calcolato una volta sola al tick 1 e i
   tick successivi ci indicizzano dentro **posizionalmente**: strapparlo

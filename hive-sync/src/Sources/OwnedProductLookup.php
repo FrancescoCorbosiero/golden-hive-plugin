@@ -55,6 +55,38 @@ final class OwnedProductLookup
      */
     public static function forProvenance( string $provenanceKey ): array
     {
+        return self::query( $provenanceKey, false );
+    }
+
+    /**
+     * Only the products this source has ALREADY retired — the ones
+     * carrying our marker.
+     *
+     * Exists so the restore half can run on every sync, including runs
+     * where the sweep itself is switched off. Without it, turning
+     * `retire_missing` back off leaves a trap: a hidden product whose
+     * SKU returns to the feed gets re-stocked and re-published by the
+     * ordinary import (which syncs post_status from the feed payload)
+     * but keeps `catalog_visibility = hidden`, because nothing resets
+     * it. The result is a live, in-stock product that is invisible in
+     * the shop and that nobody would ever think to look for.
+     *
+     * Costs one indexed meta_key lookup, and returns zero rows on a
+     * store that never enabled the sweep.
+     *
+     * @return array<int, array{sku: string, status: string, retired_since: string, retired_mode: string}>
+     */
+    public static function retiredForProvenance( string $provenanceKey ): array
+    {
+        return self::query( $provenanceKey, true );
+    }
+
+    /**
+     * @param bool $onlyRetired Narrow to products carrying the retire marker.
+     * @return array<int, array{sku: string, status: string, retired_since: string, retired_mode: string}>
+     */
+    private static function query( string $provenanceKey, bool $onlyRetired ): array
+    {
         global $wpdb;
         if ( $provenanceKey === '' ) return [];
         if ( ! isset( $wpdb ) || ! is_object( $wpdb ) ) return [];
@@ -66,6 +98,12 @@ final class OwnedProductLookup
 
         $since = \HiveSync\Workflow\Run\ProductRetirer::MISSING_SINCE;
         $mode  = \HiveSync\Workflow\Run\ProductRetirer::MISSING_MODE;
+
+        // The narrow variant flips the marker join to INNER, which turns
+        // the whole query from "every product this feed owns" into "the
+        // handful it has already hidden" — and lets MySQL start from the
+        // marker's meta_key index instead of scanning the catalog.
+        $retireJoin = $onlyRetired ? 'INNER JOIN' : 'LEFT JOIN';
 
         // Provenance is checked with EXISTS rather than joined.
         //
@@ -95,7 +133,7 @@ final class OwnedProductLookup
                         ON sku.post_id = p.ID
                        AND sku.meta_key = '_sku'
                        AND sku.meta_value <> ''
-                LEFT JOIN {$wpdb->postmeta} rs
+                {$retireJoin} {$wpdb->postmeta} rs
                        ON rs.post_id = p.ID AND rs.meta_key = %s
                 LEFT JOIN {$wpdb->postmeta} rm
                        ON rm.post_id = p.ID AND rm.meta_key = %s

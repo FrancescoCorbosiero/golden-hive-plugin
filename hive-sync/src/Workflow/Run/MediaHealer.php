@@ -151,6 +151,11 @@ final class MediaHealer
                 update:      $update,
                 unchanged:   $rebuilt['unchanged'],
                 updateStock: $rebuilt['updateStock'],
+                // Not an eligible bucket for the heal (a retired product
+                // has no feed payload to re-attach media from) but it
+                // must survive the rebuild — a Diff rebuilt without it
+                // loses the sweep.
+                missing:     $diff->missing,
             ),
             'healed' => $healed,
         ];

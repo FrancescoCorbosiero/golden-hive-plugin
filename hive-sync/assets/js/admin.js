@@ -1039,6 +1039,8 @@
         const opts    = (j.config && j.config.options) || {};
         const limit   = parseInt(opts.limit, 10) > 0 ? parseInt(opts.limit, 10) : '';
         const buckets = Array.isArray(opts.buckets) && opts.buckets.length ? opts.buckets : ['new', 'update', 'updateStock'];
+        const retire     = !!opts.retire_missing;
+        const retireMode = ['hidden', 'outofstock', 'draft'].indexOf(opts.retire_mode) >= 0 ? opts.retire_mode : 'hidden';
         const bucketCheck = (id, label, hint) =>
             '<label class="hsync-job-bucket" style="display:inline-flex;gap:6px;align-items:center;font-weight:400;margin-right:14px;">'
             +   '<input type="checkbox" data-field="job-bucket" value="' + id + '"' + (buckets.indexOf(id) >= 0 ? ' checked' : '') + '>'
@@ -1051,6 +1053,20 @@
             +     '<input type="number" min="0" step="1" data-field="job-limit" value="' + esc(String(limit)) + '" placeholder="0 = nessun limite" style="max-width:14em;">'
             +     '<small class="hsync-muted">Cappa il numero di FeedItem processati in un singolo tick. Utile per primi import controllati o per non saturare il server. <code>0</code> o vuoto = nessun limite.</small>'
             +   '</label>'
+            +   '<div class="hsync-job-retire" style="margin-top:12px;">'
+            +     '<label class="hsync-dryrun" style="display:inline-flex;gap:6px;align-items:center;font-weight:400;">'
+            +       '<input type="checkbox" data-field="job-retire-missing"' + (retire ? ' checked' : '') + '>'
+            +       '<span>Oscura i prodotti spariti dal feed</span>'
+            +     '</label>'
+            +     '<label style="margin-top:6px;">Modo'
+            +       '<select data-field="job-retire-mode" style="max-width:22em;">'
+            +         '<option value="hidden"' + (retireMode === 'hidden' ? ' selected' : '') + '>Nascondi dal catalogo + esaurito</option>'
+            +         '<option value="outofstock"' + (retireMode === 'outofstock' ? ' selected' : '') + '>Solo esaurito</option>'
+            +         '<option value="draft"' + (retireMode === 'draft' ? ' selected' : '') + '>Metti in bozza + esaurito</option>'
+            +       '</select>'
+            +       '<small class="hsync-muted">Quando il fornitore toglie uno SKU dal listino, il prodotto resta altrimenti pubblicato e acquistabile per sempre: il diff guarda solo gli SKU che il feed <em>restituisce</em>. Reversibile — se lo SKU torna nel feed il prodotto viene ripristinato nello stesso run. La spazzata si annulla da sola se il feed è vuoto o se sparisce oltre il 35% del catalogo in un colpo, e viene ignorata se il job ha un limite "Max prodotti".</small>'
+            +     '</label>'
+            +   '</div>'
             +   '<div class="hsync-job-buckets" style="margin-top:8px;">'
             +     '<div style="font-size:13px;font-weight:600;margin-bottom:4px;">Bucket attivi</div>'
             +     bucketCheck('new',         'new',         'crea SKU mancanti (pipeline completa)')
@@ -1096,6 +1112,15 @@
                 const limit = parseInt(limitEl.value, 10);
                 if (limit > 0) options.limit = limit;
                 else delete options.limit;  // 0 / empty = no cap
+            }
+            const retireEl = $('[data-field="job-retire-missing"]');
+            if (retireEl && retireEl.checked) {
+                options.retire_missing = true;
+                const modeEl = $('[data-field="job-retire-mode"]');
+                options.retire_mode = modeEl ? modeEl.value : 'hidden';
+            } else {
+                delete options.retire_missing;
+                delete options.retire_mode;
             }
             const checkedBuckets = $$('[data-field="job-bucket"]:checked').map(cb => cb.value);
             const allBuckets     = ['new', 'update', 'updateStock'];
@@ -2771,6 +2796,10 @@
         const healMedia = healMediaEl ? !!healMediaEl.checked : false;
         const skusEl = $('[data-field="run-skus"]');
         const skus = skusEl ? String(skusEl.value || '').trim() : '';
+        const retireEl = $('[data-field="run-retire-missing"]');
+        const retireMissing = retireEl ? !!retireEl.checked : false;
+        const retireModeEl = $('[data-field="run-retire-mode"]');
+        const retireMode = retireModeEl ? String(retireModeEl.value || 'hidden') : 'hidden';
         const options = {};
         if (mapping)        options.mapping = mapping.config;
         if (pipelineSlug)   options.pipeline_slug = pipelineSlug;
@@ -2784,6 +2813,16 @@
         // that are visibly broken (no featured image) and that the feed
         // can actually repair, through the ordinary update path.
         if (healMedia)      options.heal_media = true;
+        // Reversible by construction (the previous status/visibility is
+        // snapshotted per product and replayed if the SKU comes back),
+        // and guarded server-side against an empty or truncated feed —
+        // so no confirm gate. The server also refuses to sweep when the
+        // run is narrowed by `skus` or capped by `limit`, and says so in
+        // the warnings rather than silently doing nothing.
+        if (retireMissing) {
+            options.retire_missing = true;
+            options.retire_mode    = retireMode;
+        }
 
         // Force-recreate is destructive on the variation set — confirm
         // before kicking off a non-dry run. Skip the prompt in dry-run
@@ -2851,7 +2890,11 @@
         //     done by the run, not just the last tick's slice.
         // Server-side each tick still resets its own summary; the JS
         // is the system of record for cross-tick aggregation.
-        const RESULT_KEYS = ['created', 'updated', 'recreated', 'stock_patched', 'skipped', 'failed', 'pre_blocked', 'post_blocked'];
+        const RESULT_KEYS = ['created', 'updated', 'recreated', 'stock_patched', 'skipped', 'failed', 'pre_blocked', 'post_blocked',
+                             // Sweep results. Per-tick like the rest —
+                             // the diff-level counts (`missing`,
+                             // `restorable`) live in the snapshot below.
+                             'retired', 'restored'];
         const accumulated = {
             rows: [], warnings: [], runId: null,
             diffSnapshot: null,
@@ -2936,6 +2979,17 @@
                         sku_matched:      tickSummary.sku_matched      || 0,
                         sku_missing:      tickSummary.sku_missing      || 0,
                         sku_missing_list: tickSummary.sku_missing_list || [],
+                        // Sweep accounting — diff-level, computed once
+                        // on tick 1 from a catalog-wide query. Summing
+                        // these across ticks would multiply the queue
+                        // size by the tick count.
+                        missing:          tickSummary.missing          || 0,
+                        restorable:       tickSummary.restorable       || 0,
+                        retire_mode:      tickSummary.retire_mode      || '',
+                        retire_owned:     tickSummary.retire_owned     || 0,
+                        retire_skipped:   tickSummary.retire_skipped   || '',
+                        retire_aborted:   tickSummary.retire_aborted   || '',
+                        retire_would:     tickSummary.retire_would     || 0,
                     };
                 }
                 RESULT_KEYS.forEach(k => {
@@ -3051,6 +3105,11 @@
         // accounted total. update_stock + stock_patched are first-class
         // here (the fast-stock-patch path can dwarf new+update on big
         // refresh runs).
+        // The sweep items are queued items like any other, so they belong
+        // on BOTH sides of the reconciliation. Counting the retires as
+        // results without counting them into the pool would report a
+        // permanent "N extra accounted" on every swept run.
+        const sweepPool = (s.missing || 0) + (s.restorable || 0);
         const processingPool = (s.new || 0) + (s.update || 0) + (s.update_stock || 0)
                         // Force-recreate pulls `unchanged` into the
                         // processing pool too — they're not unchanged
@@ -3061,9 +3120,11 @@
                         // re-bucketed into one combined queue.
                         + ((s.force_recreate || 0) > 0
                             ? Math.max(0, (s.force_recreate || 0) - ((s.update || 0) + (s.update_stock || 0)))
-                            : 0);
+                            : 0)
+                        + sweepPool;
         const accounted = (s.created || 0) + (s.updated || 0) + (s.recreated || 0)
                         + (s.stock_patched || 0)
+                        + (s.retired || 0) + (s.restored || 0)
                         + (s.skipped || 0) + (s.failed || 0)
                         + (s.pre_blocked || 0) + (s.post_blocked || 0);
         const inFlight = Math.max(0, processingPool - accounted);
@@ -3092,8 +3153,46 @@
             + '</div>'
             : '';
 
+        // Sweep block — only when the run asked for it. Deliberately
+        // ABOVE the diff: a delisted product live on the storefront is
+        // the thing the operator turned this on to see, and burying it
+        // under the import counters is how it stays unnoticed.
+        const sweepOn = (s.retire_mode || '') !== '';
+        const sweepModeLabel = {
+            hidden:     'nascosto dal catalogo + esaurito',
+            outofstock: 'solo esaurito',
+            draft:      'in bozza + esaurito',
+        }[s.retire_mode] || s.retire_mode;
+        const sweepNote = s.retire_aborted
+            ? '<div class="hsync-warning">Spazzata ANNULLATA ('
+              + (s.retire_aborted === 'feed_empty'
+                    ? 'il feed non ha restituito nessuno SKU'
+                    : s.retire_aborted === 'ratio_guard'
+                        ? 'oltre la soglia di sicurezza: ' + (s.retire_would || 0) + ' prodotti'
+                        : esc(s.retire_aborted))
+              + '). Nessun prodotto è stato oscurato.</div>'
+            : (s.retire_skipped
+                ? '<div class="hsync-warning">Spazzata non eseguita: il run è ristretto ('
+                  + esc(s.retire_skipped) + ').</div>'
+                : '');
+        const sweepBlock = sweepOn
+            ? '<div class="hsync-summary-section">'
+            +   '<div class="hsync-summary-label">Prodotti spariti dal feed — '
+            +     esc(sweepModeLabel) + '</div>'
+            +   '<div class="hsync-summary">'
+            +     stat('Del fornitore in Woo', s.retire_owned, 'is-dim')
+            +     stat('Spariti dal feed',     s.missing,    (s.missing    || 0) > 0 ? 'is-bad'  : 'is-dim')
+            +     stat('Oscurati',             s.retired,    (s.retired    || 0) > 0 ? 'is-good' : 'is-dim')
+            +     stat('Tornati nel feed',     s.restorable, (s.restorable || 0) > 0 ? 'is-good' : 'is-dim')
+            +     stat('Ripristinati',         s.restored,   (s.restored   || 0) > 0 ? 'is-good' : 'is-dim')
+            +   '</div>'
+            +   sweepNote
+            + '</div>'
+            : '';
+
         const summary = ''
             + selection
+            + sweepBlock
             + '<div class="hsync-summary-section">'
             +   '<div class="hsync-summary-label">Source diff</div>'
             +   '<div class="hsync-summary">'
@@ -3110,7 +3209,7 @@
             + '</div>'
             + '<div class="hsync-summary-section">'
             +   '<div class="hsync-summary-label">Processing pool: ' + processingPool + ' items'
-            +     ' (new + update + update_stock)</div>'
+            +     ' (new + update + update_stock' + (sweepPool > 0 ? ' + spariti dal feed' : '') + ')</div>'
             +   '<div class="hsync-summary">'
             +     stat('Created',           s.created,       (s.created       || 0) > 0 ? 'is-good' : '')
             +     stat('Updated',           s.updated,       (s.updated       || 0) > 0 ? 'is-good' : '')

@@ -279,6 +279,14 @@
 .hsync-wrap .hsync-action-pill.is-skipped   { background: #f0f0f1; color: #50575e; }
 .hsync-wrap .hsync-action-pill.is-pre_blocked,
 .hsync-wrap .hsync-action-pill.is-post_blocked { background: #fff3cd; color: #664d03; }
+/* Missing-product sweep. `retire` reads as a warning rather than an
+   error — it is the correct outcome for a delisted SKU, not a failure —
+   and `restore` borrows the green of a successful write. The `_dry`
+   variants are what a dry run emits. */
+.hsync-wrap .hsync-action-pill.is-retire,
+.hsync-wrap .hsync-action-pill.is-retire_dry  { background: #ffe0b2; color: #6b3d00; }
+.hsync-wrap .hsync-action-pill.is-restore,
+.hsync-wrap .hsync-action-pill.is-restore_dry { background: #d1f4d6; color: #1e4022; }
 
 /* Run-result summary sections (Source diff vs. Processing pool). */
 .hsync-wrap .hsync-summary-section { margin-bottom: 14px; }

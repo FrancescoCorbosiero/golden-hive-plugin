@@ -56,6 +56,31 @@ abstract class AbstractSource implements Source
         return [];
     }
 
+    /**
+     * Provenance key this source stamps on the products it creates —
+     * the value that ends up in `_gh_import_source`. MissingSweeper uses
+     * it to scope the "which of my products did the feed stop listing?"
+     * query; nothing else reads it today.
+     *
+     * Return '' to opt a source OUT of the sweep entirely. That is the
+     * right answer whenever the source's materialize path doesn't write
+     * a provenance meta of its own (the generic hsync_upsert_product
+     * flavors), because a sweep that can't prove ownership would either
+     * find nothing (harmless but misleading) or, worse, match products
+     * another source created.
+     *
+     * Config-dependent by signature because provenance follows the
+     * flavor, not the class: one JsonSource serves both the GS feed
+     * (whose bridge stamps 'goldensneakers') and arbitrary generic
+     * feeds (which stamp nothing).
+     *
+     * @param array<string, mixed> $config
+     */
+    public function provenanceKey(array $config): string
+    {
+        return '';
+    }
+
     // ─── Helpers ───────────────────────────────────────────────────
 
     /**

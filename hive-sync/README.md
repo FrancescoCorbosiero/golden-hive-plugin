@@ -30,9 +30,10 @@ con tre stagioni di update:
 - **Re-update** — re-import completo per i prodotti dove sono cambiati
   campi non-stock (descrizione, brand, ecc.)
 
-## Architettura — 3 buckets
+## Architettura — i buckets
 
-`Source::diff()` divide ogni fetch in 4 buckets:
+`Source::diff()` divide ogni fetch in 4 buckets, e la spazzata
+opzionale ne aggiunge un quinto:
 
 | Bucket | Significato | Path |
 |---|---|---|
@@ -40,6 +41,17 @@ con tre stagioni di update:
 | `update` | SKU in Woo, campi non-stock cambiati | Pipeline + materialize |
 | `updateStock` | SKU in Woo, solo prezzo/stock | Fast-patch direct setters |
 | `unchanged` | Nessuna differenza | Skip |
+| `missing` | In Woo ma **il feed non lo elenca più** | Oscuramento reversibile |
+
+I primi quattro rispondono tutti alla domanda "il feed ha nominato
+questo SKU?", quindi uno SKU che il fornitore **toglie dal listino**
+non finisce in nessuno di essi e nessuna sync lo tocca più: resta
+pubblicato e acquistabile per sempre. `options.retire_missing` (on di
+default sui job di sync seeded) chiude il buco confrontando il
+catalogo con il feed e mettendo i prodotti spariti fuori stock +
+fuori catalogo. È reversibile — se lo SKU torna nel feed il prodotto
+viene ripristinato nello stesso run — e si annulla da sola se il feed
+è vuoto o se sparisce più del 35% del catalogo in un colpo.
 
 Su un catalog di 5K prodotti con 50 nuovi e 4950 da rinfrescare:
 - 50 prodotti × ~3s = 2.5 minuti
@@ -116,14 +128,15 @@ Import-rules (mutate FeedItem.data during import):
 
 ## Default jobs (3, all DISABLED on seed)
 
-| Slug | Cron | Buckets |
-|---|---|---|
-| `gs-add-new` | `*/30 * * * *` | `[new]` |
-| `gs-refresh-stocks` | `*/15 * * * *` | `[updateStock]` |
-| `gs-re-update` | `0 */6 * * *` | `[update]` |
+| Slug | Cron | Runnable ref | Opzioni |
+|---|---|---|---|
+| `gs-sync` | `0 */2 * * *` | `json/gs-prod` | tutti i bucket + `retire_missing` |
+| `sf-sync` | `0 */2 * * *` | `csv/sf-prod` | tutti i bucket + `retire_missing` |
+| `kicksdb-refresh-prices` | `0 */6 * * *` | (prima config kicksdb) | `max_per_tick: 500` |
 
-Tutti puntano a `runnable_ref = 'json/gs-prod'`. Per altri feed
-clona uno di questi e cambia `runnable_ref` + opzioni.
+Un solo job per source: il diff è idempotente, quindi lo stesso job
+gestisce il primo import e il mantenimento. Per altri feed clona uno
+di questi e cambia `runnable_ref` + opzioni.
 
 Cron expression vengono tradotte in italiano live nel job editor:
 `*/15 * * * *` → "Ogni 15 minuti", `0 2 * * 1-5` → "Da lunedì a

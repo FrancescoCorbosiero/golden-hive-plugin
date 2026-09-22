@@ -35,6 +35,7 @@ Stato attuale (branch `claude/stabilize-hive-sync-plugin-FZjmQ`):
 - ✅ `import_status` knob (publish/draft) per il workflow staged
 - ✅ Resilienza tick-loop: retry-with-backoff + cursor-resume su errori transienti
 - ✅ Limite "Max prodotti" sul Run tab per testare su feed grandi
+- ✅ **Oscuramento dei prodotti spariti dal feed** (`options.retire_missing`) — il 5° bucket, reversibile e con freno anti-feed-troncato
 
 ---
 
@@ -83,6 +84,7 @@ hive-sync/
 │   │   ├── StockOnlyClassifier.php   Splits update bucket → updateFull/updateStock.
 │   │   ├── AttributeMerger.php       Promotes mapped pa_* keys into $data['attributes'].
 │   │   ├── MissingMediaLookup.php    Batch "which pids have no usable featured image?".
+│   │   ├── OwnedProductLookup.php    Batch "which products in Woo belong to this feed?".
 │   │   └── MarkupResolver.php        Per-rule markup evaluation (used by both sources).
 │   ├── Operations/
 │   │   ├── Status/SetStatus.php
@@ -112,6 +114,11 @@ hive-sync/
 │       │                                     featured image (options.heal_media).
 │       ├── Run/SkuFilter.php               Restringe il run a una lista di SKU
 │       │                                     (options.skus) + promote a `update`.
+│       ├── Run/MissingSweeper.php         ★ Il 5° bucket: prodotti che il feed ha
+│       │                                     smesso di elencare (options.retire_missing).
+│       │                                     Pura — guard matrix unit-testata.
+│       ├── Run/ProductRetirer.php         Scrive l'oscuramento e lo annulla
+│       │                                     (snapshot stato precedente → restore).
 │       ├── Schedule/CronExpr.php           Parser 5-field cron, no shortcuts.
 │       ├── Schedule/JobRunner.php          Dispatcher tick. Resolves mapping_slug → config.
 │       ├── Mapping/PathResolver.php        Dot-path traversal ('sizes.size_eu').
@@ -137,8 +144,11 @@ Ogni Run passa per:
 ```
 Source::fetch
   → Source::diff             { new, update, updateStock, unchanged }
+  → MissingSweeper           { + missing }   (solo con options.retire_missing)
   → ImportRunner loop:
       per ciascun item nel processing pool (filtrato da options.buckets):
+      ├─ if bucket === 'missing':
+      │   └─ ProductRetirer::retire / ::restore (no pipeline, no materialize)
       ├─ if bucket === 'updateStock':
       │   └─ ImportRunner::fastStockPatch (no pipeline, no materialize)
       │       set_regular_price + set_sale_price + set_stock_quantity + save
@@ -161,7 +171,8 @@ il fast-patch path. È la chiave perf-critica del sistema.
 
 ## Buckets — la chiave architetturale
 
-Il `Diff` ha 4 buckets:
+Il `Diff` ha 5 buckets. I primi quattro sono costruiti camminando le
+righe del feed; il quinto è l'unico costruito guardando il catalogo.
 
 | Bucket | Significato | Path |
 |---|---|---|
@@ -169,6 +180,15 @@ Il `Diff` ha 4 buckets:
 | `update` | SKU esiste, campi non-stock cambiati | Pipeline completa + materialize |
 | `updateStock` | SKU esiste, SOLO prezzo/stock cambiati | Fast-patch (no pipeline, no media) |
 | `unchanged` | Nessuna differenza | Skip totale |
+| `missing` | Prodotto in Woo che il feed **non elenca più** | `ProductRetirer` (no pipeline, no materialize) |
+
+> ⚠ **Il confronto NON guarda le assenze** — a meno di
+> `options.retire_missing`. I primi quattro bucket rispondono tutti alla
+> domanda "il feed ha nominato questo SKU?". Uno SKU che il fornitore
+> **toglie dal listino** non è nominato da niente: non finisce in nessun
+> bucket, nessun codice lo tocca più, e resta pubblicato e acquistabile
+> per sempre. `MissingSweeper` è l'unica cosa che chiude il buco.
+> Vedi "Lessons learned / Il diff è cieco sulle assenze".
 
 `StockOnlyClassifier::split()` decide tra `update` e `updateStock`
 confrontando ogni campo non-stock incoming vs il prodotto Woo
@@ -415,6 +435,14 @@ job in Automatizza.
 |---|---|---|---|
 | `gs-sync` | `0 */2 * * *` | tutti (default) | Importa + mantiene il catalogo GS. Self-rebalancing. |
 | `sf-sync` | `0 */2 * * *` | tutti (default) | Stesso modello per StockFirmati. |
+
+Entrambi shippano con **`retire_missing: true`, modo `hidden`** — è
+l'unico default seeded che tocca prodotti esistenti, e ci sta perché
+un job di sync che solo aggiunge e aggiorna non è un default prudente,
+è un default sbagliato: lo SKU delistato resta in vendita e il negozio
+prende ordini che non può evadere. Vedi "Lessons learned / Il diff è
+cieco sulle assenze" per i guard che lo rendono sicuro da lasciare su
+un cron. Per spegnerlo: Automatizza → job → Opzioni di run.
 
 **Default Rules:** nessuna. La tabella `wp_hsync_rules` ships vuota —
 vedi sezione "Lessons learned" sul perché.
@@ -861,6 +889,107 @@ riferimenti negli ordini storici).
 cui l'healer pesca, quindi l'heal viene soppresso (niente lookup
 garantito vuoto, niente `healed_media: 0` fuorviante nel report).
 Coperto da `tests/Unit/Workflow/Run/SkuFilterTest.php`.
+
+### Il diff è cieco sulle assenze — serve `retire_missing`
+
+**Sintomo (segnalato dal cliente, non da noi):** un prodotto che il
+fornitore ha tolto dal listino resta **pubblicato e acquistabile** sul
+sito. Per sempre. Nessuna sync lo tocca, nessun contatore lo nomina,
+nessun warning lo segnala. Chi guarda i log vede solo run verdi.
+
+**Causa — un buco strutturale, non un bug:** tutti e quattro i bucket
+storici sono costruiti **camminando le righe del feed**:
+
+| Bucket | La domanda a cui risponde |
+|---|---|
+| `new` | il feed ha nominato questo SKU e in Woo non c'è |
+| `update` | il feed l'ha nominato e qualcosa è cambiato |
+| `updateStock` | il feed l'ha nominato e sono cambiati solo prezzo/stock |
+| `unchanged` | il feed l'ha nominato e combacia |
+
+Tutte e quattro presuppongono *"il feed ha nominato questo SKU"*. Uno
+SKU **delistato** non è nominato da niente — quindi non finisce in
+nessun bucket, e il loop del runner itera solo su ciò che sta nei
+bucket. Il prodotto è **irraggiungibile**, esattamente come lo erano i
+prodotti senza immagine prima di `heal_media` (stessa forma di bug:
+il diff è cieco su una dimensione, e ciò che il diff non vede il
+runner non tocca mai).
+
+**Soluzione:** il 5° bucket `missing`, popolato da `MissingSweeper`
+sotto `options.retire_missing`. Una query catalog-side
+(`OwnedProductLookup`) risponde alla domanda speculare — "quali
+prodotti in Woo appartengono a questo feed?" — e la differenza
+insiemistica con gli SKU del fetch è il bucket.
+
+**Perché set-difference e non `_hsync_last_seen`:** stampare un
+"visto il" su ogni item restituito dal feed costerebbe ~5k scritture
+di meta per run su un catalogo assestato, distruggendo la proprietà
+che l'intera architettura a bucket esiste per comprare (*un feed
+stabile produce zero scritture*). La differenza insiemistica costa
+**una** query in più e lascia lo stato stazionario a zero scritture.
+
+**I guard sono la parte importante.** È l'unica operazione del runner
+che agisce sull'**assenza** di dati, quindi ogni modo in cui il feed
+può restituire meno del vero è un modo di spegnere un catalogo vivo:
+
+| Guard | Cosa blocca |
+|---|---|
+| feed vuoto | token scaduto / 200-empty-body / manutenzione upstream leggono tutti come "è sparito tutto" |
+| ratio > `retire_max_ratio` (default 35%) | feed troncato a metà. Sotto 20 prodotti posseduti non si applica: il churn assoluto piccolo è normale |
+| `options.skus` | il run vede solo gli SKU incollati: tutto il resto sarebbe "assente" per definizione |
+| `options.limit` | è un run di prova. Oscurare migliaia di prodotti partendo da "provane 50" è l'opposto di ciò che il cap chiede |
+| `mode = media_only` | quel branch non scrive sui prodotti |
+| provenance vuota | la source non marca ciò che crea → non si può dimostrare la proprietà → non si tocca niente |
+
+**Nessun guard è silenzioso.** Ognuno emette un warning nel run. Una
+spazzata che si rifiuta di partire senza dirlo è indistinguibile dal
+bug che è nata per risolvere — ed è esattamente così che l'operatore
+si ritrova a spiegare al cliente perché il prodotto è ancora lì.
+
+**Reversibile per costruzione.** Prima della prima scrittura su un
+prodotto, `ProductRetirer` snapshotta stato + visibilità in
+`_hsync_missing_prev`. Se lo SKU **ritorna** nel feed, lo stesso
+passaggio lo ripristina — *prima* che l'import lo ri-rifornisca, nello
+stesso run. Senza l'inverso, una rottura di stock di due giorni
+diventerebbe un prodotto morto per sempre, e l'operatore lo scoprirebbe
+mesi dopo. Le **quantità** delle varianti non sono snapshottate di
+proposito: le riscrive il feed corrente, e rimettere le giacenze di
+settimane fa pubblicherebbe per qualche istante stock inesistente.
+
+**Tre invarianti da non rompere:**
+
+- **Gli item swept girano per primi e girano anche se `buckets` li
+  escluderebbe** — stessa esenzione degli item riparati da
+  `heal_media`, stessa ragione: chi accende l'opzione lo fa perché i
+  prodotti delistati sono live *adesso*, e farli aspettare dietro un
+  import da 10k item (o scartarli perché il job è scopato a
+  `updateStock`) ricrea il silenzio che l'opzione elimina.
+- **Il bucket `missing` NON viene strippato dalla `RunCache`** (a
+  differenza di `unchanged`). È calcolato una volta sola al tick 1 e i
+  tick successivi ci indicizzano dentro **posizionalmente**: strapparlo
+  farebbe ricostruire al resume una coda *più corta* di quella su cui è
+  stato coniato il cursor, saltando le retire e chiudendo il run `done`
+  senza aver oscurato niente.
+- **`Diff::totalCount()` NON conta `missing`.** Gli altri quattro
+  contano righe del feed; questo conta righe del catalogo che il feed
+  *non* ha restituito. Sommarlo romperebbe la riconciliazione
+  "fetched vs classified" su cui si regge la contabilità del runner.
+
+**La proprietà va dimostrata, mai dedotta.** `OwnedProductLookup`
+scopa su `_gh_import_source` / `_feed_source` **e** pretende che
+`_gh_primary_source` non dica il contrario. Senza la seconda clausola
+un prodotto creato da KicksDB e poi solo prezzato da GS (il bridge
+condiviso stampa comunque `_gh_import_source = goldensneakers`)
+verrebbe considerato di GS e oscurato appena GS smette di listare quel
+SKU. I prodotti senza `_sku` sono fuori scope per costruzione: senza
+SKU non c'è confronto possibile col feed, e un'oscuramento che non
+sappiamo giustificare non si fa.
+
+Coperto da `tests/Unit/Workflow/Run/MissingSweeperTest.php` — i test
+che contano sono quelli che dimostrano che **non** agisce
+(`testEmptyFeedAbortsInsteadOfRetiringTheWholeCatalog`,
+`testMassDelistingTripsTheRatioGuard`,
+`testHandRolledDraftWithNoMarkerIsNeverTouched`).
 
 ### Il feed GS mescola URL assoluti e path relativi
 

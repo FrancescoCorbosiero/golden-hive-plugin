@@ -212,12 +212,13 @@ function hsync_render_admin_page(): void {
             <div class="hsync-firstrun-callout" role="note">
                 <span class="hsync-firstrun-icon dashicons dashicons-controls-play" aria-hidden="true"></span>
                 <div class="hsync-firstrun-body">
-                    <strong>Primo caricamento del catalogo? Fallo dal tab <button type="button" class="hsync-firstrun-link" data-action="goto-run">Importa</button>.</strong>
-                    Le automazioni qui sotto servono per il <em>mantenimento</em> quotidiano (i prezzi e
-                    lo stock che cambiano), dove ogni giro dura un attimo. Il <strong>primo import</strong>
-                    di migliaia di prodotti, invece, gira molto più veloce dal tab Importa: lì il browser
-                    concatena i cicli senza pause. Lasciato al cron si completa comunque, ma a piccoli
-                    blocchi — un pezzo per ogni passaggio — e può richiedere ore.
+                    <strong>Primo caricamento del catalogo? Puoi farlo anche dal tab <button type="button" class="hsync-firstrun-link" data-action="goto-run">Importa</button>.</strong>
+                    Le automazioni qui sotto servono per il <em>mantenimento</em> (i prezzi e lo stock che
+                    cambiano) e reggono anche un primo import grosso: il motore lavora a blocchi da 25 secondi
+                    e li concatena senza pause, fino a ~4 minuti per giro, un giro al minuto — puoi chiudere
+                    il browser. Il tab Importa fa lo stesso lavoro mostrandoti prodotto per prodotto cosa
+                    succede. Se un run dura più dell'intervallo del cron, gli orari che passano mentre lavora
+                    vengono <em>saltati</em> (e segnalati sulla card), non accodati.
                 </div>
             </div>
             <div class="hsync-toolbar">
@@ -470,40 +471,40 @@ function hsync_render_admin_page(): void {
                 <button class="button is-danger" data-action="tools-source-delete">Elimina tutti</button>
             </div>
             <div data-region="tools-source-output"></div>
-        </section>
 
-        <section class="hsync-section">
-            <h3>Ripara attributi varianti</h3>
-            <p class="hsync-muted">
-                Sistema le varianti i cui attributi tassonomici (es. <code>attribute_pa_taglia</code>) sono
-                stati salvati col valore <strong>grezzo</strong> del feed (es. <code>33.5</code>) invece
-                dello <strong>slug</strong> del termine (<code>33-5</code>). Le varianti rotte esistono
-                nel DB ma sono invisibili nel dropdown del frontend. Tipicamente colpisce taglie con
-                decimali / lettere / spazi su import GS pre-fix. Mostra un'anteprima prima di applicare;
-                la riparazione è idempotente e non tocca prezzi / stock / status.
-            </p>
-            <div class="hsync-actions">
-                <button class="button" data-action="tools-repair-attrs-preview">Anteprima</button>
-                <button class="button button-primary" data-action="tools-repair-attrs-apply" disabled>Applica riparazione</button>
-            </div>
-            <div data-region="tools-repair-attrs-output"></div>
-        </section>
+            <section class="hsync-section">
+                <h3>Ripara attributi varianti</h3>
+                <p class="hsync-muted">
+                    Sistema le varianti i cui attributi tassonomici (es. <code>attribute_pa_taglia</code>) sono
+                    stati salvati col valore <strong>grezzo</strong> del feed (es. <code>33.5</code>) invece
+                    dello <strong>slug</strong> del termine (<code>33-5</code>). Le varianti rotte esistono
+                    nel DB ma sono invisibili nel dropdown del frontend. Tipicamente colpisce taglie con
+                    decimali / lettere / spazi su import GS pre-fix. Mostra un'anteprima prima di applicare;
+                    la riparazione è idempotente e non tocca prezzi / stock / status.
+                </p>
+                <div class="hsync-actions">
+                    <button class="button" data-action="tools-repair-attrs-preview">Anteprima</button>
+                    <button class="button button-primary" data-action="tools-repair-attrs-apply" disabled>Applica riparazione</button>
+                </div>
+                <div data-region="tools-repair-attrs-output"></div>
+            </section>
 
-        <section class="hsync-section">
-            <h3>Diagnostica feed vs Woo</h3>
-            <p class="hsync-muted">
-                Confronta cosa l'upstream sta servendo <strong>adesso</strong> con cosa esiste in Woo,
-                per-prodotto. Utile quando "sembra che mancano varianti" — risponde a 4 domande:
-                il feed risponde? il raggruppamento per SKU funziona? per i prodotti già in Woo,
-                le taglie combaciano? quali taglie mancano vs feed?
-                Pura lettura, nessuna scrittura, nessuna cache.
-            </p>
-            <div class="hsync-actions">
-                <input type="text" data-field="diag-config-slug" placeholder="config slug (es. gs-prod)" style="width:18em;">
-                <input type="number" data-field="diag-sample-size" value="50" min="1" max="500" style="width:6em;" title="Quanti prodotti del feed confrontare">
-                <button class="button button-primary" data-action="tools-feed-diagnostic">Esegui diagnostica</button>
-            </div>
-            <div data-region="tools-feed-diagnostic-output"></div>
+            <section class="hsync-section">
+                <h3>Diagnostica feed vs Woo</h3>
+                <p class="hsync-muted">
+                    Confronta cosa l'upstream sta servendo <strong>adesso</strong> con cosa esiste in Woo,
+                    per-prodotto. Utile quando "sembra che mancano varianti" — risponde a 4 domande:
+                    il feed risponde? il raggruppamento per SKU funziona? per i prodotti già in Woo,
+                    le taglie combaciano? quali taglie mancano vs feed?
+                    Pura lettura, nessuna scrittura, nessuna cache.
+                </p>
+                <div class="hsync-actions">
+                    <input type="text" data-field="diag-config-slug" placeholder="config slug (es. gs-prod)" style="width:18em;">
+                    <input type="number" data-field="diag-sample-size" value="50" min="1" max="500" style="width:6em;" title="Quanti prodotti del feed confrontare">
+                    <button class="button button-primary" data-action="tools-feed-diagnostic">Esegui diagnostica</button>
+                </div>
+                <div data-region="tools-feed-diagnostic-output"></div>
+            </section>
         </section>
 
         <section class="hsync-panel" data-panel="config">

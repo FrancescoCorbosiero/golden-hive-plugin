@@ -529,6 +529,26 @@ add_action( 'wp_ajax_hsync_ajax_run_now', function () {
         wp_send_json_error( [ 'message' => "Source '{$sourceId}' non registrata." ] );
     }
 
+    // Two imports of the same feed in parallel both see a new SKU as
+    // `new` and both create it. Refuse to START one next to a job run
+    // that is importing the same saved feed right now (a resumed tick
+    // carries a cursor and is let through). Dry runs write nothing.
+    if ( ! $cursor && ! $dryRun && $configSlug !== '' ) {
+        $busy = hsync_job_running_feed( $sourceId, $configSlug );
+        if ( $busy ) {
+            wp_send_json_error( [
+                'message' => sprintf(
+                    'L\'automazione «%s» sta già importando questo feed (run #%d in corso). '
+                    . 'Due import dello stesso feed in parallelo possono creare prodotti doppi: '
+                    . 'attendi che finisca oppure interrompila dal tab Automatizza.',
+                    hsync_job_label( $busy ),
+                    \HiveSync\Workflow\Schedule\RunState::runId( $busy['run_state'] ?? null )
+                ),
+                'busy_job_id' => (int) $busy['id'],
+            ] );
+        }
+    }
+
     $deadline = time() + 25; // soft cap so AJAX doesn't blow Apache's php-cgi limit
     $runner   = new \HiveSync\Workflow\Run\ImportRunner( new \HiveSync\Core\Repo\RunRepository() );
 
@@ -537,7 +557,12 @@ add_action( 'wp_ajax_hsync_ajax_run_now', function () {
             source: $src,
             config: $config,
             options: $options,
-            meta: [ 'trigger' => 'adhoc' ],
+            meta: [
+                'trigger' => 'adhoc',
+                // Named in the Storico as the feed actually imported
+                // ('json/gs-prod'), not just the source kind.
+                'ref'     => $configSlug !== '' ? $sourceId . '/' . $configSlug : $sourceId,
+            ],
             dryRun: $dryRun,
             deadline: $deadline,
             cursor: $cursor ?: null,
@@ -561,15 +586,100 @@ add_action( 'wp_ajax_hsync_ajax_runs_recent', function () {
     hsync_ajax_guard();
     $limit = max( 1, min( 200, (int) hsync_post_text( 'limit', '50' ) ) );
     $repo  = new \HiveSync\Core\Repo\RunRepository();
-    wp_send_json_success( [ 'runs' => $repo->recent( $limit ) ] );
+
+    // Job-linked runs are shown under the job's name.
+    $labels = [];
+    foreach ( ( new \HiveSync\Core\Repo\JobRepository() )->all() as $job ) {
+        $labels[ (int) $job['id'] ] = hsync_job_label( $job );
+    }
+    wp_send_json_success( [
+        'runs'       => $repo->recent( $limit ),
+        'job_labels' => (object) $labels,
+    ] );
 } );
 
 // ─── Jobs ──────────────────────────────────────────────────────────
 
+/**
+ * Human name of a job: its label when it has one, else type · ref.
+ */
+function hsync_job_label( array $job ): string {
+    $config = is_array( $job['config'] ?? null ) ? $job['config'] : [];
+    foreach ( [ '_label', '_seed_label' ] as $key ) {
+        if ( ! empty( $config[ $key ] ) && is_string( $config[ $key ] ) ) return $config[ $key ];
+    }
+    return (string) ( $job['runnable_type'] ?? '' ) . ' · ' . (string) ( $job['runnable_ref'] ?? '' );
+}
+
+/**
+ * The source.import job currently running (and not paused) on the saved
+ * feed $sourceId/$configSlug, or null.
+ */
+function hsync_job_running_feed( string $sourceId, string $configSlug ): ?array {
+    foreach ( ( new \HiveSync\Core\Repo\JobRepository() )->all() as $job ) {
+        if ( ( $job['runnable_type'] ?? '' ) !== 'source.import' ) continue;
+        $state = $job['run_state'] ?? null;
+        if ( ! \HiveSync\Workflow\Schedule\RunState::isRunning( $state ) ) continue;
+        if ( empty( $job['enabled'] ) && ! \HiveSync\Workflow\Schedule\RunState::isManual( $state ) ) continue; // paused
+
+        // Compare against what the run is actually importing: its snapshot.
+        $snap = is_array( $state['snapshot'] ?? null ) ? $state['snapshot'] : \HiveSync\Workflow\Schedule\RunState::snapshotOf( $job );
+        $ref  = (string) ( $snap['runnable_ref'] ?? '' );
+        [ $jobSource, $jobSlug ] = str_contains( $ref, '/' ) ? explode( '/', $ref, 2 ) : [ $ref, '' ];
+        if ( $jobSlug === '' ) $jobSlug = (string) ( $snap['config']['config_slug'] ?? '' );
+
+        if ( $jobSource === $sourceId && $jobSlug === $configSlug ) return $job;
+    }
+    return null;
+}
+
+/**
+ * What the job cards need about a run in flight — never the snapshot
+ * (it carries the job config, inline credentials included) or the raw
+ * cursor.
+ */
+function hsync_job_run_public( ?array $state ): ?array {
+    if ( ! \HiveSync\Workflow\Schedule\RunState::isRunning( $state ) ) return null;
+    return [
+        'trigger'       => (string) ( $state['trigger'] ?? '' ),
+        'slot_at'       => $state['slot_at'] ?? null,
+        'started_at'    => $state['started_at'] ?? null,
+        'last_slice_at' => $state['last_slice_at'] ?? null,
+        'slices'        => (int) ( $state['slices'] ?? 0 ),
+        'run_id'        => \HiveSync\Workflow\Schedule\RunState::runId( $state ),
+        'progress'      => is_array( $state['progress'] ?? null ) ? $state['progress'] : null,
+    ];
+}
+
 add_action( 'wp_ajax_hsync_ajax_jobs_list', function () {
     hsync_ajax_guard();
     $repo = new \HiveSync\Core\Repo\JobRepository();
-    wp_send_json_success( [ 'jobs' => $repo->all() ] );
+    $jobs = $repo->all();
+    foreach ( $jobs as &$job ) {
+        $job['run'] = hsync_job_run_public( $job['run_state'] ?? null );
+        unset( $job['run_state'] );
+    }
+    unset( $job );
+
+    $latest = ( new \HiveSync\Core\Repo\RunRepository() )->latestByJob( array_column( $jobs, 'id' ) );
+    $lease  = \HiveSync\Workflow\Schedule\RunnerLease::forSite()->inspect();
+    $beat   = wp_next_scheduled( 'hive_sync_jobs_tick' );
+
+    wp_send_json_success( [
+        'jobs'      => $jobs,
+        // job_id → its most recent wp_hsync_runs row.
+        'latest'    => (object) $latest,
+        // Is a drain holding the runner right now, and until when.
+        'runner'    => [
+            'busy'       => $lease !== null && ! $lease['expired'],
+            'expires_at' => $lease ? gmdate( 'Y-m-d H:i:s', (int) $lease['expires'] ) : null,
+        ],
+        'heartbeat' => [
+            'next_at'  => $beat ? gmdate( 'Y-m-d H:i:s', (int) $beat ) : null,
+            'schedule' => wp_get_schedule( 'hive_sync_jobs_tick' ) ?: null,
+        ],
+        'now'       => gmdate( 'Y-m-d H:i:s' ),
+    ] );
 } );
 
 add_action( 'wp_ajax_hsync_ajax_job_save', function () {
@@ -578,23 +688,55 @@ add_action( 'wp_ajax_hsync_ajax_job_save', function () {
     if ( $cron !== '' && \HiveSync\Workflow\Schedule\CronExpr::parse( $cron ) === null ) {
         wp_send_json_error( [ 'message' => 'Cron expression non valida.' ] );
     }
-    $nextRunAt = null;
-    if ( $cron !== '' ) {
-        $next = \HiveSync\Workflow\Schedule\CronExpr::nextRun( $cron, time() );
-        if ( $next !== null ) $nextRunAt = gmdate( 'Y-m-d H:i:s', $next );
+
+    $repo     = new \HiveSync\Core\Repo\JobRepository();
+    $id       = (int) hsync_post_text( 'id' );
+    $existing = $id > 0 ? $repo->find( $id ) : null;
+    if ( $id > 0 && ! $existing ) {
+        wp_send_json_error( [ 'message' => "Job #{$id} non trovato." ] );
+    }
+    $enabled = hsync_post_bool( 'enabled' );
+
+    // Runtime state never round-trips through the editor: the browser
+    // posts back the config it loaded, and a cursor in it is stale by
+    // the time it lands. (Pre-1.2 runs kept one in config._resume_cursor.)
+    $config = hsync_post_json( 'config' );
+    foreach ( \HiveSync\Workflow\Schedule\RunState::RUNTIME_CONFIG_KEYS as $k ) unset( $config[ $k ] );
+
+    // Re-plan the slot only when the SCHEDULE changed — a new cron, or
+    // the job switched on (a job paused for a week must not fire the
+    // moment it is re-enabled). Saving any other field keeps the planned
+    // slot, including the one a running job is measured against. Slots
+    // are read in the site timezone.
+    $next = $existing['next_run_at'] ?? null;
+    if ( $cron === '' ) {
+        $next = null;
+    } else {
+        $cronChanged = (string) ( $existing['cron_expr'] ?? '' ) !== $cron;
+        $switchedOn  = $enabled && empty( $existing['enabled'] );
+        if ( ! $existing || $cronChanged || $switchedOn || $next === null ) {
+            $next = \HiveSync\Workflow\Schedule\JobSchedule::formatUtc(
+                \HiveSync\Workflow\Schedule\JobSchedule::forSite()->nextAfter( $cron, time() )
+            );
+        }
     }
 
-    $repo = new \HiveSync\Core\Repo\JobRepository();
-    $id   = $repo->save( [
-        'id'            => (int) hsync_post_text( 'id' ),
+    $saved = $repo->save( [
+        'id'            => $id,
         'runnable_type' => hsync_post_text( 'runnable_type' ),
         'runnable_ref'  => hsync_post_text( 'runnable_ref' ),
         'cron_expr'     => $cron,
-        'enabled'       => hsync_post_bool( 'enabled' ),
-        'next_run_at'   => $nextRunAt,
-        'config'        => hsync_post_json( 'config' ),
+        'enabled'       => $enabled,
+        'next_run_at'   => $next,
+        'config'        => $config,
     ] );
-    wp_send_json_success( [ 'id' => $id, 'next_run_at' => $nextRunAt ] );
+    wp_send_json_success( [
+        'id'          => $saved,
+        'next_run_at' => $next,
+        // True when the job has a run in flight: edits apply from the
+        // next run (the one in flight keeps the snapshot it started with).
+        'running'     => \HiveSync\Workflow\Schedule\RunState::isRunning( $existing['run_state'] ?? null ),
+    ] );
 } );
 
 add_action( 'wp_ajax_hsync_ajax_job_delete', function () {
@@ -602,6 +744,10 @@ add_action( 'wp_ajax_hsync_ajax_job_delete', function () {
     $id = (int) hsync_post_text( 'id' );
     if ( $id <= 0 ) wp_send_json_error( [ 'message' => 'id richiesto.' ] );
     $repo = new \HiveSync\Core\Repo\JobRepository();
+    $job  = $repo->find( $id );
+    // Close the run in flight first, or its row reads "continue" in the
+    // Storico forever and its fetch cache lingers until it expires.
+    if ( $job ) hsync_job_runner()->forgetRun( $job );
     wp_send_json_success( [ 'deleted' => $repo->delete( $id ) ] );
 } );
 
@@ -611,21 +757,25 @@ add_action( 'wp_ajax_hsync_ajax_job_run_now', function () {
     hsync_raise_limits();
     $id = (int) hsync_post_text( 'id' );
     if ( $id <= 0 ) wp_send_json_error( [ 'message' => 'id richiesto.' ] );
-    $runner = new \HiveSync\Workflow\Schedule\JobRunner(
-        new \HiveSync\Core\Repo\JobRepository(),
-        new \HiveSync\Core\Repo\RunRepository(),
-        new \HiveSync\Core\Repo\RuleRepository(),
-        new \HiveSync\Core\Repo\SourceConfigRepository(),
-        new \HiveSync\Core\Repo\MappingRepository(),
-    );
-    wp_send_json_success( $runner->runJobNow( $id ) );
+    // One interactive slice at most; the rest of the run continues on the
+    // cron heartbeat (or joins the drain already going).
+    wp_send_json_success( hsync_job_runner()->runJobNow( $id, \HiveSync\Workflow\Schedule\JobRunner::INTERACTIVE_BUDGET ) );
+} );
+
+add_action( 'wp_ajax_hsync_ajax_job_stop', function () {
+    hsync_ajax_guard();
+    $id = (int) hsync_post_text( 'id' );
+    if ( $id <= 0 ) wp_send_json_error( [ 'message' => 'id richiesto.' ] );
+    wp_send_json_success( hsync_job_runner()->requestStop( $id ) );
 } );
 
 add_action( 'wp_ajax_hsync_ajax_jobs_tick_now', function () {
     hsync_ajax_guard();
     hsync_arm_fatal_guard();
     hsync_raise_limits();
-    wp_send_json_success( hsync_run_tick() );
+    // Short budget: the request has to come back to the browser. The cron
+    // heartbeat carries on from wherever this leaves off.
+    wp_send_json_success( hsync_run_tick( \HiveSync\Workflow\Schedule\JobRunner::INTERACTIVE_BUDGET ) );
 } );
 
 // ─── Defaults reinstall (mappings + pipelines) ────────────────────
@@ -1275,10 +1425,14 @@ add_action( 'wp_ajax_hsync_ajax_cockpit_status', function () {
     hsync_ajax_guard();
     global $wpdb;
 
-    $jobs       = ( new \HiveSync\Core\Repo\JobRepository() )->all();
-    $jobsTotal  = count( $jobs );
-    $jobsActive = 0;
-    foreach ( $jobs as $j ) if ( ! empty( $j['enabled'] ) ) $jobsActive++;
+    $jobs        = ( new \HiveSync\Core\Repo\JobRepository() )->all();
+    $jobsTotal   = count( $jobs );
+    $jobsActive  = 0;
+    $jobsRunning = 0;
+    foreach ( $jobs as $j ) {
+        if ( ! empty( $j['enabled'] ) ) $jobsActive++;
+        if ( \HiveSync\Workflow\Schedule\RunState::isRunning( $j['run_state'] ?? null ) ) $jobsRunning++;
+    }
 
     // Pull the most recent FINISHED run (skip rows still in progress
     // so the header doesn't flash a stale summary mid-import).
@@ -1312,6 +1466,7 @@ add_action( 'wp_ajax_hsync_ajax_cockpit_status', function () {
     wp_send_json_success( [
         'jobs_active'   => $jobsActive,
         'jobs_total'    => $jobsTotal,
+        'jobs_running'  => $jobsRunning,
         'last_run'      => $lastInfo,
         'product_count' => $productCount,
         'now_iso'       => gmdate( 'c' ),
@@ -1345,7 +1500,11 @@ add_action( 'wp_ajax_hsync_ajax_media_log_clear', function () {
 
 add_action( 'wp_ajax_hsync_ajax_release_tick_lock', function () {
     hsync_ajax_guard();
-    delete_transient( 'hsync_jobs_tick_lock' );
+    // Operator override for a lease left behind by a process that died
+    // (it expires by itself after RunnerLease::DEFAULT_TTL). A drain that
+    // is actually alive notices on its next renew and stops cleanly.
+    \HiveSync\Workflow\Schedule\RunnerLease::forSite()->forceRelease();
+    delete_transient( 'hsync_jobs_tick_lock' ); // pre-1.2 lock
     wp_send_json_success( [ 'released' => true ] );
 } );
 
@@ -1367,7 +1526,12 @@ add_action( 'wp_ajax_hsync_ajax_system_status', function () {
     $wpUrl      = site_url( 'wp-cron.php?doing_wp_cron' );
     $isOverdue  = $next && $next < ( $now - 600 ); // > 10 min overdue
 
+    $lease = \HiveSync\Workflow\Schedule\RunnerLease::forSite()->inspect();
+
     wp_send_json_success( [
+        'heartbeat_schedule' => wp_get_schedule( 'hive_sync_jobs_tick' ) ?: null,
+        'runner_busy'      => $lease !== null && ! $lease['expired'],
+        'runner_expires_at'=> $lease ? gmdate( 'c', (int) $lease['expires'] ) : null,
         'next_tick_at'     => $next ? gmdate( 'c', $next ) : null,
         'next_tick_in_sec' => $next ? ( $next - $now ) : null,
         'overdue'          => $isOverdue,

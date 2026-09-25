@@ -782,3 +782,74 @@
 .hsync-wrap .hsync-actions > .hsync-mode {
     margin-left: 4px;
 }
+
+/* ─── Automatizza: job cards with live run state ────────────────
+   One card per job: schedule line (cron in the site timezone), a
+   state line (in corso / in pausa / in coda / ultimo run), an
+   optional progress bar and a short-lived flash after Run/Interrompi.
+   Status pills below are shared with the Storico table. */
+.hsync-wrap .hsync-action-pill.is-done      { background: #d1f4d6; color: #1e4022; }
+.hsync-wrap .hsync-action-pill.is-continue,
+.hsync-wrap .hsync-action-pill.is-running   { background: #d2e8f5; color: #194a6b; }
+.hsync-wrap .hsync-action-pill.is-partial   { background: #fff3cd; color: #664d03; }
+.hsync-wrap .hsync-action-pill.is-cancelled { background: #f0f0f1; color: #50575e; }
+.hsync-wrap .hsync-action-pill.is-abandoned { background: #fff; color: #646970; border: 1px dashed #c3c4c7; }
+
+.hsync-wrap .hsync-muted-inline { color: #646970; font-size: 12px; font-weight: 400; }
+.hsync-wrap .hsync-run-ref { margin-top: 2px; font-size: 12px; }
+
+.hsync-wrap .hsync-jobs-status {
+    display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px;
+    align-items: center; margin: 4px 0 12px; font-size: 13px; color: #1d2327;
+}
+.hsync-wrap .hsync-jobs-tz { color: #646970; font-size: 12px; }
+.hsync-wrap .hsync-engine-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: #c3c4c7; margin-right: 4px; vertical-align: middle;
+}
+.hsync-wrap .hsync-engine-dot.is-busy {
+    background: #2271b1; box-shadow: 0 0 0 3px rgba(34, 113, 177, 0.18);
+}
+
+.hsync-wrap .hsync-job-card { align-items: flex-start; flex-wrap: wrap; }
+.hsync-wrap .hsync-job-card.is-running { border-left: 3px solid #2271b1; }
+.hsync-wrap .hsync-job-card .hsync-row-main { flex-basis: 320px; }
+
+.hsync-wrap .hsync-job-state {
+    display: flex; gap: 6px; align-items: baseline;
+    margin-top: 6px; font-size: 12px; color: #3c434a; line-height: 1.5;
+}
+.hsync-wrap .hsync-job-state-icon { flex: none; width: 1.1em; text-align: center; }
+.hsync-wrap .hsync-job-state.is-running,
+.hsync-wrap .hsync-job-state.is-continue { color: #194a6b; }
+.hsync-wrap .hsync-job-state.is-done     { color: #1e4022; }
+.hsync-wrap .hsync-job-state.is-failed   { color: #7a1d20; }
+.hsync-wrap .hsync-job-state.is-partial,
+.hsync-wrap .hsync-job-state.is-paused,
+.hsync-wrap .hsync-job-state.is-queued,
+.hsync-wrap .hsync-job-state.is-stopping { color: #664d03; }
+.hsync-wrap .hsync-job-state.is-idle,
+.hsync-wrap .hsync-job-state.is-cancelled,
+.hsync-wrap .hsync-job-state.is-abandoned,
+.hsync-wrap .hsync-job-state.is-skipped  { color: #646970; }
+
+.hsync-wrap .hsync-job-progress {
+    height: 4px; margin-top: 6px; max-width: 420px;
+    background: #f0f0f1; border-radius: 2px; overflow: hidden;
+}
+.hsync-wrap .hsync-job-progress > span {
+    display: block; height: 100%; background: #2271b1; transition: width 0.4s ease;
+}
+
+.hsync-wrap .hsync-skip-note { color: #8a6100; font-size: 12px; cursor: help; }
+.hsync-wrap .hsync-job-error {
+    margin-top: 4px; font-family: Menlo, Consolas, monospace; font-size: 11px;
+    color: #7a1d20; word-break: break-word;
+}
+
+.hsync-wrap .hsync-job-flash {
+    margin-top: 8px; padding: 6px 10px; font-size: 12px;
+    border-left: 3px solid #2271b1; background: #f0f6fc;
+}
+.hsync-wrap .hsync-job-flash.is-ok  { border-left-color: #1e7e34; background: #edfaef; }
+.hsync-wrap .hsync-job-flash.is-err { border-left-color: #d63638; background: #fcf0f1; }

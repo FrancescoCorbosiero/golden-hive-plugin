@@ -63,6 +63,103 @@ final class RunRepository
         );
     }
 
+    /**
+     * Status-only update (e.g. a KicksDB run the scheduler capped:
+     * 'continue' → 'partial'). Leaves report and timestamps alone.
+     */
+    public function setStatus( int $runId, string $status ): void
+    {
+        global $wpdb;
+        if ( ! isset( $wpdb ) || $runId <= 0 ) return;
+        $wpdb->update( \hsync_table( 'runs' ), [ 'status' => $status ], [ 'id' => $runId ] );
+    }
+
+    /**
+     * Merge keys into the run's report without disturbing what the
+     * runner wrote (summary, warnings, cursor). Read-modify-write: only
+     * the lease holder calls it, on a run nobody else is advancing.
+     *
+     * @param array<string, mixed> $extra
+     */
+    public function annotate( int $runId, array $extra ): void
+    {
+        global $wpdb;
+        if ( ! isset( $wpdb ) || $runId <= 0 || ! $extra ) return;
+        $table = \hsync_table( 'runs' );
+        $row   = $wpdb->get_row( $wpdb->prepare( "SELECT id, report FROM `$table` WHERE id = %d", $runId ), ARRAY_A );
+        if ( ! $row ) return; // row gone (storico purged mid-run)
+        $report = json_decode( (string) ( $row['report'] ?? '' ), true );
+        if ( ! is_array( $report ) ) $report = [];
+        $wpdb->update( $table, [ 'report' => wp_json_encode( array_merge( $report, $extra ) ) ], [ 'id' => $runId ] );
+    }
+
+    /**
+     * Close a run the operator (or a job deletion) stopped.
+     */
+    public function cancel( int $runId, string $reason ): void
+    {
+        global $wpdb;
+        if ( ! isset( $wpdb ) || $runId <= 0 ) return;
+        $wpdb->update(
+            \hsync_table( 'runs' ),
+            [ 'status' => 'cancelled', 'finished_at' => gmdate( 'Y-m-d H:i:s' ) ],
+            [ 'id' => $runId ],
+        );
+        $this->annotate( $runId, [ 'cancelled' => [ 'reason' => $reason, 'at' => gmdate( 'Y-m-d H:i:s' ) ] ] );
+    }
+
+    /**
+     * Latest run row per job — the job cards' "ultimo run" line.
+     *
+     * @param int[] $jobIds
+     * @return array<int, array<string, mixed>> keyed by job_id
+     */
+    public function latestByJob( array $jobIds ): array
+    {
+        global $wpdb;
+        $ids = array_values( array_filter( array_map( 'intval', $jobIds ), static fn( int $i ): bool => $i > 0 ) );
+        if ( ! isset( $wpdb ) || ! $ids ) return [];
+        $table = \hsync_table( 'runs' );
+        $in    = implode( ',', $ids ); // ints only — safe to inline
+        $rows  = $wpdb->get_results(
+            "SELECT r.* FROM `$table` r
+             JOIN ( SELECT job_id, MAX(id) AS id FROM `$table` WHERE job_id IN ($in) GROUP BY job_id ) last
+               ON last.id = r.id",
+            ARRAY_A,
+        );
+        $out = [];
+        foreach ( (array) $rows as $row ) {
+            $h = self::hydrate( $row );
+            if ( $h['job_id'] !== null ) $out[ (int) $h['job_id'] ] = $h;
+        }
+        return $out;
+    }
+
+    /**
+     * Close runs nothing will ever advance again: still 'running' /
+     * 'continue' but idle for $idleHours, and not the run of any job
+     * (those are passed in $activeRunIds — a paused job's run can sit
+     * idle for days and must survive). Typically an Importa run whose
+     * browser tab was closed mid-way; without this they read "CONTINUE"
+     * in the Storico forever, indistinguishable from a stuck cron.
+     *
+     * @param int[] $activeRunIds
+     */
+    public function markAbandoned( int $idleHours, array $activeRunIds ): int
+    {
+        global $wpdb;
+        if ( ! isset( $wpdb ) || $idleHours < 1 ) return 0;
+        $table  = \hsync_table( 'runs' );
+        $cutoff = gmdate( 'Y-m-d H:i:s', time() - $idleHours * 3600 );
+        $ids    = array_values( array_filter( array_map( 'intval', $activeRunIds ), static fn( int $i ): bool => $i > 0 ) );
+        $notIn  = $ids ? ' AND id NOT IN (' . implode( ',', $ids ) . ')' : '';
+        return (int) $wpdb->query( $wpdb->prepare(
+            "UPDATE `$table` SET status = 'abandoned'
+             WHERE status IN ('running','continue') AND COALESCE(finished_at, started_at) < %s" . $notIn,
+            $cutoff,
+        ) );
+    }
+
     public function find( int $id ): ?array
     {
         global $wpdb;

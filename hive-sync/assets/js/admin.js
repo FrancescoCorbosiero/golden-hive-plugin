@@ -86,6 +86,132 @@
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
+    // ─── Time (site timezone) ─────────────────────────────────────
+    //
+    // Every timestamp the server sends is UTC ('Y-m-d H:i:s'). They are
+    // shown on the SHOP's clock — the zone cron expressions are read in —
+    // so a job "alle 00:00" and its runs in the Storico agree. Printing
+    // raw UTC made a midnight job look like it ran at 00:00 while the shop
+    // clock said 02:00, and "next" timestamps unreadable.
+
+    HSync.tz = {
+        name:   String(HSyncBoot.timezone || 'UTC'),
+        // Seconds east of UTC right now — fallback for a zone Intl can't
+        // resolve (a bare "+02:00" on older browsers).
+        offset: parseInt(HSyncBoot.tzOffset, 10) || 0,
+    };
+
+    /** 'Y-m-d H:i:s' UTC (or ISO) → epoch ms; NaN when unparseable. */
+    HSync.parseUtc = function (value) {
+        if (!value) return NaN;
+        const str = String(value).trim();
+        const iso = str.indexOf('T') >= 0 ? str : str.replace(' ', 'T');
+        return Date.parse(/(Z|[+-]\d\d:?\d\d)$/.test(iso) ? iso : iso + 'Z');
+    };
+
+    let siteFmt = null;
+    /** Wall-clock parts of an epoch on the site clock (zero-padded strings). */
+    HSync.siteParts = function (ms) {
+        try {
+            if (!siteFmt) {
+                siteFmt = new Intl.DateTimeFormat('it-IT', {
+                    timeZone: HSync.tz.name, hourCycle: 'h23',
+                    year: 'numeric', month: '2-digit', day: '2-digit',
+                    hour: '2-digit', minute: '2-digit', second: '2-digit',
+                });
+            }
+            const o = {};
+            siteFmt.formatToParts(new Date(ms)).forEach(part => { o[part.type] = part.value; });
+            return { y: o.year, mo: o.month, d: o.day, h: o.hour, mi: o.minute, s: o.second };
+        } catch (e) {
+            const d = new Date(ms + HSync.tz.offset * 1000);
+            const p2 = n => String(n).padStart(2, '0');
+            return {
+                y: String(d.getUTCFullYear()), mo: p2(d.getUTCMonth() + 1), d: p2(d.getUTCDate()),
+                h: p2(d.getUTCHours()), mi: p2(d.getUTCMinutes()), s: p2(d.getUTCSeconds()),
+            };
+        }
+    };
+
+    /**
+     * "04:30" when it's today on the site clock, else "25/09 04:30".
+     * opts.date forces the date, opts.year adds the year.
+     */
+    HSync.fmtWhen = function (utc, opts) {
+        const ms = HSync.parseUtc(utc);
+        if (isNaN(ms)) return '—';
+        const o = opts || {};
+        const p = HSync.siteParts(ms);
+        const t = HSync.siteParts(Date.now());
+        const time = p.h + ':' + p.mi;
+        const today = p.y === t.y && p.mo === t.mo && p.d === t.d;
+        if (today && !o.date && !o.year) return time;
+        return p.d + '/' + p.mo + (o.year ? '/' + p.y : '') + ' ' + time;
+    };
+
+    /** "tra 12 min" / "3 min fa" / "a momenti". */
+    HSync.fmtRelative = function (utc) {
+        const ms = HSync.parseUtc(utc);
+        if (isNaN(ms)) return '';
+        const diff = Math.round((ms - Date.now()) / 1000);
+        const abs = Math.abs(diff);
+        if (abs < 45) return diff >= 0 ? 'a momenti' : 'adesso';
+        // Round to whole minutes FIRST, then split — rounding the minute
+        // part on its own printed "4 h 60 min".
+        const mins = Math.max(1, Math.round(abs / 60));
+        let txt;
+        if (mins < 60) {
+            txt = mins + ' min';
+        } else if (mins < 1440) {
+            const h = Math.floor(mins / 60), m = mins % 60;
+            txt = h + ' h' + (m ? ' ' + m + ' min' : '');
+        } else {
+            txt = Math.round(mins / 1440) + ' g';
+        }
+        return diff >= 0 ? 'tra ' + txt : txt + ' fa';
+    };
+
+    /** 42 → "42s", 312 → "5m 12s", 5400 → "1h 30m". */
+    HSync.fmtDuration = function (seconds) {
+        const s = Math.max(0, Math.round(seconds));
+        if (s < 60)   return s + 's';
+        if (s < 3600) return Math.floor(s / 60) + 'm ' + String(s % 60).padStart(2, '0') + 's';
+        return Math.floor(s / 3600) + 'h ' + String(Math.floor((s % 3600) / 60)).padStart(2, '0') + 'm';
+    };
+
+    /** "Europe/Rome (UTC+2)" — the zone, with its offset right now. */
+    HSync.tzLabel = function () {
+        const now = Math.floor(Date.now() / 60000) * 60000;
+        const p = HSync.siteParts(now);
+        const wall = Date.UTC(+p.y, +p.mo - 1, +p.d, +p.h, +p.mi);
+        const off = Math.round((wall - now) / 60000);
+        const sign = off < 0 ? '-' : '+';
+        const h = Math.floor(Math.abs(off) / 60), m = Math.abs(off) % 60;
+        const utc = 'UTC' + (off === 0 ? '' : sign + h + (m ? ':' + String(m).padStart(2, '0') : ''));
+        return HSync.tz.name === utc || /^[+-]/.test(HSync.tz.name) ? utc : HSync.tz.name + ' (' + utc + ')';
+    };
+
+    /** Seconds between a run row's start and end, or null. */
+    HSync.runDuration = function (run) {
+        if (!run || !run.started_at || !run.finished_at) return null;
+        const d = (HSync.parseUtc(run.finished_at) - HSync.parseUtc(run.started_at)) / 1000;
+        return isNaN(d) ? null : d;
+    };
+
+    /** Italian label + pill class for a wp_hsync_runs / job status. */
+    HSync.runStatus = function (status) {
+        return ({
+            done:      { label: 'Completato',  cls: 'is-done',      icon: '✓' },
+            failed:    { label: 'Fallito',     cls: 'is-failed',    icon: '✗' },
+            partial:   { label: 'Parziale',    cls: 'is-partial',   icon: '◐' },
+            cancelled: { label: 'Interrotto',  cls: 'is-cancelled', icon: '■' },
+            abandoned: { label: 'Abbandonato', cls: 'is-abandoned', icon: '○' },
+            skipped:   { label: 'Saltato',     cls: 'is-skipped',   icon: '–' },
+            continue:  { label: 'In corso',    cls: 'is-continue',  icon: '▶' },
+            running:   { label: 'In corso',    cls: 'is-running',   icon: '▶' },
+        })[status] || { label: status || '—', cls: 'is-skipped', icon: '·' };
+    };
+
     // ─── Tabs ─────────────────────────────────────────────────────
 
     HSync.state.usage = { source_configs: {}, mappings: {}, pipelines: {}, rules: {} };
@@ -162,8 +288,10 @@
 
         // ── Tile: Jobs ────────────────────────────────────────────
         const active = data.jobs_active || 0, total = data.jobs_total || 0;
+        const running = data.jobs_running || 0;
         set('jobs', '<span class="' + (active > 0 ? 'is-good' : 'is-dim') + '">' + active + '</span><span class="hsync-cockpit-tile-total">/' + total + '</span>',
-            active > 0 ? 'attivi su ' + total + ' totali' : 'nessuna automazione attiva');
+            (active > 0 ? 'attivi su ' + total + ' totali' : 'nessuna automazione attiva')
+            + (running > 0 ? ' · <strong>' + running + ' in corso</strong>' : ''));
 
         // ── Tile: Last run ───────────────────────────────────────
         const lr = data.last_run;
@@ -205,8 +333,7 @@
         if (btn) { btn.disabled = true; btn.innerHTML = '<span class="dashicons dashicons-update spin" aria-hidden="true"></span> In esecuzione…'; }
         try {
             const data = await HSync.ajax('jobs_tick_now', {});
-            alert('Esecuzione lanciata: ' + (data.dispatched || 0) + ' avviati, ' + (data.skipped || 0) + ' saltati'
-                + (data.locked ? ' (sistema occupato — riprova tra poco)' : ''));
+            alert(HSync.describeTick(data));
         } catch (e) { alert('Errore: ' + e.message); }
         if (btn) { btn.disabled = false; btn.innerHTML = restore; }
         HSync.refreshCockpit();
@@ -919,42 +1046,172 @@
             }
             const data = await HSync.ajax('jobs_list', {});
             HSync.state.jobs = data.jobs || [];
+            HSync.state.jobsMeta = {
+                latest:    data.latest || {},
+                runner:    data.runner || {},
+                heartbeat: data.heartbeat || {},
+            };
             HSync.renderJobsList();
         } catch (e) {
             region.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
         }
+        HSync.scheduleJobsPoll();
+    };
+
+    /**
+     * Keep the cards live while the Automatizza tab is open: every 8s
+     * while something runs (progress, "in coda" → "in corso"), every 30s
+     * otherwise (the "tra N min" countdowns).
+     */
+    HSync.scheduleJobsPoll = function () {
+        clearTimeout(HSync.state.jobsPollTimer);
+        if (HSync.state.currentTab !== 'jobs') return;
+        const meta = HSync.state.jobsMeta || {};
+        const busy = HSync.state.jobs.some(j => j.run || j.run_control) || !!(meta.runner && meta.runner.busy);
+        HSync.state.jobsPollTimer = setTimeout(function () {
+            if (HSync.state.currentTab === 'jobs') HSync.loadJobs();
+        }, busy ? 8000 : 30000);
+    };
+
+    /** A short-lived notice on one job card (Run / Interrompi feedback). */
+    HSync.setJobFlash = function (id, kind, text) {
+        HSync.state.jobFlash = HSync.state.jobFlash || {};
+        HSync.state.jobFlash[id] = { kind: kind, text: text, until: Date.now() + 25000 };
     };
 
     HSync.renderJobsList = function () {
         const region = $('[data-region="jobs-list"]');
+        const meta   = HSync.state.jobsMeta || {};
+        const header = HSync.renderRunnerStatus(meta);
         if (!HSync.state.jobs.length) {
-            region.innerHTML = '<div class="hsync-empty">Nessun job schedulato.</div>';
+            region.innerHTML = header + '<div class="hsync-empty">Nessun job schedulato.</div>';
             return;
         }
-        region.innerHTML = HSync.state.jobs.map(j => {
-            const cronLabel = HSync.describeCron(j.cron_expr || '');
-            const seedLabel = (j.config && j.config._seed_label) ? esc(j.config._seed_label) : '';
-            return ''
-            + '<div class="hsync-mapping-row">'
+        const latest = meta.latest || {};
+        region.innerHTML = header + HSync.state.jobs.map(j => HSync.renderJobCard(j, latest[j.id] || null)).join('');
+    };
+
+    /** One line above the cards: is the engine working, and in which clock are the times. */
+    HSync.renderRunnerStatus = function (meta) {
+        const runner = meta.runner || {};
+        const beat   = meta.heartbeat || {};
+        const anyActive = HSync.state.jobs.some(j => j.run || j.run_control);
+        let engine;
+        if (runner.busy) {
+            engine = '<span class="hsync-engine-dot is-busy" aria-hidden="true"></span> Motore al lavoro';
+            if (!anyActive) {
+                // Held by nobody visible: a drain between two jobs, or a
+                // process that died holding it (it expires by itself).
+                engine += ' <button type="button" class="button-link" data-action="runner-release"'
+                    + ' title="Il motore risulta occupato ma nessun job è in corso. Se resta così per più di un quarto d\'ora, un processo si è interrotto: sbloccalo.">Sblocca</button>';
+            }
+        } else {
+            engine = '<span class="hsync-engine-dot" aria-hidden="true"></span> Motore in attesa'
+                + (beat.next_at ? ' · prossimo controllo ' + esc(HSync.fmtRelative(beat.next_at)) : '');
+        }
+        return '<div class="hsync-jobs-status">'
+            + '<span>' + engine + '</span>'
+            + '<span class="hsync-jobs-tz">Orari nel fuso del sito: <strong>' + esc(HSync.tzLabel()) + '</strong></span>'
+            + '</div>';
+    };
+
+    HSync.renderJobCard = function (j, last) {
+        const seedLabel = (j.config && (j.config._label || j.config._seed_label)) || '';
+        const cronLabel = HSync.describeCron(j.cron_expr || '');
+        const run       = j.run || null;
+        const control   = j.run_control || '';
+        const line      = (cls, icon, html) =>
+            '<div class="hsync-job-state ' + cls + '"><span class="hsync-job-state-icon" aria-hidden="true">' + icon + '</span><span>' + html + '</span></div>';
+
+        // ── What the cron says ────────────────────────────────────
+        const schedule = j.cron_expr
+            ? (cronLabel ? '<strong>' + esc(cronLabel) + '</strong> ' : '') + '<code>' + esc(j.cron_expr) + '</code>'
+            : '<span class="hsync-muted-inline">Solo manuale — nessun cron</span>';
+
+        // ── When it next starts ───────────────────────────────────
+        let next = '';
+        if (!j.enabled) {
+            next = '<span class="hsync-muted-inline">Disattivato — non parte da solo</span>';
+        } else if (j.cron_expr && j.next_run_at) {
+            next = 'Prossima: <strong>' + esc(HSync.fmtWhen(j.next_run_at)) + '</strong>'
+                + ' <span class="hsync-muted-inline">(' + esc(HSync.fmtRelative(j.next_run_at)) + ')</span>';
+            if (run) {
+                next += ' <span class="hsync-muted-inline" title="Se il run in corso non è finito a quell\'ora, quell\'esecuzione viene saltata e il job riparte all\'orario successivo.">— se il run è ancora in corso, si salta</span>';
+            }
+        } else if (j.cron_expr) {
+            next = '<span class="hsync-muted-inline">Prossima: in pianificazione…</span>';
+        }
+
+        // ── What it is doing / did ────────────────────────────────
+        let state;
+        if (control === 'stop') {
+            state = line('is-stopping', '■', '<strong>Arresto richiesto</strong> — si ferma alla fine del blocco in corso (al massimo ~30 secondi).');
+        } else if (run) {
+            const p   = run.progress || null;
+            const pct = p && p.total > 0 ? Math.min(100, Math.round(p.done * 100 / p.total)) : null;
+            const bits = [];
+            bits.push('avviato ' + HSync.fmtWhen(run.started_at) + (run.trigger === 'manual' ? ' (manuale)' : ''));
+            if (p && p.total > 0) bits.push(p.done + '/' + p.total + ' (' + pct + '%)');
+            if (last && last.id === run.run_id && last.items_done) bits.push(last.items_done + ' scritti finora');
+            bits.push(run.slices + (run.slices === 1 ? ' blocco' : ' blocchi'));
+            if (run.last_slice_at) bits.push('ultimo blocco ' + HSync.fmtRelative(run.last_slice_at));
+            const bar = pct !== null
+                ? '<div class="hsync-job-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct + '"><span style="width:' + pct + '%"></span></div>'
+                : '';
+            state = (!j.enabled && run.trigger !== 'manual')
+                ? line('is-paused', '⏸', '<strong>Run in pausa</strong> — il job è disattivato; il run riprende da dove si era fermato quando lo riattivi (o premi Run). ' + esc(bits.join(' · ')))
+                : line('is-running', '▶', '<strong>In corso</strong> · ' + esc(bits.join(' · '))) + bar;
+        } else if (control === 'run') {
+            state = line('is-queued', '⏳', '<strong>In coda</strong> — parte al prossimo giro del motore (entro un minuto).');
+        } else if (last) {
+            const st   = HSync.runStatus(last.status);
+            const dur  = HSync.runDuration(last);
+            const bits = [ st.label + ' ' + HSync.fmtWhen(last.finished_at || last.started_at) ];
+            if (dur !== null && last.status !== 'continue' && last.status !== 'running') bits.push('durata ' + HSync.fmtDuration(dur));
+            bits.push((last.items_done || 0) + ' scritti');
+            if (last.items_failed) bits.push(last.items_failed + ' errori');
+            const report  = last.report || {};
+            const skipped = report.schedule ? (report.schedule.skipped_slots || 0) : 0;
+            let extra = '';
+            if (skipped > 0) {
+                extra += ' <span class="hsync-skip-note" title="Mentre il run lavorava sono passati ' + skipped + ' orari del cron. Non vengono recuperati uno dopo l\'altro: il job riparte al primo orario libero.">⚠ '
+                    + skipped + (skipped === 1 ? ' esecuzione saltata' : ' esecuzioni saltate') + ': il run è durato più dell\'intervallo</span>';
+            }
+            if (last.status === 'failed' && report.error) {
+                extra += '<div class="hsync-job-error">' + esc(String(report.error).slice(0, 240)) + '</div>';
+            }
+            state = line(st.cls, st.icon, 'Ultimo run: ' + esc(bits.join(' · ')) + extra);
+        } else if (j.last_run_status) {
+            const st = HSync.runStatus(j.last_run_status);
+            state = line(st.cls, st.icon, 'Ultimo stato: ' + esc(st.label) + (j.last_run_at ? ' · ' + esc(HSync.fmtWhen(j.last_run_at)) : ''));
+        } else {
+            state = line('is-idle', '·', 'Mai eseguito');
+        }
+
+        // ── Flash from the last button press ──────────────────────
+        const flashes = HSync.state.jobFlash || {};
+        const flash   = flashes[j.id] && flashes[j.id].until > Date.now() ? flashes[j.id] : null;
+        const flashHtml = flash ? '<div class="hsync-job-flash is-' + esc(flash.kind) + '">' + esc(flash.text) + '</div>' : '';
+
+        const canStop = !!run || control === 'run';
+        const runLabel = run && !j.enabled && run.trigger !== 'manual' ? 'Riprendi' : 'Run';
+        return ''
+            + '<div class="hsync-mapping-row hsync-job-card' + (run ? ' is-running' : '') + '">'
             +   '<div class="hsync-row-main">'
             +     '<div class="hsync-row-name">'
             +       (j.enabled ? '<span class="hsync-action-pill is-created">on</span>' : '<span class="hsync-action-pill is-skipped">off</span>') + ' '
-            +       (seedLabel || ('<code>' + esc(j.runnable_type) + '</code> · <code>' + esc(j.runnable_ref) + '</code>'))
+            +       (seedLabel ? esc(seedLabel) : ('<code>' + esc(j.runnable_type) + '</code> · <code>' + esc(j.runnable_ref) + '</code>'))
             +     '</div>'
-            +     '<div class="hsync-row-meta">'
-            +       (cronLabel
-                        ? '<strong>' + esc(cronLabel) + '</strong> <code>' + esc(j.cron_expr || '—') + '</code>'
-                        : 'cron: <code>' + esc(j.cron_expr || '—') + '</code>')
-            +       ' · next: <code>' + esc(j.next_run_at || '—') + '</code>'
-            +       ' · last: <code>' + esc(j.last_run_status || '—') + '</code>'
-            +     '</div>'
+            +     '<div class="hsync-row-meta">' + schedule + (next ? ' · ' + next : '') + '</div>'
+            +     state
+            +     flashHtml
             +   '</div>'
-            +   '<button class="button" data-action="job-run-now" data-id="' + j.id + '">Run</button>'
+            +   '<button class="button" data-action="job-run-now" data-id="' + j.id + '"' + (control === 'stop' ? ' disabled' : '') + '>' + runLabel + '</button>'
+            +   (canStop ? '<button class="button" data-action="job-stop" data-id="' + j.id + '"' + (control === 'stop' ? ' disabled' : '') + '>Interrompi</button>' : '')
             +   '<button class="button" data-action="job-edit"    data-id="' + j.id + '">Modifica</button>'
             +   '<button class="button" data-action="job-duplicate" data-id="' + j.id + '">Duplica</button>'
             +   '<button class="button" data-action="job-delete"  data-id="' + j.id + '">Elimina</button>'
             + '</div>';
-        }).join('');
     };
 
     HSync.openJobEditor = function (job) {
@@ -1020,6 +1277,8 @@
             +   '<small class="hsync-muted" data-region="job-cron-readout">'
             +     (HSync.describeCron(j.cron_expr || '') || 'Inserisci una espressione cron valida.')
             +   '</small>'
+            +   '<small class="hsync-muted">Gli orari del cron sono letti nel fuso del sito: <strong>' + esc(HSync.tzLabel()) + '</strong> (Impostazioni → Generali).'
+            +     ' Se un run dura più dell\'intervallo, gli orari che passano mentre lavora vengono saltati, non accodati.</small>'
             + '</label>'
             + '<label class="hsync-dryrun"><input type="checkbox" data-field="job-enabled"' + (j.enabled ? ' checked' : '') + '> Abilitato</label>'
             + '<div class="hsync-actions" style="margin-top:24px;border-top:1px solid #ccd0d4;padding-top:16px;">'
@@ -1150,7 +1409,10 @@
         }
 
         try {
-            await HSync.ajax('job_save', data);
+            const res = await HSync.ajax('job_save', data);
+            if (res && res.running && res.id) {
+                HSync.setJobFlash(res.id, 'info', 'Salvato. Il run in corso finisce con la configurazione con cui è partito: le modifiche valgono dal prossimo run (oppure premi Interrompi).');
+            }
             HSync.closeJobEditor();
             HSync.loadJobs();
         } catch (e) { alert('Errore: ' + e.message); }
@@ -1165,11 +1427,60 @@
     };
 
     HSync.runJobNow = async function (id) {
+        const btn = document.querySelector('[data-action="job-run-now"][data-id="' + id + '"]');
+        if (btn) { btn.disabled = true; btn.textContent = 'Avvio…'; }
         try {
             const data = await HSync.ajax('job_run_now', { id: String(id) });
-            alert('Run dispatched: ' + JSON.stringify(data, null, 2).slice(0, 400));
-            HSync.loadJobs();
+            HSync.setJobFlash(id, data.status === 'failed' ? 'err' : 'ok', HSync.describeRunNow(data));
+        } catch (e) {
+            HSync.setJobFlash(id, 'err', 'Errore: ' + e.message);
+        }
+        HSync.loadJobs();
+    };
+
+    /** What happened after "Run", in words. */
+    HSync.describeRunNow = function (data) {
+        const p = data.progress || {};
+        switch (data.status) {
+            case 'queued':
+                return 'In coda: il motore sta già lavorando, il job parte al suo prossimo giro (entro un minuto).';
+            case 'continue':
+                return 'Blocco eseguito' + (p.total ? ' (' + (p.done || 0) + '/' + p.total + ')' : '')
+                    + '. Il resto prosegue da solo in background: puoi lasciare la pagina.';
+            case 'done':
+                return 'Completato in un solo blocco.';
+            case 'partial':
+                return 'Eseguito in parte: il resto al prossimo orario del cron.';
+            case 'skipped':
+                return 'Saltato: ' + (data.reason || 'niente da fare');
+            case 'failed':
+                return 'Fallito: ' + (data.error || 'errore sconosciuto');
+            default:
+                return 'Stato: ' + (data.status || '—');
+        }
+    };
+
+    HSync.stopJob = async function (id) {
+        if (!confirm('Interrompere il run in corso?\n\nI prodotti già elaborati restano come sono; il prossimo run riparte dal feed aggiornato.')) return;
+        try {
+            const data = await HSync.ajax('job_stop', { id: String(id) });
+            HSync.setJobFlash(id, 'ok', data.idle
+                ? 'Nessun run in corso: richiesta di avvio annullata.'
+                : (data.stopped
+                    ? 'Run interrotto.'
+                    : 'Arresto richiesto: il run si ferma alla fine del blocco in corso.'));
+        } catch (e) {
+            HSync.setJobFlash(id, 'err', 'Errore: ' + e.message);
+        }
+        HSync.loadJobs();
+    };
+
+    HSync.releaseRunner = async function () {
+        if (!confirm('Sbloccare il motore?\n\nSe un processo sta davvero lavorando, si ferma alla fine del blocco in corso e il run riprende al giro successivo.')) return;
+        try {
+            await HSync.ajax('release_tick_lock', {});
         } catch (e) { alert('Errore: ' + e.message); }
+        HSync.loadJobs();
     };
 
     // ─── Exports ──────────────────────────────────────────────────
@@ -1257,9 +1568,24 @@
     HSync.tickNow = async function () {
         try {
             const data = await HSync.ajax('jobs_tick_now', {});
-            alert('Esecuzione lanciata: ' + data.dispatched + ' avviati, ' + data.skipped + ' saltati' + (data.locked ? ' (sistema occupato — riprova tra poco)' : ''));
-            HSync.loadJobs();
+            alert(HSync.describeTick(data));
         } catch (e) { alert('Errore: ' + e.message); }
+        HSync.loadJobs();
+    };
+
+    /** Human reading of a jobs_tick_now / heartbeat result. */
+    HSync.describeTick = function (data) {
+        if (!data) return '';
+        if (data.locked) {
+            return 'Il motore sta già lavorando in background: i job in scadenza vengono eseguiti lì, non serve forzarlo.';
+        }
+        if (!data.slices) {
+            return 'Niente da eseguire adesso: nessun job è in scadenza o in corso.';
+        }
+        return 'Eseguiti ' + data.slices + (data.slices === 1 ? ' blocco' : ' blocchi')
+            + ' su ' + (data.dispatched || 0) + (data.dispatched === 1 ? ' job' : ' job')
+            + (data.skipped ? ' (' + data.skipped + ' saltati)' : '')
+            + '. I run non ancora finiti proseguono da soli in background.';
     };
 
     // ─── Sources ──────────────────────────────────────────────────
@@ -2765,7 +3091,9 @@
                 enabled:       '1',
                 config:        jobConfig,
             });
-            const next = data.next_run_at || '—';
+            const next = data.next_run_at
+                ? HSync.fmtWhen(data.next_run_at, { date: true }) + ' (' + HSync.tzLabel() + ')'
+                : '—';
             if (confirm('Automazione creata.\nProssima esecuzione: ' + next + '\n\nApri il tab Automatizza?')) {
                 HSync.switchTab('jobs');
             }
@@ -3429,23 +3757,54 @@
         try {
             const data = await HSync.ajax('runs_recent', { limit: '50' });
             const runs = data.runs || [];
+            const labels = data.job_labels || {};
             if (!runs.length) {
                 region.innerHTML = '<div class="hsync-empty">Nessun run registrato.</div>';
                 return;
             }
-            const rows = runs.map(r => ''
-                + '<tr>'
-                +   '<td>' + r.id + '</td>'
-                +   '<td><code>' + esc(r.runnable_type) + '</code></td>'
-                +   '<td><code>' + esc(r.runnable_ref) + '</code></td>'
-                +   '<td><span class="hsync-action-pill is-' + esc(r.status) + '">' + esc(r.status) + '</span></td>'
-                +   '<td>' + esc(r.started_at) + '</td>'
-                +   '<td>' + (r.items_done   || 0) + '</td>'
-                +   '<td>' + (r.items_failed || 0) + '</td>'
-                + '</tr>'
-            ).join('');
-            region.innerHTML = '<table class="hsync-table">'
-                + '<thead><tr><th>ID</th><th>Type</th><th>Ref</th><th>Status</th><th>Started</th><th>Done</th><th>Failed</th></tr></thead>'
+            const rows = runs.map(r => {
+                const st       = HSync.runStatus(r.status);
+                const label    = r.job_id && labels[r.job_id] ? labels[r.job_id] : '';
+                const inFlight = r.status === 'continue' || r.status === 'running';
+                const sched    = r.report && r.report.schedule ? r.report.schedule : null;
+                const skipped  = sched ? (sched.skipped_slots || 0) : 0;
+
+                const who = label
+                    ? '<strong>' + esc(label) + '</strong><div class="hsync-run-ref"><code>' + esc(r.runnable_ref) + '</code></div>'
+                    : '<code>' + esc(r.runnable_ref) + '</code><div class="hsync-muted-inline">'
+                        + (r.job_id ? 'job #' + r.job_id + ' (eliminato)' : 'manuale (Importa)') + '</div>';
+                const trigger = sched ? (sched.trigger === 'manual' ? 'avviato a mano' : 'da cron') : '';
+
+                let dur = inFlight ? (Date.now() - HSync.parseUtc(r.started_at)) / 1000 : HSync.runDuration(r);
+                if (dur !== null && isNaN(dur)) dur = null;
+                const durHtml = dur === null ? '—'
+                    : esc(HSync.fmtDuration(dur)) + (inFlight ? ' <span class="hsync-muted-inline">finora</span>' : '');
+
+                const doneHtml = (r.items_done || 0)
+                    + (inFlight && r.items_total ? ' <span class="hsync-muted-inline">su ' + r.items_total + ' in coda</span>' : '');
+
+                return '<tr>'
+                    + '<td>' + r.id + '</td>'
+                    + '<td>' + who + '</td>'
+                    + '<td><code>' + esc(r.runnable_type) + '</code>' + (trigger ? '<div class="hsync-muted-inline">' + trigger + '</div>' : '') + '</td>'
+                    + '<td><span class="hsync-action-pill ' + st.cls + '" title="' + esc(r.status) + '">' + esc(st.label) + '</span>'
+                    +   (skipped > 0
+                            ? '<div class="hsync-skip-note" title="Mentre questo run lavorava sono passati ' + skipped + ' orari del cron: non vengono recuperati, il job riparte al primo orario libero.">⚠ '
+                              + skipped + (skipped === 1 ? ' esecuzione saltata' : ' esecuzioni saltate') + '</div>'
+                            : '')
+                    + '</td>'
+                    + '<td title="' + esc(r.started_at) + ' UTC">' + esc(HSync.fmtWhen(r.started_at, { date: true })) + '</td>'
+                    + '<td>' + durHtml + '</td>'
+                    + '<td>' + doneHtml + '</td>'
+                    + '<td>' + (r.items_failed || 0) + '</td>'
+                    + '</tr>';
+            }).join('');
+            region.innerHTML = ''
+                + '<p class="hsync-muted">Orari nel fuso del sito: <strong>' + esc(HSync.tzLabel()) + '</strong>. '
+                + '<em>Scritti</em> = prodotti creati, aggiornati, ritoccati (prezzo/stock), oscurati o ripristinati in tutto il run — non solo nell\'ultimo blocco. '
+                + 'Un run lungo è <strong>una</strong> riga, anche se lavora in più blocchi.</p>'
+                + '<table class="hsync-table">'
+                + '<thead><tr><th>ID</th><th>Job / feed</th><th>Tipo</th><th>Stato</th><th>Avviato</th><th>Durata</th><th>Scritti</th><th>Errori</th></tr></thead>'
                 + '<tbody>' + rows + '</tbody></table>';
         } catch (e) {
             region.innerHTML = '<div class="hsync-error">' + esc(e.message) + '</div>';
@@ -3595,11 +3954,17 @@
                 clone.last_run_at = null;
                 clone.last_run_status = null;
                 clone.next_run_at = null;
+                // Runtime state belongs to the original's run, never to
+                // the copy (the server ignores it on save anyway).
+                delete clone.run;
+                delete clone.run_control;
             }
             return HSync.openJobEditor(clone);
         }
         if (t.matches('[data-action="job-delete"]'))   return HSync.deleteJob(parseInt(t.dataset.id, 10));
         if (t.matches('[data-action="job-run-now"]'))  return HSync.runJobNow(parseInt(t.dataset.id, 10));
+        if (t.matches('[data-action="job-stop"]'))     return HSync.stopJob(parseInt(t.dataset.id, 10));
+        if (t.matches('[data-action="runner-release"]')) return HSync.releaseRunner();
         if (t.matches('[data-action="job-save"]'))     return HSync.saveJob();
         if (t.matches('[data-action="job-cancel"]'))   return HSync.closeJobEditor();
         if (t.matches('[data-action="jobs-tick-now"]'))    return HSync.tickNow();

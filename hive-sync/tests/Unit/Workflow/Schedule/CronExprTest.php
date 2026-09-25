@@ -66,6 +66,64 @@ final class CronExprTest extends TestCase
         );
     }
 
+    // ─── Site timezone + DST ──────────────────────────────────────
+    //
+    // The scheduler reads cron in the site zone: "0 0 * * *" must be
+    // midnight on the shop's clock, not 02:00 Rome time (UTC midnight),
+    // which is what the jobs actually did before 1.2.
+
+    public function testNextRunReadsWallClockInTheGivenZone(): void
+    {
+        $rome = new \DateTimeZone( 'Europe/Rome' );
+        // 2026-09-24 12:00 UTC = 14:00 CEST → next local midnight is
+        // 2026-09-25 00:00 CEST = 2026-09-24 22:00 UTC.
+        $this->assertSame(
+            gmmktime( 22, 0, 0, 9, 24, 2026 ),
+            CronExpr::nextRun( '0 0 * * *', gmmktime( 12, 0, 0, 9, 24, 2026 ), $rome )
+        );
+        // Same instant, no zone: UTC midnight, as before.
+        $this->assertSame(
+            gmmktime( 0, 0, 0, 9, 25, 2026 ),
+            CronExpr::nextRun( '0 0 * * *', gmmktime( 12, 0, 0, 9, 24, 2026 ) )
+        );
+    }
+
+    public function testSpringForwardGapSlotIsSkippedThatDay(): void
+    {
+        // Europe/Rome 2026-03-29: 02:00 CET → 03:00 CEST. 02:30 doesn't
+        // exist that night; the next 02:30 is on the 30th (CEST, UTC+2).
+        $rome = new \DateTimeZone( 'Europe/Rome' );
+        $this->assertSame(
+            gmmktime( 0, 30, 0, 3, 30, 2026 ),
+            CronExpr::nextRun( '30 2 * * *', gmmktime( 12, 0, 0, 3, 28, 2026 ), $rome )
+        );
+    }
+
+    public function testFallBackRepeatedHourDoesNotFireTheSameSlotTwice(): void
+    {
+        // Europe/Rome 2026-10-25: 03:00 CEST → 02:00 CET, so 02:30 happens
+        // twice (00:30 UTC, then 01:30 UTC). After running the first one,
+        // the next is the following night — not an hour later.
+        $rome     = new \DateTimeZone( 'Europe/Rome' );
+        $firstRun = gmmktime( 0, 30, 0, 10, 25, 2026 );
+        $this->assertSame( $firstRun, CronExpr::nextRun( '30 2 * * *', gmmktime( 12, 0, 0, 10, 24, 2026 ), $rome ) );
+        $this->assertSame(
+            gmmktime( 1, 30, 0, 10, 26, 2026 ),
+            CronExpr::nextRun( '30 2 * * *', $firstRun, $rome )
+        );
+    }
+
+    public function testSparseExpressionIsCheapAndCorrect(): void
+    {
+        // Only Feb 29 — the old minute-by-minute walk took ~2M steps.
+        $rome  = new \DateTimeZone( 'Europe/Rome' );
+        $start = microtime( true );
+        $next  = CronExpr::nextRun( '5 0 29 2 *', gmmktime( 0, 0, 0, 3, 1, 2026 ), $rome );
+        $this->assertLessThan( 0.25, microtime( true ) - $start );
+        // 2028-02-29 00:05 CET = 2028-02-28 23:05 UTC.
+        $this->assertSame( gmmktime( 23, 5, 0, 2, 28, 2028 ), $next );
+    }
+
     public function testNextRunSingleRestrictionStillAnds(): void
     {
         // Solo dow ristretto: '0 9 * * 1' = lunedì alle 9. Da martedì

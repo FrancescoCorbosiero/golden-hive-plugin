@@ -206,9 +206,17 @@ keeps the dependency one-way and explicit.
 
 ## WP-Cron in produzione
 
-Il plugin schedule un evento `hive_sync_jobs_tick` ogni 5 minuti che
-fa il dispatch dei job. Il default WordPress fa scattare gli eventi
-sul page-load di un visitatore — fragile su siti a basso traffico.
+Il plugin schedule un evento `hive_sync_jobs_tick` **ogni minuto**. Se
+nessun job è dovuto esce subito (zero scritture); altrimenti prende la
+runner lease e *drena*: blocchi da 25s concatenati finché c'è lavoro,
+fino a ~4 minuti per giro (`HSYNC_CRON_DRAIN_BUDGET` /
+filtro `hive_sync/cron/drain_budget`). Le espressioni cron sono lette
+nel **fuso del sito** (Impostazioni → Generali); se un run dura più
+dell'intervallo, gli orari che passano mentre lavora vengono saltati
+e segnalati sulla card, non accodati.
+
+Il default WordPress fa scattare gli eventi sul page-load di un
+visitatore — fragile su siti a basso traffico.
 
 **Setup raccomandato in produzione:**
 
@@ -229,8 +237,9 @@ ritardo di oltre 10 minuti — diagnosi rapida quando WP-Cron è broken.
 
 Il plugin non scrive file su disk fuori dalla media library WP
 standard. Su uninstall (delete dalla schermata Plugin di WP):
-`uninstall.php` droppa le 8 tabelle `wp_hsync_*`, cancella le 4
-options + 2 transients, e clear-a tutti gli scheduled cron events.
+`uninstall.php` droppa le 8 tabelle `wp_hsync_*`, cancella le
+options (lease dello scheduler compresa) + i transients, e clear-a
+tutti gli scheduled cron events.
 
 Lo storico run è auto-prunato ogni 24h (default: > 30 giorni o > 5000
 record). Il log eliminazioni media è FIFO capped a 500. Tutti i
@@ -243,7 +252,7 @@ Strumenti.
 - WordPress 6.0+
 - WooCommerce 8.x
 - Composer PSR-4 autoload (`HiveSync\` → `src/`)
-- WP-Cron 5-minute tick + Action Scheduler fallback
+- WP-Cron heartbeat ogni minuto con drain a budget + runner lease atomica
 - Vanilla JS (no React, no jQuery, no build step) + CSS scopato a
   `.hsync-wrap`
 

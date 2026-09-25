@@ -422,15 +422,25 @@ final class Defaults
     // transitions from an old lineup to a new one with one click on
     // "Reinstalla (sovrascrivi)". User jobs (no _seed_id marker) are
     // never touched.
+    //
+    // The SCHEDULE of an existing seeded job belongs to the operator:
+    // force refreshes its runnable + config + label, but keeps its cron,
+    // enabled flag and planned slot. It used to reset all three — one
+    // "Aggiorna default" (clicked for a new mapping) silently switched
+    // every production sync off and back to the default cadence.
 
     private function seedJobs( bool $force ): int
     {
         if ( ! $this->jobs ) return 0;
         $existing = $this->jobs->all();
         $existingBySeed = [];
+        $existingRows   = [];
         foreach ( $existing as $row ) {
             $sid = (string) ( ( $row['config']['_seed_id'] ?? '' ) );
-            if ( $sid !== '' ) $existingBySeed[ $sid ] = (int) $row['id'];
+            if ( $sid !== '' ) {
+                $existingBySeed[ $sid ] = (int) $row['id'];
+                $existingRows[ $sid ]   = $row;
+            }
         }
 
         $defaults = self::defaultJobs();
@@ -457,7 +467,11 @@ final class Defaults
                 'config'        => $config,
             ];
             if ( $isExisting ) {
-                $payload['id'] = $existingBySeed[ $seedId ];
+                $row = $existingRows[ $seedId ];
+                $payload['id']          = $existingBySeed[ $seedId ];
+                $payload['cron_expr']   = (string) ( $row['cron_expr'] ?? '' );
+                $payload['enabled']     = ! empty( $row['enabled'] );
+                $payload['next_run_at'] = $row['next_run_at'] ?? null;
             }
             $this->jobs->save( $payload );
             $touched++;
@@ -548,10 +562,14 @@ final class Defaults
             'retire_mode'    => 'hidden',
         ];
 
+        // Labels name WHAT the job does, never how often: the cadence is
+        // the cron's job, and the operator changes it. A label saying
+        // "ogni 2h" next to a "*/30" cron is how the schedule started
+        // looking broken.
         return [
             [
                 '_seed_id'      => 'gs-sync',
-                'label'         => 'GS — Sync catalogo (idempotente, ogni 2h)',
+                'label'         => 'GS — Sync catalogo',
                 'runnable_type' => 'source.import',
                 'runnable_ref'  => 'json/gs-prod',
                 'cron'          => '0 */2 * * *',
@@ -559,7 +577,7 @@ final class Defaults
             ],
             [
                 '_seed_id'      => 'sf-sync',
-                'label'         => 'SF — Sync catalogo (idempotente, ogni 2h)',
+                'label'         => 'SF — Sync catalogo',
                 'runnable_type' => 'source.import',
                 'runnable_ref'  => 'csv/sf-prod',
                 'cron'          => '0 */2 * * *',
@@ -582,7 +600,7 @@ final class Defaults
             // serializes config.options as a separate key).
             [
                 '_seed_id'      => 'kicksdb-refresh-prices',
-                'label'         => 'KicksDB — Refresh prezzi tracked (ogni 6h)',
+                'label'         => 'KicksDB — Refresh prezzi tracked',
                 'runnable_type' => 'kicksdb.refresh_prices',
                 'runnable_ref'  => '',
                 'cron'          => '0 */6 * * *',

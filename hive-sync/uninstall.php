@@ -7,7 +7,7 @@
  * plugin ever wrote so deletion leaves zero trace:
  *
  *   - 8 wp_hsync_* tables (DROP)
- *   - 4 wp_options rows (delete)
+ *   - 6 wp_options rows (delete)
  *   - 2 transients (delete)
  *   - 1 cron event hook (clear all schedules)
  *
@@ -43,8 +43,10 @@ foreach ( $tables as $name ) {
 $options = [
     'hsync_db_version',
     'hsync_migrated_gs_to_json',
+    'hsync_migrated_scheduler_v2',
     'hsync_media_whitelist',
     'hsync_media_deletion_log',
+    'hsync_runner_lease',          // scheduler mutex (OptionsLeaseStore)
 ];
 foreach ( $options as $opt ) {
     delete_option( $opt );
@@ -82,5 +84,8 @@ $wpdb->query( "DELETE FROM `{$wpdb->options}` WHERE option_name LIKE '\\_transie
 
 // 4. Clear the cron hook entirely (handles edge cases where
 //    deactivation didn't fire — e.g. WP-CLI uninstall on a
-//    deactivated plugin).
+//    deactivated plugin). 'hive_sync_jobs_tick' is the real hook;
+//    'hsync_cron_tick' was a wrong name this file used to clear, kept
+//    in case an early build ever scheduled it.
+wp_clear_scheduled_hook( 'hive_sync_jobs_tick' );
 wp_clear_scheduled_hook( 'hsync_cron_tick' );

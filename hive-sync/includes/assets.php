@@ -38,9 +38,17 @@ add_action( 'admin_enqueue_scripts', function ( $hook ) {
         true,
     );
 
+    // Every timestamp the plugin stores is UTC. The UI shows them on the
+    // shop's clock — the same zone cron expressions are read in — so a
+    // job "alle 00:00" and its runs in the Storico agree. The IANA name
+    // drives Intl; the offset is the fallback for sites configured with a
+    // bare "UTC+2" (no zone name, hence no DST either).
+    $tz = wp_timezone();
     wp_localize_script( 'hive-sync-admin', 'HSyncBoot', [
-        'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-        'nonce'   => wp_create_nonce( 'hsync_nonce' ),
-        'version' => HSYNC_VERSION,
+        'ajaxUrl'  => admin_url( 'admin-ajax.php' ),
+        'nonce'    => wp_create_nonce( 'hsync_nonce' ),
+        'version'  => HSYNC_VERSION,
+        'timezone' => $tz->getName(),
+        'tzOffset' => $tz->getOffset( new DateTimeImmutable( 'now', $tz ) ),
     ] );
 } );

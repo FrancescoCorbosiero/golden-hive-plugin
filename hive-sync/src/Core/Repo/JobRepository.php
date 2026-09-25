@@ -11,7 +11,23 @@ namespace HiveSync\Core\Repo;
  * runnable_ref  → slug of the corresponding entity (or composite for ad-hoc)
  *
  * Schema: id, runnable_type, runnable_ref, cron_expr, enabled, next_run_at,
- *         last_run_at, last_run_status, config(JSON), created_at, updated_at
+ *         last_run_at, last_run_status, config(JSON), run_state(JSON),
+ *         run_control, created_at, updated_at
+ *
+ * Column ownership — the rule that keeps concurrent writers from
+ * clobbering each other:
+ *
+ *   operator (editor, project.json, seeder) → runnable_*, cron_expr,
+ *                                              enabled, config
+ *   runner (lease holder only)              → run_state, last_run_*
+ *   both                                    → next_run_at (editor re-arms
+ *                                              it on cron/enable changes,
+ *                                              the runner plans slots)
+ *   requests (AJAX, no lease)               → run_control, via the CAS
+ *                                              helpers below
+ *
+ * save() never writes run_state / run_control, and the runner's writes
+ * never touch config — each UPDATE lists only its own columns.
  */
 final class JobRepository
 {
@@ -35,22 +51,6 @@ final class JobRepository
         $table = \hsync_table( 'jobs' );
         $sql   = "SELECT * FROM `$table`" . ( $enabledOnly ? ' WHERE enabled = 1' : '' ) . ' ORDER BY id ASC';
         $rows  = $wpdb->get_results( $sql, ARRAY_A );
-        return array_map( [ self::class, 'hydrate' ], (array) $rows );
-    }
-
-    /** @return array<int, array<string, mixed>> */
-    public function dueNow( int $now ): array
-    {
-        global $wpdb;
-        if ( ! isset( $wpdb ) ) return [];
-        $table = \hsync_table( 'jobs' );
-        $rows  = $wpdb->get_results(
-            $wpdb->prepare(
-                "SELECT * FROM `$table` WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= %s ORDER BY next_run_at ASC",
-                gmdate( 'Y-m-d H:i:s', $now ),
-            ),
-            ARRAY_A,
-        );
         return array_map( [ self::class, 'hydrate' ], (array) $rows );
     }
 
@@ -87,38 +87,130 @@ final class JobRepository
         return (int) $wpdb->insert_id;
     }
 
-    public function recordRun( int $jobId, string $status, ?string $nextRunAt ): void
+    // ─── Runner-owned writes (lease holder only) ──────────────────
+
+    /**
+     * A run starts: store its state and, for a scheduled run, the next
+     * planned slot. Manual runs leave the schedule alone ($setNext=false).
+     *
+     * @param array<string, mixed> $runState
+     */
+    public function beginRun( int $jobId, array $runState, ?string $nextRunAt, bool $setNext ): void
     {
-        global $wpdb;
-        if ( ! isset( $wpdb ) ) return;
-        $wpdb->update(
-            \hsync_table( 'jobs' ),
-            [
-                'last_run_at'     => gmdate( 'Y-m-d H:i:s' ),
-                'last_run_status' => $status,
-                'next_run_at'     => $nextRunAt,
-                'updated_at'      => gmdate( 'Y-m-d H:i:s' ),
-            ],
-            [ 'id' => $jobId ],
-        );
+        $fields = [
+            'run_state'       => wp_json_encode( $runState ),
+            'last_run_status' => 'running',
+            'last_run_at'     => gmdate( 'Y-m-d H:i:s' ),
+        ];
+        if ( $setNext ) $fields['next_run_at'] = $nextRunAt;
+        $this->updateColumns( $jobId, $fields );
     }
 
     /**
-     * Patch only the config JSON (used to stash/clear the cooperative
-     * resume cursor between ticks without disturbing schedule columns).
+     * After a slice that leaves the run in flight.
+     *
+     * @param array<string, mixed> $runState
+     */
+    public function saveRunState( int $jobId, array $runState, string $status ): void
+    {
+        $this->updateColumns( $jobId, [
+            'run_state'       => wp_json_encode( $runState ),
+            'last_run_status' => $status,
+            'last_run_at'     => gmdate( 'Y-m-d H:i:s' ),
+        ] );
+    }
+
+    /**
+     * The run is over (done / failed / partial / cancelled): clear its
+     * state and set the next slot.
+     */
+    public function finishRun( int $jobId, string $status, ?string $nextRunAt ): void
+    {
+        $this->updateColumns( $jobId, [
+            'run_state'       => null,
+            'last_run_status' => $status,
+            'last_run_at'     => gmdate( 'Y-m-d H:i:s' ),
+            'next_run_at'     => $nextRunAt,
+        ] );
+    }
+
+    /**
+     * Raw run_state write — the one-shot migration of legacy
+     * config._resume_cursor cursors uses it.
+     *
+     * @param array<string, mixed>|null $runState
+     */
+    public function setRunState( int $jobId, ?array $runState ): void
+    {
+        $this->updateColumns( $jobId, [
+            'run_state' => $runState === null ? null : wp_json_encode( $runState ),
+        ] );
+    }
+
+    public function setNextRunAt( int $jobId, ?string $nextRunAt ): void
+    {
+        $this->updateColumns( $jobId, [ 'next_run_at' => $nextRunAt ] );
+    }
+
+    /**
+     * Config-only write (migrations). Operator-owned column: the runner
+     * never calls this.
+     *
+     * @param array<string, mixed> $config
      */
     public function updateConfig( int $jobId, array $config ): void
     {
+        $this->updateColumns( $jobId, [ 'config' => wp_json_encode( $config ) ] );
+    }
+
+    // ─── Lock-free writes (single atomic statements) ──────────────
+
+    /**
+     * Give an enabled cron job its first slot. Conditional on the slot
+     * still being empty, so it can't overwrite one planned meanwhile.
+     */
+    public function armNextRun( int $jobId, string $nextRunAt ): bool
+    {
         global $wpdb;
-        if ( ! isset( $wpdb ) ) return;
-        $wpdb->update(
+        if ( ! isset( $wpdb ) ) return false;
+        $table = \hsync_table( 'jobs' );
+        $rows = $wpdb->query( $wpdb->prepare(
+            "UPDATE `$table` SET next_run_at = %s WHERE id = %d AND next_run_at IS NULL",
+            $nextRunAt,
+            $jobId,
+        ) );
+        return $rows === 1;
+    }
+
+    /**
+     * Leave a request for the runner: 'run' or 'stop'. Last click wins.
+     */
+    public function requestControl( int $jobId, string $control ): bool
+    {
+        global $wpdb;
+        if ( ! isset( $wpdb ) ) return false;
+        $rows = $wpdb->update(
             \hsync_table( 'jobs' ),
-            [
-                'config'     => wp_json_encode( $config ),
-                'updated_at' => gmdate( 'Y-m-d H:i:s' ),
-            ],
+            [ 'run_control' => $control ],
             [ 'id' => $jobId ],
         );
+        return $rows !== false;
+    }
+
+    /**
+     * Consume a request — only if it is still the one we acted on, so a
+     * click that landed meanwhile is not swallowed.
+     */
+    public function clearControl( int $jobId, string $expected ): void
+    {
+        global $wpdb;
+        if ( ! isset( $wpdb ) ) return;
+        $table = \hsync_table( 'jobs' );
+        $wpdb->query( $wpdb->prepare(
+            "UPDATE `$table` SET run_control = NULL WHERE id = %d AND run_control = %s",
+            $jobId,
+            $expected,
+        ) );
     }
 
     public function delete( int $id ): bool
@@ -128,8 +220,28 @@ final class JobRepository
         return (bool) $wpdb->delete( \hsync_table( 'jobs' ), [ 'id' => $id ] );
     }
 
+    /**
+     * @param array<string, mixed> $fields
+     */
+    private function updateColumns( int $jobId, array $fields ): void
+    {
+        global $wpdb;
+        if ( ! isset( $wpdb ) ) return;
+        $fields['updated_at'] = gmdate( 'Y-m-d H:i:s' );
+        $wpdb->update( \hsync_table( 'jobs' ), $fields, [ 'id' => $jobId ] );
+    }
+
     private static function hydrate( array $row ): array
     {
+        $runState = null;
+        if ( isset( $row['run_state'] ) && $row['run_state'] !== null && $row['run_state'] !== '' ) {
+            $decoded  = json_decode( (string) $row['run_state'], true );
+            $runState = is_array( $decoded ) ? $decoded : null;
+        }
+        $control = isset( $row['run_control'] ) && $row['run_control'] !== null && $row['run_control'] !== ''
+            ? (string) $row['run_control']
+            : null;
+
         return [
             'id'              => (int) $row['id'],
             'runnable_type'   => (string) $row['runnable_type'],
@@ -140,6 +252,8 @@ final class JobRepository
             'last_run_at'     => $row['last_run_at'] !== null ? (string) $row['last_run_at'] : null,
             'last_run_status' => $row['last_run_status'] !== null ? (string) $row['last_run_status'] : null,
             'config'          => json_decode( (string) ( $row['config'] ?? '' ), true ) ?: [],
+            'run_state'       => $runState,
+            'run_control'     => $control,
             'created_at'      => (string) $row['created_at'],
             'updated_at'      => (string) $row['updated_at'],
         ];

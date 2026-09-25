@@ -109,9 +109,18 @@ class ComposerStaticInit8ec97cf8e32aa119124e2c238cc20b92
         'HiveSync\\Workflow\\Run\\MissingSweeper' => __DIR__ . '/../..' . '/src/Workflow/Run/MissingSweeper.php',
         'HiveSync\\Workflow\\Run\\ProductRetirer' => __DIR__ . '/../..' . '/src/Workflow/Run/ProductRetirer.php',
         'HiveSync\\Workflow\\Run\\RunCache' => __DIR__ . '/../..' . '/src/Workflow/Run/RunCache.php',
+        'HiveSync\\Workflow\\Run\\RunTotals' => __DIR__ . '/../..' . '/src/Workflow/Run/RunTotals.php',
         'HiveSync\\Workflow\\Run\\SkuFilter' => __DIR__ . '/../..' . '/src/Workflow/Run/SkuFilter.php',
         'HiveSync\\Workflow\\Schedule\\CronExpr' => __DIR__ . '/../..' . '/src/Workflow/Schedule/CronExpr.php',
+        'HiveSync\\Workflow\\Schedule\\Drainer' => __DIR__ . '/../..' . '/src/Workflow/Schedule/Drainer.php',
+        'HiveSync\\Workflow\\Schedule\\DuePolicy' => __DIR__ . '/../..' . '/src/Workflow/Schedule/DuePolicy.php',
         'HiveSync\\Workflow\\Schedule\\JobRunner' => __DIR__ . '/../..' . '/src/Workflow/Schedule/JobRunner.php',
+        'HiveSync\\Workflow\\Schedule\\JobSchedule' => __DIR__ . '/../..' . '/src/Workflow/Schedule/JobSchedule.php',
+        'HiveSync\\Workflow\\Schedule\\LeaseStore' => __DIR__ . '/../..' . '/src/Workflow/Schedule/LeaseStore.php',
+        'HiveSync\\Workflow\\Schedule\\OptionsLeaseStore' => __DIR__ . '/../..' . '/src/Workflow/Schedule/OptionsLeaseStore.php',
+        'HiveSync\\Workflow\\Schedule\\RunState' => __DIR__ . '/../..' . '/src/Workflow/Schedule/RunState.php',
+        'HiveSync\\Workflow\\Schedule\\RunnerLease' => __DIR__ . '/../..' . '/src/Workflow/Schedule/RunnerLease.php',
+        'HiveSync\\Workflow\\Schedule\\SchedulerMigration' => __DIR__ . '/../..' . '/src/Workflow/Schedule/SchedulerMigration.php',
         'HiveSync\\Workflow\\Seed\\Defaults' => __DIR__ . '/../..' . '/src/Workflow/Seed/Defaults.php',
     );
 

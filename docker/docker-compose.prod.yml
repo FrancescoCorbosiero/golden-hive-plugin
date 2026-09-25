@@ -119,11 +119,17 @@ services:
     networks: [internal]
 
   # Pings wp-cron.php every 60s on the internal network so WP-Cron +
-  # WC Action Scheduler + Hive Sync's hsync_5min tick fire reliably
+  # WC Action Scheduler + Hive Sync's per-minute heartbeat fire reliably
   # without depending on admin page traffic. Hits the WP container
   # directly (not through Caddy) — no TLS round-trip, no public DNS.
   # Required if DISABLE_WP_CRON is set; otherwise the WP cron lock
   # prevents redundant work so leaving it on is harmless.
+  #
+  # Fire-and-forget: under mod_php wp-cron.php holds the connection until
+  # every due hook has run, and a Hive Sync drain can legitimately take
+  # minutes. wp-cron.php sets ignore_user_abort(true), so hanging up
+  # after a few seconds does NOT stop the work — a curl timeout (exit 28)
+  # is expected while a sync is running and is not reported as a failure.
   wp-cron:
     image: curlimages/curl:latest
     restart: unless-stopped
@@ -135,10 +141,13 @@ services:
       - |
         sleep 30
         while true; do
-          curl -fsS -o /dev/null --max-time 50 \
+          curl -fs -o /dev/null --max-time 10 \
             -H "Host: ${SITE_DOMAIN}" \
-            "http://wordpress/wp-cron.php?doing_wp_cron=$$(date +%s)" \
-            || echo "[wp-cron] ping failed at $$(date -Iseconds)"
+            "http://wordpress/wp-cron.php?doing_wp_cron=$$(date +%s)"
+          rc=$$?
+          if [ "$$rc" -ne 0 ] && [ "$$rc" -ne 28 ]; then
+            echo "[wp-cron] ping failed (curl exit $$rc) at $$(date -Iseconds)"
+          fi
           sleep 60
         done
     networks: [internal]

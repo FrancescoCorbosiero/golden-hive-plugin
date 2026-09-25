@@ -470,40 +470,40 @@ function hsync_render_admin_page(): void {
                 <button class="button is-danger" data-action="tools-source-delete">Elimina tutti</button>
             </div>
             <div data-region="tools-source-output"></div>
-        </section>
 
-        <section class="hsync-section">
-            <h3>Ripara attributi varianti</h3>
-            <p class="hsync-muted">
-                Sistema le varianti i cui attributi tassonomici (es. <code>attribute_pa_taglia</code>) sono
-                stati salvati col valore <strong>grezzo</strong> del feed (es. <code>33.5</code>) invece
-                dello <strong>slug</strong> del termine (<code>33-5</code>). Le varianti rotte esistono
-                nel DB ma sono invisibili nel dropdown del frontend. Tipicamente colpisce taglie con
-                decimali / lettere / spazi su import GS pre-fix. Mostra un'anteprima prima di applicare;
-                la riparazione è idempotente e non tocca prezzi / stock / status.
-            </p>
-            <div class="hsync-actions">
-                <button class="button" data-action="tools-repair-attrs-preview">Anteprima</button>
-                <button class="button button-primary" data-action="tools-repair-attrs-apply" disabled>Applica riparazione</button>
-            </div>
-            <div data-region="tools-repair-attrs-output"></div>
-        </section>
+            <section class="hsync-section">
+                <h3>Ripara attributi varianti</h3>
+                <p class="hsync-muted">
+                    Sistema le varianti i cui attributi tassonomici (es. <code>attribute_pa_taglia</code>) sono
+                    stati salvati col valore <strong>grezzo</strong> del feed (es. <code>33.5</code>) invece
+                    dello <strong>slug</strong> del termine (<code>33-5</code>). Le varianti rotte esistono
+                    nel DB ma sono invisibili nel dropdown del frontend. Tipicamente colpisce taglie con
+                    decimali / lettere / spazi su import GS pre-fix. Mostra un'anteprima prima di applicare;
+                    la riparazione è idempotente e non tocca prezzi / stock / status.
+                </p>
+                <div class="hsync-actions">
+                    <button class="button" data-action="tools-repair-attrs-preview">Anteprima</button>
+                    <button class="button button-primary" data-action="tools-repair-attrs-apply" disabled>Applica riparazione</button>
+                </div>
+                <div data-region="tools-repair-attrs-output"></div>
+            </section>
 
-        <section class="hsync-section">
-            <h3>Diagnostica feed vs Woo</h3>
-            <p class="hsync-muted">
-                Confronta cosa l'upstream sta servendo <strong>adesso</strong> con cosa esiste in Woo,
-                per-prodotto. Utile quando "sembra che mancano varianti" — risponde a 4 domande:
-                il feed risponde? il raggruppamento per SKU funziona? per i prodotti già in Woo,
-                le taglie combaciano? quali taglie mancano vs feed?
-                Pura lettura, nessuna scrittura, nessuna cache.
-            </p>
-            <div class="hsync-actions">
-                <input type="text" data-field="diag-config-slug" placeholder="config slug (es. gs-prod)" style="width:18em;">
-                <input type="number" data-field="diag-sample-size" value="50" min="1" max="500" style="width:6em;" title="Quanti prodotti del feed confrontare">
-                <button class="button button-primary" data-action="tools-feed-diagnostic">Esegui diagnostica</button>
-            </div>
-            <div data-region="tools-feed-diagnostic-output"></div>
+            <section class="hsync-section">
+                <h3>Diagnostica feed vs Woo</h3>
+                <p class="hsync-muted">
+                    Confronta cosa l'upstream sta servendo <strong>adesso</strong> con cosa esiste in Woo,
+                    per-prodotto. Utile quando "sembra che mancano varianti" — risponde a 4 domande:
+                    il feed risponde? il raggruppamento per SKU funziona? per i prodotti già in Woo,
+                    le taglie combaciano? quali taglie mancano vs feed?
+                    Pura lettura, nessuna scrittura, nessuna cache.
+                </p>
+                <div class="hsync-actions">
+                    <input type="text" data-field="diag-config-slug" placeholder="config slug (es. gs-prod)" style="width:18em;">
+                    <input type="number" data-field="diag-sample-size" value="50" min="1" max="500" style="width:6em;" title="Quanti prodotti del feed confrontare">
+                    <button class="button button-primary" data-action="tools-feed-diagnostic">Esegui diagnostica</button>
+                </div>
+                <div data-region="tools-feed-diagnostic-output"></div>
+            </section>
         </section>
 
         <section class="hsync-panel" data-panel="config">

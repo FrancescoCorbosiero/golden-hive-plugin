@@ -106,12 +106,21 @@ final class CronExpr
     }
 
     /**
-     * Walk forward from $from (a unix timestamp) one minute at a time
-     * until we find the next moment matching all five fields.
+     * The next moment strictly after $from (a unix timestamp) matching
+     * all five fields, read as wall-clock time in $tz (UTC when omitted).
      *
-     * Bounded by a 4-year ceiling (525600 * 4 minutes) so a malformed
-     * expression that nobody can satisfy returns null instead of
-     * spinning forever.
+     * Walks forward skipping whole months / days / hours that can't
+     * match, then minute by minute inside a matching hour — so a sparse
+     * expression ('0 0 29 2 *') costs a few hundred steps, not the half
+     * million of a pure minute walk. Bounded by a 4-year ceiling so an
+     * expression nobody can satisfy returns null instead of spinning.
+     *
+     * DST, in a zone that has it (the scheduler passes the site zone):
+     *  - a slot inside the spring-forward gap does not exist that day
+     *    and is skipped (02:30 on the night 02:00 → 03:00);
+     *  - wall-clock must move strictly forward past $from, so the hour
+     *    the fall-back repeats cannot fire the same slot twice
+     *    ('30 2 * * *' runs once on the night 03:00 → 02:00).
      */
     public static function nextRun( string $expr, int $from, ?\DateTimeZone $tz = null ): ?int
     {
@@ -127,6 +136,11 @@ final class CronExpr
         // ("strict next — never match current minute").
         $ts = ( intdiv( $from, 60 ) + 1 ) * 60;
         $ceiling = $ts + 525600 * 60 * 4;
+
+        // Every real UTC offset is a whole number of minutes, so a UTC
+        // minute boundary is a local one too and wall-clock strings
+        // compare cleanly.
+        $fromWall = ( new \DateTimeImmutable( '@' . $from ) )->setTimezone( $tz )->format( 'Y-m-d H:i' );
 
         // Semantica cron standard per dom/dow: se ENTRAMBI sono
         // ristretti (non '*'), il giorno matcha in OR — '0 0 1 * 1' =
@@ -144,21 +158,35 @@ final class CronExpr
 
         while ( $ts < $ceiling ) {
             $dt = ( new \DateTimeImmutable( '@' . $ts ) )->setTimezone( $tz );
-            $minute = (int) $dt->format( 'i' );
-            $hour   = (int) $dt->format( 'G' );
-            $dom    = (int) $dt->format( 'j' );
-            $month  = (int) $dt->format( 'n' );
-            $dow    = (int) $dt->format( 'w' );
 
+            if ( ! isset( $monthSet[ (int) $dt->format( 'n' ) ] ) ) {
+                // Local midnight of the 1st of next month. Calendar
+                // arithmetic in the zone, not +N seconds: a DST day is
+                // 23 or 25 hours long.
+                $ts = $dt->modify( 'first day of next month' )->setTime( 0, 0, 0 )->getTimestamp();
+                continue;
+            }
+
+            $dom = (int) $dt->format( 'j' );
+            $dow = (int) $dt->format( 'w' );
             $dayOk = ( $domRestricted && $dowRestricted )
                 ? ( isset( $domSet[ $dom ] ) || isset( $dowSet[ $dow ] ) )
                 : ( isset( $domSet[ $dom ] ) && isset( $dowSet[ $dow ] ) );
+            if ( ! $dayOk ) {
+                $ts = $dt->modify( '+1 day' )->setTime( 0, 0, 0 )->getTimestamp();
+                continue;
+            }
 
-            if ( isset( $minuteSet[ $minute ] )
-                && isset( $hourSet[ $hour ] )
-                && isset( $monthSet[ $month ] )
-                && $dayOk
-            ) {
+            $minute = (int) $dt->format( 'i' );
+            if ( ! isset( $hourSet[ (int) $dt->format( 'G' ) ] ) ) {
+                // Top of the next local hour. Absolute seconds are safe
+                // here: DST shifts whole hours, so this lands on the next
+                // hour that exists (01:00 + 1h = 03:00 on spring-forward).
+                $ts = $ts - $minute * 60 + 3600;
+                continue;
+            }
+
+            if ( isset( $minuteSet[ $minute ] ) && $dt->format( 'Y-m-d H:i' ) > $fromWall ) {
                 return $ts;
             }
             $ts += 60;

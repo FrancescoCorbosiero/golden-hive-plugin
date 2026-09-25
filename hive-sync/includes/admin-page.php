@@ -212,12 +212,13 @@ function hsync_render_admin_page(): void {
             <div class="hsync-firstrun-callout" role="note">
                 <span class="hsync-firstrun-icon dashicons dashicons-controls-play" aria-hidden="true"></span>
                 <div class="hsync-firstrun-body">
-                    <strong>Primo caricamento del catalogo? Fallo dal tab <button type="button" class="hsync-firstrun-link" data-action="goto-run">Importa</button>.</strong>
-                    Le automazioni qui sotto servono per il <em>mantenimento</em> quotidiano (i prezzi e
-                    lo stock che cambiano), dove ogni giro dura un attimo. Il <strong>primo import</strong>
-                    di migliaia di prodotti, invece, gira molto più veloce dal tab Importa: lì il browser
-                    concatena i cicli senza pause. Lasciato al cron si completa comunque, ma a piccoli
-                    blocchi — un pezzo per ogni passaggio — e può richiedere ore.
+                    <strong>Primo caricamento del catalogo? Puoi farlo anche dal tab <button type="button" class="hsync-firstrun-link" data-action="goto-run">Importa</button>.</strong>
+                    Le automazioni qui sotto servono per il <em>mantenimento</em> (i prezzi e lo stock che
+                    cambiano) e reggono anche un primo import grosso: il motore lavora a blocchi da 25 secondi
+                    e li concatena senza pause, fino a ~4 minuti per giro, un giro al minuto — puoi chiudere
+                    il browser. Il tab Importa fa lo stesso lavoro mostrandoti prodotto per prodotto cosa
+                    succede. Se un run dura più dell'intervallo del cron, gli orari che passano mentre lavora
+                    vengono <em>saltati</em> (e segnalati sulla card), non accodati.
                 </div>
             </div>
             <div class="hsync-toolbar">

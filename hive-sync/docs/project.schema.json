@@ -124,7 +124,7 @@
         "runnable_ref":  { "type": "string",
                            "description": "For source.import: '<kind>/<source-slug>' e.g. 'json/gs-prod', 'csv/sf-prod'. For pipeline/rule: the slug." },
         "cron":          { "type": "string",
-                           "description": "5-field cron expression (m h dom mon dow). Empty/missing = ad-hoc only." },
+                           "description": "5-field cron expression (m h dom mon dow), read in the SITE timezone (Settings → General): '0 2 * * *' is 02:00 on the shop's clock. Empty/missing = ad-hoc only. A run that outlasts the interval skips (and counts) the slots that pass meanwhile; the next run starts on the first slot after it ends." },
         "enabled":       { "type": "boolean" },
         "options": {
           "type": "object",

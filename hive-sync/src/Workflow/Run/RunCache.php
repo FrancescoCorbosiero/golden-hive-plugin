@@ -37,8 +37,15 @@ use HiveSync\Core\Source\FetchResult;
  * keeps the stored value 7-bit ASCII so it survives intact.
  *
  * Invalidation: terminal `done` / `failed` returns from ImportRunner
- * call clear(). Defensive 2-hour TTL covers the case where a run is
- * abandoned (browser closed, JS retry exhausted).
+ * call clear(). The TTL is an IDLE timeout: every resumed tick that
+ * uses the entry calls touch(), so a run keeps its cache for as long as
+ * it keeps ticking, and an abandoned one (browser closed, JS retry
+ * exhausted, job deleted) is reclaimed 6h after its last tick.
+ *
+ * It used to be a fixed 2h from tick 1. Any run longer than that — the
+ * nightly SF import, once the cron was chaining slices slowly — lost its
+ * cache mid-run: the next tick re-fetched the multi-MB feed, re-ran the
+ * whole-catalog SF diff, and restarted the queue from index 0.
  *
  * Safety: the cache is keyed by the integer run_id from wp_hsync_runs,
  * which is unique per Runner::run() invocation. Two concurrent runs
@@ -49,7 +56,8 @@ use HiveSync\Core\Source\FetchResult;
  */
 final class RunCache
 {
-    private const TTL_SECONDS  = 7200; // 2h
+    /** Idle timeout — extended by every touch(). */
+    private const TTL_SECONDS  = 21600; // 6h
     private const KEY_PREFIX   = 'hsync_run_cache_';
 
     /**
@@ -115,6 +123,36 @@ final class RunCache
         // base64 so the binary survives a utf8mb4 transient column (see
         // class docblock — raw gzcompress output is truncated on write).
         \set_transient( self::KEY_PREFIX . $runId, base64_encode( $compressed ), self::TTL_SECONDS );
+    }
+
+    /**
+     * Push the entry's expiry TTL_SECONDS into the future without
+     * re-writing the payload.
+     *
+     * Without a persistent object cache a transient is two wp_options
+     * rows, and expiry lives only in `_transient_timeout_<key>` — the
+     * same row WordPress itself rewrites when set_transient() updates an
+     * existing entry. Bumping it alone costs one tiny UPDATE per tick
+     * instead of re-writing a multi-MB blob. With an object cache the
+     * expiry is part of the cache item, so the payload is re-set as is.
+     */
+    public static function touch( int $runId ): void
+    {
+        if ( $runId <= 0 ) return;
+        $key = self::KEY_PREFIX . $runId;
+
+        if ( function_exists( 'wp_using_ext_object_cache' ) && \wp_using_ext_object_cache() ) {
+            $raw = \get_transient( $key );
+            if ( is_string( $raw ) && $raw !== '' ) {
+                \set_transient( $key, $raw, self::TTL_SECONDS );
+            }
+            return;
+        }
+
+        $timeoutOption = '_transient_timeout_' . $key;
+        if ( \get_option( $timeoutOption ) !== false ) {
+            \update_option( $timeoutOption, time() + self::TTL_SECONDS );
+        }
     }
 
     public static function clear( int $runId ): void

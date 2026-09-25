@@ -79,6 +79,8 @@ function hsync_migrate_schema(): void {
         last_run_at DATETIME NULL,
         last_run_status VARCHAR(20) NULL,
         config LONGTEXT NULL,
+        run_state LONGTEXT NULL,
+        run_control VARCHAR(10) NULL,
         created_at DATETIME NOT NULL,
         updated_at DATETIME NOT NULL,
         PRIMARY KEY  (id),
@@ -212,4 +214,35 @@ function hsync_migrate_gs_to_json(): void {
     }
 
     update_option( 'hsync_migrated_gs_to_json', 'done', false );
+}
+
+/**
+ * One-time move onto the 1.2 scheduler (run_state / run_control columns,
+ * site-timezone cron, cadence-free labels). See SchedulerMigration.
+ *
+ * Runs after hsync_migrate_schema() on the same request; waits (without
+ * setting its flag) until dbDelta has actually added the new columns,
+ * so a failed ALTER is retried instead of silently dropping in-flight
+ * runs.
+ */
+function hsync_migrate_scheduler_v2(): void {
+    if ( get_option( 'hsync_migrated_scheduler_v2' ) === 'done' ) return;
+    global $wpdb;
+    if ( ! isset( $wpdb ) || ! class_exists( '\\HiveSync\\Workflow\\Schedule\\SchedulerMigration' ) ) return;
+
+    $jobs = hsync_table( 'jobs' );
+    $cols = (array) $wpdb->get_col( "SHOW COLUMNS FROM `$jobs`" );
+    if ( ! in_array( 'run_state', $cols, true ) || ! in_array( 'run_control', $cols, true ) ) return;
+
+    \HiveSync\Workflow\Schedule\SchedulerMigration::run(
+        new \HiveSync\Core\Repo\JobRepository(),
+        new \HiveSync\Core\Repo\RunRepository(),
+        \HiveSync\Workflow\Schedule\JobSchedule::forSite(),
+        time(),
+    );
+
+    // The pre-1.2 tick lock: a transient, replaced by the runner lease.
+    delete_transient( 'hsync_jobs_tick_lock' );
+
+    update_option( 'hsync_migrated_scheduler_v2', 'done', false );
 }

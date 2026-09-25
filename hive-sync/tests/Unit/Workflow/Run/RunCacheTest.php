@@ -32,9 +32,56 @@ final class RunCacheTest extends TestCase
 {
     protected function setUp(): void
     {
-        // Reset the in-memory transient store between tests.
-        $store = &hsync_test_transient_store();
-        $store = [];
+        // Reset the in-memory transient / option stores between tests.
+        hsync_test_reset_wp_stubs();
+    }
+
+    protected function tearDown(): void
+    {
+        hsync_test_reset_wp_stubs();
+    }
+
+    // ─── Sliding expiry ───────────────────────────────────────────
+    //
+    // The TTL used to be fixed from tick 1: a run longer than 2h lost its
+    // cache mid-run and re-fetched + re-diffed the whole feed, restarting
+    // its queue from index 0.
+
+    public function testTouchExtendsTheExpiryWithoutRewritingThePayload(): void
+    {
+        RunCache::set( 5, [], 4, $this->sampleDiff() );
+        $options = &hsync_test_option_store();
+        $store   = &hsync_test_transient_store();
+        $blob    = $store['hsync_run_cache_5'];
+
+        // Pretend the entry was written long ago and is about to expire.
+        $options['_transient_timeout_hsync_run_cache_5'] = time() + 10;
+        RunCache::touch( 5 );
+
+        $this->assertGreaterThan( time() + 3600, $options['_transient_timeout_hsync_run_cache_5'] );
+        $this->assertSame( $blob, $store['hsync_run_cache_5'], 'payload untouched' );
+        $this->assertNotNull( RunCache::get( 5 ) );
+    }
+
+    public function testTouchOnAMissingEntryWritesNothing(): void
+    {
+        RunCache::touch( 6 );
+        $this->assertSame( [], hsync_test_option_store() );
+        $this->assertSame( [], hsync_test_transient_store() );
+    }
+
+    public function testTouchWithAnObjectCacheReSetsTheItemWithAFreshTtl(): void
+    {
+        hsync_test_ext_cache( true );
+        RunCache::set( 7, [], 4, $this->sampleDiff() );
+        $ttls = &hsync_test_transient_ttls();
+        $ttls['hsync_run_cache_7'] = 1; // as if set with a nearly-spent TTL
+
+        RunCache::touch( 7 );
+
+        $this->assertGreaterThan( 3600, $ttls['hsync_run_cache_7'] );
+        $this->assertNotNull( RunCache::get( 7 ) );
+        $this->assertSame( [], hsync_test_option_store(), 'no timeout row with an object cache' );
     }
 
     private function sampleDiff(): Diff

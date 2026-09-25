@@ -3,7 +3,7 @@
  * Plugin Name:  Hive Sync
  * Plugin URI:   https://github.com/FrancescoCorbosiero/golden-hive-plugin
  * Description:  Stock sync — Woo product import/export with reusable mappings, rules, and scheduled jobs. Standalone; integrates with Hive Commerce when present.
- * Version:      1.1.0
+ * Version:      1.2.0
  * Author:       Hive Commerce
  * License:      Private
  * Requires PHP: 8.1
@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'HSYNC_VERSION', '1.1.0' );
+define( 'HSYNC_VERSION', '1.2.0' );
 define( 'HSYNC_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'HSYNC_URL',     plugin_dir_url( __FILE__ ) );
 define( 'HSYNC_FILE',    __FILE__ );
@@ -74,6 +74,11 @@ add_action( 'plugins_loaded', function () {
     // → JsonSource refactor. No-op once it's run.
     if ( function_exists( 'hsync_migrate_gs_to_json' ) ) {
         hsync_migrate_gs_to_json();
+    }
+    // One-shot move onto the 1.2 scheduler (in-flight cursors → run_state,
+    // cadence-free labels, slots re-planned in the site timezone).
+    if ( function_exists( 'hsync_migrate_scheduler_v2' ) ) {
+        hsync_migrate_scheduler_v2();
     }
 
     if ( class_exists( '\\HiveSync\\Core\\Bootstrap' ) ) {

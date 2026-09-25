@@ -22,7 +22,8 @@ legacy che ha tutta la logica varianti + sideload media.
 Stato attuale (branch `claude/stabilize-hive-sync-plugin-FZjmQ`):
 
 - ✅ Import GS end-to-end con varianti, stock per-size, media sideload
-- ✅ 2 job default (uno per source) idempotenti — un solo cron ogni 2h gestisce import iniziale + mantenimento, markup preservato
+- ✅ 2 job default (uno per source) idempotenti — lo stesso job gestisce import iniziale + mantenimento, markup preservato
+- ✅ **Scheduler 1.2** — heartbeat ogni minuto che *drena* i run (blocchi da 25s concatenati), slot ancorati al cron nel fuso del sito, lease atomica, stato del run fuori dalla config, Storico con totali dell'intero run. Vedi "Lessons learned / Lo scheduler"
 - ✅ Source generico `JsonSource` con `flavor` knob
 - ✅ Mapping editor visuale spina-fissa Woo + sezione Attributi + Avanzati + Custom
 - ✅ Attributi globali (pa_brand, pa_model, pa_gender, pa_color, pa_material) mappabili
@@ -47,7 +48,7 @@ Stato attuale (branch `claude/stabilize-hive-sync-plugin-FZjmQ`):
 | PHP | 8.1+ (typed properties, `match`, readonly classes) |
 | Autoload | Composer PSR-4 `HiveSync\` → `src/` |
 | Storage | 8 tabelle dedicate `wp_hsync_*` (no CPT, no options-as-list) |
-| Schedule | WP-Cron tick ogni 5 min + Action Scheduler fallback |
+| Schedule | WP-Cron heartbeat ogni minuto → drain dei job dovuti (budget 240s), runner lease atomica in `wp_options` |
 | UI | Vanilla JS + CSS scopati sotto `.hsync-wrap` (no React, no jQuery) |
 
 ---
@@ -62,7 +63,7 @@ hive-sync/
 │   ├── admin-page.php        Cockpit header + 10 tabs + panel HTML shells.
 │   ├── ajax.php              ~30 wp_ajax_hsync_* handlers, all guarded.
 │   ├── assets.php            Localize ajaxUrl + nonce + version.
-│   ├── cron.php              wp_schedule_event('hsync_cron_tick') every 5 min.
+│   ├── cron.php              Heartbeat 'hive_sync_jobs_tick' every minute + drain budget + daily upkeep.
 │   ├── cron-fallback.php     admin_init throttled fallback (DISABLE_WP_CRON).
 │   ├── host-adapter.php      Filter contract → bridge in golden-hive.
 │   ├── migrate.php           dbDelta schema + GS→JSON one-shot data migration.
@@ -110,6 +111,8 @@ hive-sync/
 │   └── Workflow/
 │       ├── Run/ImportRunner.php            ★ Orchestratore con buckets[new/update/updateStock]
 │       │                                     + fast-stock-patch path + cooperative deadline.
+│       ├── Run/RunTotals.php               Contatori dell'intero run portati dal cursor.
+│       ├── Run/RunCache.php                fetch+diff tra i tick, TTL scorrevole (touch).
 │       ├── Run/MediaHealer.php             Ri-bucketizza in `update` i prodotti senza
 │       │                                     featured image (options.heal_media).
 │       ├── Run/SkuFilter.php               Restringe il run a una lista di SKU
@@ -119,8 +122,14 @@ hive-sync/
 │       │                                     Pura — guard matrix unit-testata.
 │       ├── Run/ProductRetirer.php         Scrive l'oscuramento e lo annulla
 │       │                                     (snapshot stato precedente → restore).
-│       ├── Schedule/CronExpr.php           Parser 5-field cron, no shortcuts.
-│       ├── Schedule/JobRunner.php          Dispatcher tick. Resolves mapping_slug → config.
+│       ├── Schedule/CronExpr.php           Parser 5-field cron, no shortcuts. Wall-clock in un fuso (DST-safe).
+│       ├── Schedule/JobRunner.php          ★ tick = drain dei job dovuti; Run / Interrompi; slice per tipo.
+│       ├── Schedule/Drainer.php            Il loop del drain (puro): budget, round-robin, stop.
+│       ├── Schedule/DuePolicy.php          Chi è dovuto e in che ordine (puro).
+│       ├── Schedule/JobSchedule.php        Slot: planAfter (ancorato) / afterRun (salta e conta).
+│       ├── Schedule/RunState.php           Forma di wp_hsync_jobs.run_state (+ snapshot del job).
+│       ├── Schedule/RunnerLease.php        Mutex CAS su una riga wp_options (OptionsLeaseStore).
+│       ├── Schedule/SchedulerMigration.php One-shot 1.1 → 1.2 (cursor legacy, label, slot).
 │       ├── Mapping/PathResolver.php        Dot-path traversal ('sizes.size_eu').
 │       ├── Mapping/Template.php            {placeholder} substitution.
 │       ├── Migration/LegacyImporter.php    Dormant — Migrazione tab removed.
@@ -431,10 +440,14 @@ Tutti seeded DISABLED. L'operatore configura le source-config
 (`json/gs-prod`, `csv/sf-prod`) nel tab Connetti, poi accende i
 job in Automatizza.
 
-| Slug | Cron | Buckets | Scopo |
-|---|---|---|---|
-| `gs-sync` | `0 */2 * * *` | tutti (default) | Importa + mantiene il catalogo GS. Self-rebalancing. |
-| `sf-sync` | `0 */2 * * *` | tutti (default) | Stesso modello per StockFirmati. |
+| Slug | Label | Cron | Buckets | Scopo |
+|---|---|---|---|---|
+| `gs-sync` | GS — Sync catalogo | `0 */2 * * *` | tutti (default) | Importa + mantiene il catalogo GS. Self-rebalancing. |
+| `sf-sync` | SF — Sync catalogo | `0 */2 * * *` | tutti (default) | Stesso modello per StockFirmati. |
+
+Le label dicono **cosa** fa il job, mai **ogni quanto**: la cadenza è il
+cron, e l'operatore la cambia. Una label "ogni 2h" accanto a un cron
+`*/30` è esattamente come lo scheduler ha cominciato a sembrare rotto.
 
 Entrambi shippano con **`retire_missing: true`, modo `hidden`** — è
 l'unico default seeded che tocca prodotti esistenti, e ci sta perché
@@ -468,10 +481,10 @@ vedi sezione "Lessons learned" sul perché.
   source-config — il prezzo che arriva alle scritture è già
   post-markup. Né fast-stock-patch né full pipeline lo toccano.
 - **First-run lunghi sono safe.** ImportRunner ha cooperative
-  deadline 25s + cursor resume. Action Scheduler ri-attiva il job
-  finché il cursor non si esaurisce — un primo import da N migliaia
-  di SKU si distribuisce su molti tick senza timeout. Una volta a
-  regime, ogni tick è quasi istantaneo.
+  deadline 25s + cursor resume; il heartbeat concatena i blocchi
+  senza pause (drain) finché il cursor non si esaurisce — un primo
+  import da N migliaia di SKU avanza in continuo, un giro al minuto
+  da fino a ~4 minuti. Una volta a regime, ogni run dura un attimo.
 - **Splittare è MENO corretto.** Se un job ad-hoc gestisce solo
   `[new]` e un cron gestisce `[update,updateStock]`, gli SKU nuovi
   che il fornitore aggiunge tra trigger manuali NON entrano fino al
@@ -503,6 +516,12 @@ Il bottone "Aggiorna default" (Mappa tab) chiama
    pipeline come `import-sf-with-markup`.
 
 Job creati a mano (no `_seed_id`) sono sempre intoccati.
+
+**Lo schedule di un job seeded esistente è dell'operatore:** con
+`force` il seeder aggiorna runnable + config + label, ma **conserva**
+`cron_expr`, `enabled` e `next_run_at`. Prima li resettava: un
+"Aggiorna default" cliccato per avere un mapping nuovo spegneva tutte
+le sync di produzione e le riportava alla cadenza di default.
 
 ---
 
@@ -546,6 +565,7 @@ wp_hsync_mappings        external→Woo field maps
 wp_hsync_pipelines       lifecycle compositions
 wp_hsync_rules           scoped operations + selection
 wp_hsync_jobs            scheduled or ad-hoc Runnable refs
+                         + run_state (JSON, run in volo) + run_control ('run'|'stop')
 wp_hsync_runs            execution audit (per Runnable invocation)
 wp_hsync_checks          saved Check definitions
 wp_hsync_source_configs  per-source credential bundles, secrets cleartext
@@ -578,9 +598,24 @@ Contract version: `HSYNC_HOST_CONTRACT_VERSION = 1`.
 
 L'intera catena di automazione (ogni job, refresh stocks, cleanup
 periodico) gira su `wp_schedule_event` con hook `hive_sync_jobs_tick`
-ogni 5 minuti. **Il default WordPress** fa scattare gli eventi cron
-sul page-load di un visitatore — fragile su siti a basso traffico,
-spesso la causa di "i job non partono".
+**ogni minuto** (schedule `hsync_1min`; un'installazione aggiornata
+che ha ancora l'evento sul vecchio `hsync_5min` viene rischedulata
+da sola all'`init`). Ogni giro:
+
+- se niente è dovuto esce subito — due letture, **zero scritture**;
+- altrimenti prende la runner lease e **drena**: blocchi da 25s
+  concatenati finché niente è dovuto o finisce il budget
+  (`hsync_cron_drain_budget()`: default 240s, costante
+  `HSYNC_CRON_DRAIN_BUDGET` o filtro `hive_sync/cron/drain_budget`,
+  sempre ≤ 80% del `max_execution_time` in vigore).
+
+Un giro lungo non affama gli altri hook: dopo 60s WP-Cron lascia
+partire una nuova richiesta, che esegue il resto della coda WP e
+rimbalza sulla lease di Hive Sync.
+
+**Il default WordPress** fa scattare gli eventi cron sul page-load di
+un visitatore — fragile su siti a basso traffico, spesso la causa di
+"i job non partono".
 
 **Setup raccomandato in produzione:**
 
@@ -611,8 +646,8 @@ disinstalla. Cosa scrive e come si pulisce:
 | Cosa | Dove | Pulizia |
 |---|---|---|
 | 8 tabelle `wp_hsync_*` | DB | DROP in `uninstall.php` |
-| 4 options (`hsync_db_version`, `hsync_migrated_gs_to_json`, `hsync_media_whitelist`, `hsync_media_deletion_log`) | `wp_options` | `delete_option` in `uninstall.php` |
-| 2 transients (usage index, tick lock) | `wp_options` (transient_*) | `delete_transient` in `uninstall.php` + deactivation |
+| 6 options (`hsync_db_version`, `hsync_migrated_gs_to_json`, `hsync_migrated_scheduler_v2`, `hsync_media_whitelist`, `hsync_media_deletion_log`, `hsync_runner_lease`) | `wp_options` | `delete_option` in `uninstall.php` (la lease anche in deactivation) |
+| transients (usage index, RunCache `hsync_run_cache_<id>`, tick lock pre-1.2) | `wp_options` (transient_*) | `delete_transient` / wildcard in `uninstall.php` + deactivation |
 | `hsync_runs_pruned_today` | transient | Auto-expires DAY_IN_SECONDS |
 | WP-Cron event `hive_sync_jobs_tick` | `cron` option | `wp_clear_scheduled_hook` in deactivation + uninstall |
 | File su disk | nessuno | n/a — non scriviamo file standalone (le immagini sideloaded vivono nella WP media library standard) |
@@ -622,6 +657,9 @@ disinstalla. Cosa scrive e come si pulisce:
 - `wp_hsync_runs` viene auto-prunata ogni 24h dal cron tick:
   - `hsync_runs_retention_days` (default 30) — DELETE finished runs older than N days
   - `hsync_runs_keep_max` (default 5000) — safety cap, trim a tutti tranne i più recenti N
+  - run `running`/`continue` fermi da 24h che nessuno farà più avanzare
+    (un Importa col tab chiuso) → `abandoned`. I run dei job — anche in
+    pausa — sono esclusi.
 - `hsync_media_deletion_log` capped FIFO a 500 entries da `Cleaner::LOG_MAX`
 - Action Scheduler (se Woo lo usa) ha la propria gestione retention separata — vedi tab Automatizza → Stato del motore
 
@@ -641,6 +679,7 @@ disinstalla. Cosa scrive e come si pulisce:
 |---|---|---|
 | `hsync_db_version` | Schema migration tracker | `!== HSYNC_VERSION` runs `hsync_migrate_schema()` |
 | `hsync_migrated_gs_to_json` | One-shot data migration done | Set to `'done'`, never re-runs |
+| `hsync_migrated_scheduler_v2` | 1.1 → 1.2: cursor legacy → run_state, label senza cadenza, slot ripianificati nel fuso del sito | Set to `'done'` solo dopo che dbDelta ha aggiunto le colonne |
 
 Defaults seeder (`Defaults::install()`) is **additive idempotent** by
 default — won't overwrite existing slugs. Pass `force=true` to
@@ -669,7 +708,7 @@ overwrite (UI: "Aggiorna default" button in Mappa tab).
 5. Verify: prodotti creati come `variable` con `pa_taglia` + variants per ogni size + stock per variant + media sideloaded. Prezzi = `feed × multiplier` per regola matchata.
 6. Storico → vedi run con `created: N / stock_patched: M` reconciliation.
 7. Re-run senza modificare il feed → tutti i prodotti finiscono in `unchanged` (idempotency check).
-8. Automatizza → toggle on `gs-refresh-stocks` → cron sincronizza price/stock senza compounding.
+8. Automatizza → accendi `GS — Sync catalogo` → entro un minuto la card mostra "In corso" con il progresso, poi "Ultimo run: Completato … · N scritti" e la prossima esecuzione sulla griglia del cron (orari nel fuso del sito). Price/stock sincronizzati senza compounding.
 
 ---
 
@@ -1113,6 +1152,100 @@ Tre decisioni non ovvie:
 > la riga del prodotto: stesso prodotto due volte nella tabella campione
 > e — se le due chiavi divergono — contato sotto due sorgenti diverse,
 > con l'istogramma che somma a più del totale che gli sta accanto.
+
+
+### Lo scheduler: perché lo Storico non combaciava col cron
+
+**Sintomo (segnalato dal cliente, con screenshot):** un job GS su
+`*/30 * * * *` compariva nello Storico alle 09:30, 11:00, 12:30, 14:00…
+e poi ogni ora; il job SF giornaliero era ancora `CONTINUE` tre ore dopo
+la partenza; la card diceva `next: 03:05:55` (un orario che nessun cron
+produce) e la colonna "Done" mostrava 12 per un run che aveva scritto
+centinaia di prodotti.
+
+**Cause — si sommavano:**
+
+1. **Duty cycle dell'8%.** Il tick WP-Cron scattava ogni 5 minuti e dava
+   a ogni job UN blocco da 25s. Un run da 3 minuti di lavoro vero ne
+   durava 40-60. Finché un run è in corso il job non ne parte un altro,
+   quindi gli slot `:30` passavano a vuoto → i buchi nello Storico.
+2. **`next_run_at` = "adesso" durante il run.** Il runner lo usava per
+   dire "riprendimi al prossimo tick": la card lo mostrava come prossima
+   esecuzione (il famoso 03:05:55) e lo slot vero spariva.
+3. **Cache del fetch+diff con TTL fisso di 2h dal tick 1.** Il run SF
+   notturno la superava: ri-download del feed, ri-diff dell'intero
+   catalogo, coda ripartita da zero a metà run.
+4. **"Done" = l'ultimo blocco.** `items_done` e il summary del run
+   venivano sovrascritti a ogni tick con i numeri del SOLO blocco.
+5. **Cron letto in UTC, Storico stampato in UTC.** "Ogni giorno alle
+   00:00" girava alle 02:00 ora italiana; coerente con lo Storico solo
+   perché anche lo Storico era in UTC.
+6. **Label con la cadenza dentro** ("ogni 2h") accanto a un cron cambiato
+   dall'operatore.
+
+**Soluzione (1.2) — un'invariante per causa:**
+
+| # | Invariante | Dove |
+|---|---|---|
+| 1 | Il heartbeat è ogni minuto e **drena**: blocchi concatenati finché c'è lavoro o finisce il budget. Round-robin tra i run in corso (un import SF enorme non affama la sync GS). | `Drainer`, `DuePolicy`, `includes/cron.php` |
+| 2 | `next_run_at` è **sempre** il prossimo slot. Lo si pianifica all'AVVIO del run, ancorato allo slot servito (non a "adesso"). Gli slot che passano mentre il run lavora vengono **saltati e contati** (`report.schedule.skipped_slots`), mai recuperati uno dopo l'altro fuori griglia. | `JobSchedule::planAfter` / `afterRun` |
+| 3 | La cache scade per **inattività**: ogni tick che la usa la rinnova (`RunCache::touch`, un UPDATE della riga `_transient_timeout_` — non riscrive il blob). | `RunCache` |
+| 4 | Il cursor porta i **totali dell'intero run** (`cursor.totals`); la riga di `wp_hsync_runs` è sempre whole-run. L'envelope resta per-blocco (lo somma il JS di Importa). | `RunTotals` |
+| 5 | Il cron si legge nel **fuso del sito**; il DB resta UTC; la UI converte (`HSync.fmtWhen`, `HSync.tzLabel`). DST: uno slot nel buco primaverile salta quel giorno; l'ora ripetuta d'autunno non fa scattare due volte lo stesso slot. | `CronExpr::nextRun`, `assets.php` |
+| 6 | Le label non contengono cadenze; la migrazione le ha ripulite. | `Defaults`, `SchedulerMigration` |
+
+**Stato del run fuori dalla config.** Il cursor viveva in
+`config._resume_cursor`: il "Salva" dell'editor rimanda al server tutta
+la config caricata minuti prima — cursor vecchio compreso — e lo
+sovrascriveva. Ora c'è `run_state` (JSON) scritto **solo** dal titolare
+della lease, e `run_control` ('run' / 'stop') per le richieste AJAX, con
+UPDATE condizionali. Ogni UPDATE elenca solo le proprie colonne
+(proprietà delle colonne documentata in `JobRepository`).
+
+**Lo snapshot.** `run_state.snapshot` congela runnable + config
+all'avvio: ogni blocco esegue ciò con cui il run è partito. Modificare
+un job a metà run non produce un run mezzo di una config e mezzo
+dell'altra; le modifiche valgono dal run successivo ("Interrompi" per
+applicarle subito).
+
+**La lease, non un transient.** Il vecchio lock era `get_transient` +
+`set_transient`: due richieste cron dentro quella finestra "prendevano"
+entrambe il lock e facevano avanzare lo stesso cursor in parallelo —
+ognuna creando gli stessi SKU `new`. `RunnerLease` è CAS fino in fondo
+(INSERT IGNORE / UPDATE … WHERE value = atteso), TTL 15 min come
+orizzonte di recovery (rinnovata prima di ogni blocco), rilasciata anche
+da uno shutdown handler se il processo muore di fatal. Il bottone "Run"
+e "Esegui ora" passano dalla stessa lease; se è occupata la richiesta
+resta sul job e la raccoglie il drain in corso.
+
+**Invarianti da non rompere:**
+
+- **Il heartbeat idle non scrive nulla.** Gira ogni minuto: due SELECT
+  e basta. Prendere la lease "per sicurezza" a ogni giro sono 2 scritture
+  al minuto su `wp_options` per sempre.
+- **Mai un burst di recupero.** Uno slot perso è saltato e contato, non
+  rieseguito. Un run che dura più dell'intervallo non deve diventare un
+  job che gira in continuo.
+- **Disattivare = pausa, non annullamento.** Un run schedulato di un job
+  spento tiene il suo `run_state` e riparte da lì alla riattivazione.
+  Un run avviato con "Run" finisce anche su un job spento.
+- **I job `rule` non si concatenano.** La selezione viene risolta a ogni
+  chiamata: un cursor posizionale su una lista che cambia salterebbe
+  prodotti. Un run di regola non finito chiude `partial`; il prossimo
+  slot ricomincia.
+- **KicksDB ha una quota.** Un run concatena blocchi finché ha
+  rinfrescato `max_per_tick` SKU o ha usato 12 blocchi. Senza tetto, con
+  un'API lenta, il drain la chiamerebbe per tutto il budget, ogni minuto.
+- **Un run = una riga di Storico**, collegata al job (`job_id`,
+  `runnable_ref` = `sorgente/config`), per quanti blocchi duri.
+
+Verificato una tantum end-to-end contro MariaDB con un harness fuori
+repo (runner reale + source finta lenta, `$wpdb` minimale): drain multi-blocco in un giro, resume tra giri e tra
+processi diversi, stop a metà blocco, pausa/ripresa, slot saltati
+contati, migrazione di un run legacy in volo, e tre heartbeat
+concorrenti per 8 round — 400 SKU, 400 scritture, zero doppioni.
+Coperto da `tests/Unit/Workflow/Schedule/*` (lease, drain, due policy,
+slot, DST) e `RunTotalsTest`, `RunCacheTest` (touch).
 
 ---
 

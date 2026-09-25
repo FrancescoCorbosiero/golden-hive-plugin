@@ -85,14 +85,25 @@ final class ImportRunner
             $cursorRunId = 0;
             $startIndex  = 0;
         }
+        // A scheduled run arrives with meta.job_id + meta.ref
+        // ('json/gs-prod'): the row is linked to its job, so the Storico
+        // and the job card can name it instead of printing "json".
         $runId = $cursorRunId > 0
             ? $cursorRunId
-            : $this->runs->start( 0, 'source.import', $source->id() );
+            : $this->runs->start(
+                (int) ( $meta['job_id'] ?? 0 ),
+                'source.import',
+                (string) ( $meta['ref'] ?? '' ) !== '' ? (string) $meta['ref'] : $source->id(),
+            );
 
         // Was this run resumed from a validated cursor, or freshly
         // minted on this tick? Drives whether we may trust a
         // pre-existing RunCache entry (see the cache lookup below).
         $isResume = $cursorRunId > 0;
+
+        // Whole-run counters carried by the cursor (see RunTotals). A
+        // cursor whose run was discarded above starts from zero.
+        $carried = RunTotals::fromCursor( $isResume ? $cursor : null );
 
         // Normalize the three-way run mode. UI exposes a segmented
         // control "Completa | Solo dati | Solo media"; legacy
@@ -160,8 +171,16 @@ final class ImportRunner
         // against wp_hsync_runs above — may hydrate from cache.
         if ( $isResume ) {
             $cached = RunCache::get( $runId );
+            if ( $cached !== null ) {
+                // Sliding expiry: the TTL counts from the LAST tick that
+                // used the entry, not from tick 1. A fixed 2h window
+                // expired under every run longer than that (the nightly
+                // SF import), forcing a full re-fetch + re-diff and a
+                // restart of the queue from index 0 mid-run.
+                RunCache::touch( $runId );
+            }
             if ( $cached === null && $startIndex > 0 ) {
-                // Cache evasa/scaduta A META' run (TTL 2h, o eviction
+                // Cache evasa/scaduta A META' run (6h di inattivita', o eviction
                 // dell'object cache). Il re-fetch+re-diff qui sotto
                 // produce una coda DIVERSA: gli item gia' importati si
                 // riclassificano unchanged/updateStock e spariscono dal
@@ -860,12 +879,20 @@ final class ImportRunner
 
         for ( $i = $startIndex; $i < $total; $i++ ) {
             if ( $ctx->isOverDeadline() ) {
-                $this->runs->progress( $runId, $total, $summary['created'] + $summary['updated'] + $summary['recreated'], $summary['failed'] );
-                $this->runs->finish( $runId, 'continue', [ 'summary' => $summary, 'cursor' => [ 'index' => $i ] ] );
+                // The row gets whole-run numbers; the envelope keeps this
+                // tick's slice (the Importa JS sums slices itself).
+                $totals = RunTotals::add( $carried, $summary );
+                $this->runs->progress( $runId, $total, RunTotals::done( $totals ), $totals['failed'] );
+                $this->runs->finish( $runId, 'continue', [
+                    'summary'  => RunTotals::apply( $summary, $totals ),
+                    'warnings' => $fetchWarnings,
+                    'cursor'   => [ 'index' => $i ],
+                    'progress' => [ 'done' => $i, 'total' => $total ],
+                ] );
                 return [
                     'status'   => 'continue',
                     'run_id'   => $runId,
-                    'cursor'   => [ 'index' => $i, 'run_id' => $runId ],
+                    'cursor'   => [ 'index' => $i, 'run_id' => $runId, 'totals' => $totals ],
                     'summary'  => $summary,
                     'warnings' => $fetchWarnings,
                     'rows'     => array_slice( $rows, 0, 100 ),
@@ -1122,10 +1149,11 @@ final class ImportRunner
             $rows[] = $rowTrace;
         }
 
-        $this->runs->progress( $runId, $total, $summary['created'] + $summary['updated'] + $summary['recreated'] + $summary['stock_patched'], $summary['failed'] );
+        $totals = RunTotals::add( $carried, $summary );
+        $this->runs->progress( $runId, $total, RunTotals::done( $totals ), $totals['failed'] );
         RunCache::clear( $runId );
         $this->runs->finish( $runId, 'done', [
-            'summary'  => $summary,
+            'summary'  => RunTotals::apply( $summary, $totals ),
             'warnings' => $fetchWarnings,
         ] );
 
